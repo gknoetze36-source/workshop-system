@@ -1,0 +1,19 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h3>Customers</h3>
+
+<table>
+<tr><th>Name</th><th>Phone</th><th></th></tr>
+
+{% for c in customers %}
+<tr>
+<td>{{ c.first_name }} {{ c.surname }}</td>
+<td>{{ c.phone }}</td>
+<td><a href="/customer/{{ c.phone }}">View</a></td>
+</tr>
+{% endfor %}
+
+</table>
+
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h3>Reminders</h3>
+
+<table>
+<tr>
+<th>Name</th>
+<th>Phone</th>
+<th>Reminder</th>
+<th></th>
+</tr>
+
+{% for b in bookings %}
+<tr>
+<td>{{ b.first_name }}</td>
+<td>{{ b.phone }}</td>
+<td>{{ b.reminder_type }}</td>
+
+<td>
+<a href="https://wa.me/{{ b.phone }}" target="_blank">
+<button style="background:green;color:white;">Send</button>
+</a>
+</td>
+</tr>
+{% endfor %}
+
+</table>
+
+{% endblock %}

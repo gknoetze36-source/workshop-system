@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h3>Add Booking</h3>
+
+<form method="POST">
+<input name="first_name" placeholder="First Name" required>
+<input name="surname" placeholder="Surname" required>
+<input name="phone" placeholder="Phone">
+
+<input name="make" placeholder="Make">
+<input name="model" placeholder="Model">
+
+<input name="service" placeholder="Service">
+<input type="date" name="date">
+
+<textarea name="work" placeholder="Work"></textarea>
+
+<select name="quote_declined">
+<option value="No">No</option>
+<option value="Yes">Yes</option>
+</select>
+
+<button>Save</button>
+</form>
+
+{% endblock %}

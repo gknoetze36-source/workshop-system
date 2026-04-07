@@ -1,0 +1,19 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h3>Customer History</h3>
+
+<table>
+<tr><th>Date</th><th>Vehicle</th><th>Service</th></tr>
+
+{% for b in bookings %}
+<tr>
+<td>{{ b.date }}</td>
+<td>{{ b.make }} {{ b.model }}</td>
+<td>{{ b.service }}</td>
+</tr>
+{% endfor %}
+
+</table>
+
+{% endblock %}
