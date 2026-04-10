@@ -6,4 +6,4 @@ COPY . .
 
 RUN pip install --no-cache-dir flask gunicorn
 
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:$PORT"]
+CMD gunicorn app:app --bind 0.0.0.0:$PORT
