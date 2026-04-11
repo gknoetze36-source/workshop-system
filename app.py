@@ -1,286 +1,220 @@
 from flask import Flask, render_template, request, redirect, session
-import sqlite3
+import psycopg2
+import psycopg2.extras
 from datetime import datetime
 import os
 
 app = Flask(__name__)
-app.secret_key = "secret123"
+app.secret_key = os.environ.get("SECRET_KEY", "dev-key")
 
 
-# ---------------- DB ----------------
+# ================= DATABASE =================
 def get_db():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    return sqlite3.connect(os.path.join(BASE_DIR, "database.db"))
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+    return psycopg2.connect(DATABASE_URL)
 
 
-def init_db():
-    db = get_db()
+def query_db(query, args=(), one=False):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    db.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        password TEXT,
-        branch TEXT,
-        role TEXT,
-        company TEXT
-    )
-    """)
+    cur.execute(query, args)
 
-    db.execute("""
-    CREATE TABLE IF NOT EXISTS bookings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        first_name TEXT,
-        surname TEXT,
-        phone TEXT,
-        make TEXT,
-        model TEXT,
-        service TEXT,
-        date TEXT,
-        branch TEXT,
-        status TEXT,
-        work_to_be_done TEXT,
-        source TEXT,
-        quote_declined TEXT,
-        contacted TEXT,
-        company TEXT
-    )
-    """)
+    if query.strip().lower().startswith("select"):
+        result = cur.fetchall()
+    else:
+        conn.commit()
+        result = None
 
-    db.commit()
-    db.close()
+    cur.close()
+    conn.close()
+
+    return (result[0] if result else None) if one else result
 
 
-def get_bookings():
-    db = get_db()
-    cursor = db.execute("SELECT * FROM bookings")
-    columns = [col[0] for col in cursor.description]
-    data = [dict(zip(columns, row)) for row in cursor.fetchall()]
-    db.close()
-    return data
+# ================= SECURITY =================
+def require_login():
+    return "username" in session
 
 
-# ---------------- SECURITY ----------------
 def filter_company(data):
-    if session.get("role") == "admin":
+    if session.get("role") == "super_admin":
         return data
-    return [
-        d for d in data
-        if d.get("company") == session.get("company")
-    ]
+    return [d for d in data if d.get("company") == session.get("company")]
 
 
-# ---------------- HELPERS ----------------
-def add_repeat(bookings):
-    count = {}
+# ================= HELPERS =================
+def process_bookings(bookings):
+    today = datetime.now()
+    phone_count = {}
 
     for b in bookings:
-        phone = str(b.get("phone", "")).strip()
-        if phone:
-            count[phone] = count.get(phone, 0) + 1
+        phone = str(b.get("phone", ""))
+        phone_count[phone] = phone_count.get(phone, 0) + 1
+
+    processed = []
 
     for b in bookings:
-        phone = str(b.get("phone", "")).strip()
-        b["visit_count"] = count.get(phone, 1)
+        b = dict(b)
+
+        phone = str(b.get("phone", ""))
+        b["visit_count"] = phone_count.get(phone, 1)
         b["repeat"] = b["visit_count"] > 1
 
-    return bookings
-
-
-def add_reminders(bookings):
-    today = datetime.now()
-
-    for b in bookings:
         b["reminder_type"] = None
-
         try:
             job_date = datetime.strptime(str(b.get("date")), "%Y-%m-%d")
+            days = (today - job_date).days
+
+            if b.get("quote_declined") == "Yes" and 30 <= days <= 60:
+                b["reminder_type"] = "Follow-Up"
+            elif days >= 365:
+                b["reminder_type"] = "Service"
         except:
-            continue
+            pass
 
-        days = (today - job_date).days
+        processed.append(b)
 
-        if b.get("quote_declined") == "Yes" and 30 <= days <= 60:
-            b["reminder_type"] = "Follow-Up"
-
-        if days >= 365:
-            b["reminder_type"] = "Service"
-
-    return bookings
+    return processed
 
 
-# ---------------- LOGIN ----------------
+# ================= LOGIN =================
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        db = get_db()
-
-        user = db.execute(
-            "SELECT * FROM users WHERE username=? AND password=?",
-            (request.form["username"], request.form["password"])
-        ).fetchone()
-
-        db.close()
+        user = query_db(
+            "SELECT * FROM users WHERE username=%s AND password=%s",
+            (request.form["username"], request.form["password"]),
+            one=True
+        )
 
         if user:
-            session["username"] = user[1]
-            session["branch"] = user[3]
-            session["role"] = user[4]
-            session["company"] = user[5]
+            session["username"] = user.get("username")
+            session["branch"] = user.get("branch")
+            session["role"] = user.get("role")
+            session["company"] = user.get("company", "MAIN")  # ✅ FIXED
+
             return redirect("/dashboard")
 
     return render_template("login.html")
 
 
-# ---------------- SIGNUP ----------------
+# ================= SIGNUP =================
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
-        db = get_db()
-
-        db.execute("""
+        query_db("""
         INSERT INTO users (username, password, branch, role, company)
-        VALUES (?, ?, ?, 'admin', ?)
+        VALUES (%s, %s, 'MAIN', 'admin', %s)
         """, (
             request.form["username"],
             request.form["password"],
-            "MAIN",
             request.form["company"]
         ))
-
-        db.commit()
-        db.close()
 
         return redirect("/")
 
     return render_template("signup.html")
 
 
-# ---------------- DASHBOARD ----------------
+# ================= DASHBOARD =================
 @app.route("/dashboard")
 def dashboard():
-    if "username" not in session:
+    if not require_login():
         return redirect("/")
 
-    bookings = filter_company(get_bookings())
+    bookings = query_db("SELECT * FROM bookings ORDER BY id DESC")
+    bookings = filter_company(bookings)
 
     if session["role"] != "admin":
-        bookings = [
-            b for b in bookings
-            if b.get("branch") == session.get("branch")
-        ]
+        bookings = [b for b in bookings if b["branch"] == session["branch"]]
 
-    bookings = add_repeat(bookings)
-    bookings = add_reminders(bookings)
+    bookings = process_bookings(bookings)
 
     search = request.args.get("search", "").lower()
     if search:
         bookings = [b for b in bookings if search in str(b).lower()]
 
-    total = len(bookings)
-
     today = datetime.now().strftime("%Y-%m-%d")
-    today_count = [b for b in bookings if str(b.get("date")) == today]
-
-    lost = [b for b in bookings if b.get("quote_declined") == "Yes"]
-    reminders = [b for b in bookings if b.get("reminder_type")]
 
     return render_template(
         "dashboard.html",
         bookings=bookings,
-        total=total,
-        today=len(today_count),
-        lost=len(lost),
-        reminder_count=len(reminders),
+        total=len(bookings),
+        today=len([b for b in bookings if str(b.get("date")) == today]),
+        lost=len([b for b in bookings if b.get("quote_declined") == "Yes"]),
+        reminder_count=len([b for b in bookings if b.get("reminder_type")]),
         branch=session["branch"]
     )
 
 
-# ---------------- ADD BOOKING ----------------
+# ================= ADD BOOKING =================
 @app.route("/add", methods=["GET", "POST"])
 def add_booking():
-    if "username" not in session:
+    if not require_login():
         return redirect("/")
 
     if request.method == "POST":
-        db = get_db()
-
-        db.execute("""
+        query_db("""
         INSERT INTO bookings 
         (first_name, surname, phone, make, model, service, date, branch, status, work_to_be_done, source, quote_declined, contacted, company)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Pending', %s, 'Booking', %s, 'No', %s)
         """, (
-            request.form.get("first_name"),
-            request.form.get("surname"),
-            request.form.get("phone"),
-            request.form.get("make"),
-            request.form.get("model"),
-            request.form.get("service"),
-            request.form.get("date"),
-            session.get("branch"),
-            "Pending",
-            request.form.get("work"),
-            "Booking",
-            request.form.get("quote_declined"),
-            "No",
-            session.get("company")
+            request.form["first_name"],
+            request.form["surname"],
+            request.form["phone"],
+            request.form["make"],
+            request.form["model"],
+            request.form["service"],
+            request.form["date"],
+            session["branch"],
+            request.form["work"],
+            request.form["quote_declined"],
+            session["company"]
         ))
-
-        db.commit()
-        db.close()
 
         return redirect("/dashboard")
 
     return render_template("add_booking.html")
 
 
-# ---------------- WALK-IN ----------------
+# ================= WALK-IN =================
 @app.route("/walkin", methods=["GET", "POST"])
 def walkin():
-    if "username" not in session:
+    if not require_login():
         return redirect("/")
 
     if request.method == "POST":
-        db = get_db()
-
-        db.execute("""
+        query_db("""
         INSERT INTO bookings 
         (first_name, surname, phone, make, model, service, date, branch, status, work_to_be_done, source, quote_declined, contacted, company)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'In Progress', %s, 'Walk-in', %s, 'No', %s)
         """, (
-            request.form.get("first_name"),
-            request.form.get("surname"),
-            request.form.get("phone"),
-            request.form.get("make"),
-            request.form.get("model"),
-            request.form.get("service"),
+            request.form["first_name"],
+            request.form["surname"],
+            request.form["phone"],
+            request.form["make"],
+            request.form["model"],
+            request.form["service"],
             datetime.now().strftime("%Y-%m-%d"),
-            session.get("branch"),
-            "In Progress",
-            request.form.get("work"),
-            "Walk-in",
-            request.form.get("quote_declined"),
-            "No",
-            session.get("company")
+            session["branch"],
+            request.form["work"],
+            request.form["quote_declined"],
+            session["company"]
         ))
-
-        db.commit()
-        db.close()
 
         return redirect("/dashboard")
 
     return render_template("add_walkin.html")
 
 
-# ---------------- LOGOUT ----------------
+# ================= LOGOUT =================
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/")
 
 
-# ---------------- INIT ----------------
-init_db()
-
+# ================= RUN =================
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=True)
