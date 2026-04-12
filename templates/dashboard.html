@@ -3,21 +3,17 @@
 
 <h3>Dashboard</h3>
 
-<div style="display:flex; gap:10px; flex-wrap:wrap;">
+<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;">
     <div><b>Total:</b> {{ total }}</div>
     <div><b>Today:</b> {{ today }}</div>
     <div><a href="/lost">Lost: {{ lost }}</a></div>
     <div><a href="/reminders">Reminders: {{ reminder_count }}</a></div>
 </div>
 
-<br>
-
-<form method="GET">
-    <input name="search" placeholder="Search">
-    <button>Search</button>
+<form method="GET" style="margin-bottom:20px;">
+    <input name="search" placeholder="Search" value="{{ request.args.get('search', '') }}">
+    <button type="submit">Search</button>
 </form>
-
-<br>
 
 <div style="overflow-x:auto;">
 <table>
@@ -27,47 +23,49 @@
 <th>Vehicle</th>
 <th>Date</th>
 <th>Status</th>
-<th>Action</th>
+<th>Actions</th>
 </tr>
-
 {% for b in bookings %}
 <tr>
 <td>
-{{ b.first_name }}
-{% if b.repeat %} 🔁 {{ b.visit_count }}{% endif %}
+{{ b.first_name }} {{ b.surname }}
+{% if b.repeat %}(repeat {{ b.visit_count }}){% endif %}
 </td>
-
 <td>
+{% if b.phone %}
 <a href="/customer/{{ b.phone }}">{{ b.phone }}</a>
+{% else %}
+-
+{% endif %}
 </td>
-
 <td>{{ b.make }} {{ b.model }}</td>
 <td>{{ b.date }}</td>
-
 <td>
 <form method="POST" action="/update">
 <input type="hidden" name="id" value="{{ b.id }}">
 <select name="status" onchange="this.form.submit()">
-<option {% if b.status=="Pending" %}selected{% endif %}>Pending</option>
-<option {% if b.status=="In Progress" %}selected{% endif %}>In Progress</option>
-<option {% if b.status=="Done" %}selected{% endif %}>Done</option>
+<option value="Pending" {% if b.status == "Pending" %}selected{% endif %}>Pending</option>
+<option value="In Progress" {% if b.status == "In Progress" %}selected{% endif %}>In Progress</option>
+<option value="Done" {% if b.status == "Done" %}selected{% endif %}>Done</option>
 </select>
-</td>
-
-<td>
-<select name="quote_declined" onchange="this.form.submit()">
-<option value="No">Approved</option>
-<option value="Yes">Declined</option>
-</select>
-
-{% if b.phone %}
-<a href="https://wa.me/{{ b.phone }}" target="_blank">
-<button style="background:green;color:white;">WA</button>
-</a>
-{% endif %}
 </form>
 </td>
-
+<td>
+<form method="POST" action="/update" style="display:inline-block; margin-right:8px;">
+<input type="hidden" name="id" value="{{ b.id }}">
+<select name="quote_declined" onchange="this.form.submit()">
+<option value="No" {% if b.quote_declined != "Yes" %}selected{% endif %}>Approved</option>
+<option value="Yes" {% if b.quote_declined == "Yes" %}selected{% endif %}>Declined</option>
+</select>
+</form>
+{% if b.phone %}
+<a href="https://wa.me/{{ b.phone }}" target="_blank" style="display:inline-block; padding:10px; border-radius:5px; background:green; color:white; text-decoration:none;">WhatsApp</a>
+{% endif %}
+</td>
+</tr>
+{% else %}
+<tr>
+<td colspan="6">No bookings found.</td>
 </tr>
 {% endfor %}
 </table>

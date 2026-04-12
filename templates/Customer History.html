@@ -2,18 +2,22 @@
 {% block content %}
 
 <h3>Customer History</h3>
+<p><b>Customer:</b> {{ customer_name }}</p>
 
 <table>
-<tr><th>Date</th><th>Vehicle</th><th>Service</th></tr>
-
+<tr><th>Date</th><th>Vehicle</th><th>Service</th><th>Status</th></tr>
 {% for b in bookings %}
 <tr>
 <td>{{ b.date }}</td>
 <td>{{ b.make }} {{ b.model }}</td>
 <td>{{ b.service }}</td>
+<td>{{ b.status }}</td>
+</tr>
+{% else %}
+<tr>
+<td colspan="4">No history found for this customer.</td>
 </tr>
 {% endfor %}
-
 </table>
 
 {% endblock %}

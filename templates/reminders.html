@@ -10,21 +10,24 @@
 <th>Reminder</th>
 <th></th>
 </tr>
-
 {% for b in bookings %}
 <tr>
-<td>{{ b.first_name }}</td>
-<td>{{ b.phone }}</td>
+<td>{{ b.first_name }} {{ b.surname }}</td>
+<td>{{ b.phone or '-' }}</td>
 <td>{{ b.reminder_type }}</td>
-
 <td>
-<a href="https://wa.me/{{ b.phone }}" target="_blank">
-<button style="background:green;color:white;">Send</button>
-</a>
+{% if b.phone %}
+<a href="https://wa.me/{{ b.phone }}" target="_blank" style="display:inline-block; padding:10px; border-radius:5px; background:green; color:white; text-decoration:none;">Send</a>
+{% else %}
+-
+{% endif %}
 </td>
 </tr>
+{% else %}
+<tr>
+<td colspan="4">No reminders due right now.</td>
+</tr>
 {% endfor %}
-
 </table>
 
 {% endblock %}

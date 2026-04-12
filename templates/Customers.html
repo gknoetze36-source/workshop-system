@@ -5,15 +5,23 @@
 
 <table>
 <tr><th>Name</th><th>Phone</th><th></th></tr>
-
 {% for c in customers %}
 <tr>
 <td>{{ c.first_name }} {{ c.surname }}</td>
-<td>{{ c.phone }}</td>
-<td><a href="/customer/{{ c.phone }}">View</a></td>
+<td>{{ c.phone or '-' }}</td>
+<td>
+{% if c.phone %}
+<a href="/customer/{{ c.phone }}">View</a>
+{% else %}
+-
+{% endif %}
+</td>
+</tr>
+{% else %}
+<tr>
+<td colspan="3">No customers found.</td>
 </tr>
 {% endfor %}
-
 </table>
 
 {% endblock %}
