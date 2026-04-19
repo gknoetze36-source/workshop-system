@@ -1,74 +1,41 @@
-{% extends "layout.html" %}
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
 {% block content %}
-
-<h3>Dashboard</h3>
-
-<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;">
-    <div><b>Total:</b> {{ total }}</div>
-    <div><b>Today:</b> {{ today }}</div>
-    <div><a href="/lost">Lost: {{ lost }}</a></div>
-    <div><a href="/reminders">Reminders: {{ reminder_count }}</a></div>
+<div class="topbar">
+    <div class="heading"><h1>Operations dashboard</h1><p>{{ role_label(current_user.role) }} view for {{ current_user.branch_name or current_user.franchise_name or "the platform" }}.</p></div>
+    <div class="actions"><a class="button" href="{{ url_for('add_booking') }}">Reception Booking</a><a class="button warn" href="{{ url_for('walkin') }}">Workshop Walk-In</a></div>
 </div>
-
-<form method="GET" style="margin-bottom:20px;">
-    <input name="search" placeholder="Search" value="{{ request.args.get('search', '') }}">
-    <button type="submit">Search</button>
-</form>
-
-<div style="overflow-x:auto;">
-<table>
-<tr>
-<th>Name</th>
-<th>Phone</th>
-<th>Vehicle</th>
-<th>Date</th>
-<th>Status</th>
-<th>Actions</th>
-</tr>
-{% for b in bookings %}
-<tr>
-<td>
-{{ b.first_name }} {{ b.surname }}
-{% if b.repeat %}(repeat {{ b.visit_count }}){% endif %}
-</td>
-<td>
-{% if b.phone %}
-<a href="/customer/{{ b.phone }}">{{ b.phone }}</a>
-{% else %}
--
-{% endif %}
-</td>
-<td>{{ b.make }} {{ b.model }}</td>
-<td>{{ b.date }}</td>
-<td>
-<form method="POST" action="/update">
-<input type="hidden" name="id" value="{{ b.id }}">
-<select name="status" onchange="this.form.submit()">
-<option value="Pending" {% if b.status == "Pending" %}selected{% endif %}>Pending</option>
-<option value="In Progress" {% if b.status == "In Progress" %}selected{% endif %}>In Progress</option>
-<option value="Done" {% if b.status == "Done" %}selected{% endif %}>Done</option>
-</select>
-</form>
-</td>
-<td>
-<form method="POST" action="/update" style="display:inline-block; margin-right:8px;">
-<input type="hidden" name="id" value="{{ b.id }}">
-<select name="quote_declined" onchange="this.form.submit()">
-<option value="No" {% if b.quote_declined != "Yes" %}selected{% endif %}>Approved</option>
-<option value="Yes" {% if b.quote_declined == "Yes" %}selected{% endif %}>Declined</option>
-</select>
-</form>
-{% if b.phone %}
-<a href="https://wa.me/{{ b.phone }}" target="_blank" style="display:inline-block; padding:10px; border-radius:5px; background:green; color:white; text-decoration:none;">WhatsApp</a>
-{% endif %}
-</td>
-</tr>
-{% else %}
-<tr>
-<td colspan="6">No bookings found.</td>
-</tr>
-{% endfor %}
-</table>
+<section class="metrics">
+    <div class="metric"><span>Total visible bookings</span><strong>{{ metrics.total }}</strong></div>
+    <div class="metric"><span>Today</span><strong>{{ metrics.today }}</strong></div>
+    <div class="metric"><span>Open jobs</span><strong>{{ metrics.pending }}</strong></div>
+    <div class="metric"><span>Completed</span><strong>{{ metrics.completed }}</strong></div>
+    <div class="metric"><span>Pending reminders</span><strong>{{ metrics.reminders }}</strong></div>
+</section>
+<div class="grid two" style="margin-top:18px;">
+    <section class="panel">
+        <h3>Today’s bookings</h3>
+        <div class="table-wrap"><table><tr><th>Ref</th><th>Customer</th><th>Vehicle</th><th>Status</th><th></th></tr>
+            {% for booking in today_bookings %}
+            <tr><td>{{ booking.booking_reference }}</td><td>{{ booking.first_name }} {{ booking.surname }}<div class="small">{{ booking.phone }}</div></td><td>{{ booking.make }} {{ booking.model }}<div class="small">{{ booking.branch_name }}</div></td><td><span class="status">{{ booking.status }}</span></td><td><a class="button alt" href="{{ url_for('booking_detail', reference=booking.booking_reference) }}">Open</a></td></tr>
+            {% else %}<tr><td colspan="5">No bookings are scheduled for today.</td></tr>{% endfor %}
+        </table></div>
+    </section>
+    <section class="panel">
+        <h3>Visible branches</h3>
+        <div class="cards">
+            {% for branch in branch_summaries %}
+            <div class="metric"><span>{{ branch.franchise_name }}</span><strong style="font-size:1.1rem;">{{ branch.name }}</strong><div class="small">{{ branch.location or "Workshop branch" }}</div></div>
+            {% endfor %}
+        </div>
+    </section>
 </div>
-
+<section class="panel" style="margin-top:18px;">
+    <h3>Recent bookings</h3>
+    <div class="table-wrap"><table><tr><th>Ref</th><th>Scheduled</th><th>Service</th><th>Branch</th><th>Status</th><th>Contact</th></tr>
+        {% for booking in recent_bookings %}
+        <tr><td><a href="{{ url_for('booking_detail', reference=booking.booking_reference) }}">{{ booking.booking_reference }}</a></td><td>{{ human_date(booking.scheduled_date) }}</td><td>{{ booking.service or "General workshop booking" }}</td><td>{{ booking.branch_name }}</td><td><span class="status">{{ booking.status }}</span></td><td>{{ booking.preferred_contact_method or "WhatsApp" }}</td></tr>
+        {% else %}<tr><td colspan="6">No bookings found in your scope yet.</td></tr>{% endfor %}
+    </table></div>
+</section>
 {% endblock %}

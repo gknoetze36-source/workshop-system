@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Manage Franchises{% endblock %}
+{% block content %}
+<div class="topbar"><div class="heading"><h1>Franchises</h1><p>Create and manage workshop groups across the platform.</p></div></div>
+<div class="grid two">
+    <section class="panel"><h3>Add franchise</h3><form method="post" class="grid-form"><label>Name<input name="name" required></label><label>Contact email<input name="contact_email"></label><label>Contact phone<input name="contact_phone"></label><button type="submit">Create Franchise</button></form></section>
+    <section class="panel"><h3>Current franchises</h3><div class="table-wrap"><table><tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th></tr>{% for franchise in franchises %}<tr><td>{{ franchise.name }}</td><td>{{ franchise.contact_email or "-" }}</td><td>{{ franchise.contact_phone or "-" }}</td><td>{{ "Active" if franchise.active else "Inactive" }}</td></tr>{% else %}<tr><td colspan="4">No franchises found.</td></tr>{% endfor %}</table></div></section>
+</div>
+{% endblock %}

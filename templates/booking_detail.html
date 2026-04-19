@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Booking {{ booking.booking_reference }}{% endblock %}
+{% block content %}
+<div class="topbar"><div class="heading"><h1>{{ booking.booking_reference }}</h1><p>{{ booking.franchise_name }} • {{ booking.branch_name }}</p></div><a class="button alt" href="{{ url_for('bookings') }}">Back to Bookings</a></div>
+<div class="grid two">
+    <section class="panel">
+        <form method="post" action="{{ url_for('update_booking', reference=booking.booking_reference) }}" class="grid-form">
+            <div class="grid two"><label>First name<input name="first_name" value="{{ booking.first_name }}"></label><label>Surname<input name="surname" value="{{ booking.surname }}"></label></div>
+            <div class="grid two"><label>Email<input name="customer_email" value="{{ booking.customer_email }}"></label><label>Phone<input name="phone" value="{{ booking.phone }}"></label></div>
+            <div class="grid two"><label>Branch<select name="branch_id">{% for branch in branch_options %}<option value="{{ branch.id }}" {% if booking.branch_id == branch.id %}selected{% endif %}>{{ branch.franchise_name }} - {{ branch.name }}</option>{% endfor %}</select></label><label>Scheduled date<input type="date" name="scheduled_date" value="{{ booking.scheduled_date }}"></label></div>
+            <div class="grid two"><label>Service<input name="service" value="{{ booking.service }}"></label><label>Status<select name="status">{% for option in status_options %}<option value="{{ option }}" {% if booking.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label></div>
+            <div class="grid two"><label>Make<input name="make" value="{{ booking.make }}"></label><label>Model<input name="model" value="{{ booking.model }}"></label></div>
+            <div class="grid two"><label>Preferred contact<select name="preferred_contact_method">{% for option in contact_options %}<option value="{{ option }}" {% if booking.preferred_contact_method == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label><label>Current mileage<input name="current_mileage" value="{{ booking.current_mileage }}"></label></div>
+            <label>Work to be done<textarea name="work_to_be_done">{{ booking.work_to_be_done }}</textarea></label>
+            <label>Customer notes<textarea name="public_notes">{{ booking.public_notes }}</textarea></label>
+            <label>Internal notes<textarea name="internal_notes">{{ booking.internal_notes }}</textarea></label>
+            <div class="grid two"><label>Quote declined<select name="quote_declined"><option value="No" {% if booking.quote_declined != 'Yes' %}selected{% endif %}>No</option><option value="Yes" {% if booking.quote_declined == 'Yes' %}selected{% endif %}>Yes</option></select></label><label><input type="checkbox" name="reminder_opt_in" value="true" {% if booking.reminder_opt_in %}checked{% endif %}> Service reminders enabled</label></div>
+            <div class="actions"><button type="submit">Save Booking</button></div>
+        </form>
+    </section>
+    <section class="panel">
+        <h3>Communication history</h3>
+        <div class="table-wrap"><table><tr><th>When</th><th>Channel</th><th>Recipient</th><th>Status</th></tr>
+            {% for item in communication_history %}
+            <tr><td>{{ item.created_at }}</td><td>{{ item.channel }}</td><td>{{ item.recipient }}</td><td>{{ item.status }}</td></tr>
+            {% else %}<tr><td colspan="4">No communication has been logged yet.</td></tr>{% endfor %}
+        </table></div>
+    </section>
+</div>
+{% endblock %}

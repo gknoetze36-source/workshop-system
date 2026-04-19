@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Customer History{% endblock %}
+{% block content %}
+<div class="topbar"><div class="heading"><h1>Customer History</h1><p>{{ phone }}</p></div></div>
+<section class="panel"><div class="table-wrap"><table><tr><th>Ref</th><th>Date</th><th>Service</th><th>Workshop</th><th>Status</th></tr>
+    {% for booking in bookings %}
+    <tr><td><a href="{{ url_for('booking_detail', reference=booking.booking_reference) }}">{{ booking.booking_reference }}</a></td><td>{{ human_date(booking.scheduled_date) }}</td><td>{{ booking.service }}</td><td>{{ booking.branch_name }}</td><td>{{ booking.status }}</td></tr>
+    {% else %}<tr><td colspan="5">No bookings found for this customer.</td></tr>{% endfor %}
+</table></div></section>
+{% endblock %}

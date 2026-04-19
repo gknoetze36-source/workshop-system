@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Booking Received{% endblock %}
+{% block content %}
+<section class="panel">
+    <h1>Booking received</h1>
+    <p>Your booking has been sent to <strong>{{ booking.branch_name }}</strong> under <strong>{{ booking.franchise_name }}</strong>.</p>
+    <div class="metrics">
+        <div class="metric"><span>Reference</span><strong>{{ booking.booking_reference }}</strong></div>
+        <div class="metric"><span>Date</span><strong>{{ human_date(booking.scheduled_date) }}</strong></div>
+        <div class="metric"><span>Status</span><strong>{{ booking.status }}</strong></div>
+    </div>
+    <div class="actions" style="margin-top:18px;">
+        <a class="button" href="{{ url_for('public_booking') }}">Make Another Booking</a>
+        <a class="button alt" href="{{ url_for('home') }}">Back Home</a>
+    </div>
+</section>
+{% endblock %}

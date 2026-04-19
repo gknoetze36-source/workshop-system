@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Bookings{% endblock %}
+{% block content %}
+<div class="topbar"><div class="heading"><h1>Bookings</h1><p>Filter and manage only the work visible to your role.</p></div></div>
+<section class="panel">
+    <form method="get" class="grid-form">
+        <div class="grid three">
+            <label>Search<input name="search" value="{{ filters.search }}"></label>
+            <label>Status<select name="status"><option value="">All statuses</option>{% for option in status_options %}<option value="{{ option }}" {% if filters.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+            <label>Date<input type="date" name="scheduled_date" value="{{ filters.scheduled_date }}"></label>
+        </div>
+        <div class="grid two">
+            <label>Branch<select name="branch_id"><option value="">All visible branches</option>{% for branch in branch_options %}<option value="{{ branch.id }}" {% if filters.branch_id|string == branch.id|string %}selected{% endif %}>{{ branch.name }}</option>{% endfor %}</select></label>
+            <label>Franchise<select name="franchise_id"><option value="">All visible franchises</option>{% for franchise in franchise_options %}<option value="{{ franchise.id }}" {% if filters.franchise_id|string == franchise.id|string %}selected{% endif %}>{{ franchise.name }}</option>{% endfor %}</select></label>
+        </div>
+        <div class="actions"><button type="submit">Apply Filters</button></div>
+    </form>
+</section>
+<section class="panel" style="margin-top:18px;">
+    <div class="table-wrap"><table><tr><th>Ref</th><th>Customer</th><th>Workshop</th><th>Service</th><th>Date</th><th>Status</th><th>Update</th></tr>
+        {% for booking in bookings %}
+        <tr>
+            <td><a href="{{ url_for('booking_detail', reference=booking.booking_reference) }}">{{ booking.booking_reference }}</a></td>
+            <td>{{ booking.first_name }} {{ booking.surname }}<div class="small">{{ booking.phone or booking.customer_email }}</div></td>
+            <td>{{ booking.franchise_name }}<div class="small">{{ booking.branch_name }}</div></td>
+            <td>{{ booking.service }}</td>
+            <td>{{ human_date(booking.scheduled_date) }}</td>
+            <td><span class="status">{{ booking.status }}</span></td>
+            <td><form method="post" action="{{ url_for('quick_update_booking', reference=booking.booking_reference) }}" class="actions"><select name="status">{% for option in status_options %}<option value="{{ option }}" {% if booking.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select><select name="quote_declined"><option value="No" {% if booking.quote_declined != 'Yes' %}selected{% endif %}>Approved</option><option value="Yes" {% if booking.quote_declined == 'Yes' %}selected{% endif %}>Declined</option></select><button type="submit" class="alt">Save</button></form></td>
+        </tr>
+        {% else %}<tr><td colspan="7">No bookings matched your filters.</td></tr>{% endfor %}
+    </table></div>
+</section>
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Customer Booking{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading"><h1>Customer Booking</h1><p>Public bookings are routed to one selected branch only.</p></div>
+    <a class="button alt" href="{{ url_for('home') }}">Back to Home</a>
+</div>
+<div class="grid two">
+    <section class="panel">
+        <form method="post" class="grid-form">
+            <div class="grid two">
+                <label>First name<input name="first_name" required></label>
+                <label>Surname<input name="surname" required></label>
+            </div>
+            <div class="grid two">
+                <label>Email<input type="email" name="customer_email"></label>
+                <label>Phone<input name="phone" required></label>
+            </div>
+            <div class="grid two">
+                <label>Branch
+                    <select name="branch_id" {% if preselected_branch %}disabled{% endif %} required>
+                        {% if not preselected_branch %}<option value="">Choose a branch</option>{% endif %}
+                        {% for branch in branches %}
+                        <option value="{{ branch.id }}" {% if preselected_branch and branch.id == preselected_branch.id %}selected{% endif %}>{{ branch.franchise_name }} - {{ branch.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if preselected_branch %}<input type="hidden" name="branch_id" value="{{ preselected_branch.id }}">{% endif %}
+                </label>
+                <label>Preferred date<input type="date" name="scheduled_date" value="{{ today_iso }}" required></label>
+            </div>
+            <div class="grid two">
+                <label>Vehicle make<input name="make" required></label>
+                <label>Vehicle model<input name="model" required></label>
+            </div>
+            <div class="grid two">
+                <label>Service needed<input name="service" required></label>
+                <label>Preferred contact
+                    <select name="preferred_contact_method">
+                        {% for option in contact_options %}
+                        <option value="{{ option }}">{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+            <label>Current mileage<input name="current_mileage"></label>
+            <label>Work or issue to be checked<textarea name="work_to_be_done"></textarea></label>
+            <label>Extra notes<textarea name="public_notes"></textarea></label>
+            <label><input type="checkbox" name="reminder_opt_in" value="true" checked> Send yearly service reminders and follow-ups</label>
+            <button type="submit">Send Booking</button>
+        </form>
+    </section>
+    <section class="panel">
+        <h3>What this setup does</h3>
+        <div class="cards">
+            <div class="metric"><span>Correct workshop routing</span><strong>Locked</strong><div class="small">The customer chooses a real branch before submission.</div></div>
+            <div class="metric"><span>Reception visibility</span><strong>Scoped</strong><div class="small">Reception users only see their own branch.</div></div>
+            <div class="metric"><span>Franchise visibility</span><strong>Grouped</strong><div class="small">Franchise admins see every branch under them.</div></div>
+        </div>
+    </section>
+</div>
+{% endblock %}

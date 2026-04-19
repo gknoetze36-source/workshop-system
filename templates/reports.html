@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<div class="topbar"><div class="heading"><h1>Reports</h1><p>Quick operating snapshot for your current role scope.</p></div></div>
+<div class="grid three">
+    <section class="panel"><h3>Booking status mix</h3>{% for label, value in by_status.items() %}<div class="metric"><span>{{ label }}</span><strong>{{ value }}</strong></div>{% endfor %}</section>
+    <section class="panel"><h3>Service mix</h3>{% for label, value in by_service.items() %}<div class="metric"><span>{{ label }}</span><strong>{{ value }}</strong></div>{% endfor %}</section>
+    <section class="panel"><h3>Reminder queue</h3><div class="metric"><span>Total reminders</span><strong>{{ reminders|length }}</strong></div><div class="metric"><span>Total bookings</span><strong>{{ total }}</strong></div></section>
+</div>
+{% endblock %}

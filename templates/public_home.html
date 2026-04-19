@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Book Your Workshop Visit{% endblock %}
+{% block content %}
+<section class="hero">
+    <div class="hero-card">
+        <h1>Book the right branch the first time.</h1>
+        <p>Customers can book directly into the correct workshop branch, while each franchise keeps visibility only over its own work.</p>
+        <div class="actions">
+            <a class="button" href="{{ url_for('public_booking') }}">Start a Booking</a>
+            <a class="button alt" href="{{ url_for('login') }}">Staff Login</a>
+        </div>
+    </div>
+    <div class="panel">
+        <h3>Available workshop branches</h3>
+        <div class="cards">
+            {% for branch in branches %}
+            <div class="panel" style="padding:16px;">
+                <strong>{{ branch.name }}</strong>
+                <div class="small">{{ branch.franchise_name }}</div>
+                <div class="small">{{ branch.location or "Workshop branch" }}</div>
+                <div style="margin-top:10px;">
+                    <a class="button" href="{{ url_for('public_branch_booking', franchise_slug=branch.franchise_slug, branch_slug=branch.slug) }}">Book This Branch</a>
+                </div>
+            </div>
+            {% else %}
+            <div class="small">No public branches are enabled yet.</div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endblock %}
