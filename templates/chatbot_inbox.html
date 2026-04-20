@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Chatbot Inbox{% endblock %}
+{% block content %}
+<div class="topbar"><div class="heading"><h1>Chatbot Inbox</h1><p>Save incoming messages first, then process the action from the dashboard with deterministic pricing.</p></div></div>
+<div class="grid two">
+    <section class="panel">
+        <h3>Capture inbound message</h3>
+        <form method="post" class="grid-form">
+            {% if current_user.role == 'super_admin' %}
+            <label>Franchise<select name="franchise_id">{% for franchise in franchises %}<option value="{{ franchise.id }}">{{ franchise.name }}</option>{% endfor %}</select></label>
+            {% endif %}
+            <label>Branch<select name="branch_id">{% for branch in branches %}<option value="{{ branch.id }}">{{ branch.franchise_name }} - {{ branch.name }}</option>{% endfor %}</select></label>
+            <div class="grid two"><label>Customer name<input name="customer_name"></label><label>Channel<select name="channel"><option>WhatsApp</option><option>SMS</option><option>Email</option><option>Web Chat</option></select></label></div>
+            <div class="grid two"><label>Phone<input name="customer_phone"></label><label>Email<input name="customer_email"></label></div>
+            <label>Suggested service<input name="suggested_service" placeholder="Major Service"></label>
+            <label>Message<textarea name="message_text" required></textarea></label>
+            <button type="submit">Save to Inbox</button>
+        </form>
+        <h3 style="margin-top:18px;">Stored price list</h3>
+        <p class="small">Messages are saved first and matched against fixed client prices instead of triggering AI price searches.</p>
+        <div class="small">Use the service name above exactly as it appears in the pricing table for an automatic price match.</div>
+    </section>
+    <section class="panel">
+        <h3>Usage snapshot</h3>
+        <div class="table-wrap"><table><tr><th>Date</th><th>Client</th><th>Messages</th></tr>{% for row in daily_usage %}<tr><td>{{ row.usage_date }}</td><td>{{ row.franchise_name }}</td><td>{{ row.message_count }}</td></tr>{% else %}<tr><td colspan="3">No daily usage captured yet.</td></tr>{% endfor %}</table></div>
+        <h3 style="margin-top:18px;">Monthly totals</h3>
+        <div class="table-wrap"><table><tr><th>Month</th><th>Client</th><th>Used</th><th>Extra</th><th>Total</th></tr>{% for row in monthly_usage %}<tr><td>{{ row.usage_month }}</td><td>{{ row.franchise_name }}</td><td>{{ row.message_count }}</td><td>{{ row.extra_messages }}</td><td>R{{ '%.2f'|format(row.total_due or 0) }}</td></tr>{% else %}<tr><td colspan="5">No monthly usage captured yet.</td></tr>{% endfor %}</table></div>
+    </section>
+</div>
+<section class="panel" style="margin-top:18px;">
+    <h3>Saved inbox</h3>
+    <div class="table-wrap"><table><tr><th>When</th><th>Client</th><th>Branch</th><th>Customer</th><th>Service</th><th>Matched Price</th><th>Status</th><th>Message</th></tr>{% for item in messages %}<tr><td>{{ item.created_at }}</td><td>{{ item.franchise_name }}</td><td>{{ item.branch_name }}</td><td>{{ item.customer_name or item.customer_phone or item.customer_email }}</td><td>{{ item.suggested_service or '-' }}</td><td>{% if item.matched_price is not none %}R{{ '%.2f'|format(item.matched_price) }}{% else %}<span class="small">No fixed price found</span>{% endif %}</td><td>{{ item.status }}</td><td>{{ item.message_text }}</td></tr>{% else %}<tr><td colspan="8">No inbound chatbot messages have been saved yet.</td></tr>{% endfor %}</table></div>
+</section>
+{% endblock %}

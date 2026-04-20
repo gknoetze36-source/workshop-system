@@ -12,6 +12,38 @@
     <div class="metric"><span>Completed</span><strong>{{ metrics.completed }}</strong></div>
     <div class="metric"><span>Pending reminders</span><strong>{{ metrics.reminders }}</strong></div>
 </section>
+{% if current_user.role != 'super_admin' and franchise %}
+<div class="grid two" style="margin-top:18px;">
+    <section class="panel">
+        <h3>Current client plan</h3>
+        <div class="chip">{{ plan_label(franchise.plan_code) }}</div>
+        <div class="cards" style="margin-top:14px;">
+            {% for feature in plan_features_list %}
+            <div class="metric"><span>Feature</span><strong style="font-size:1rem;">{{ feature }}</strong></div>
+            {% endfor %}
+        </div>
+    </section>
+    <section class="panel">
+        <h3>Current month usage</h3>
+        {% if latest_monthly %}
+        <div class="metrics">
+            <div class="metric"><span>Messages used</span><strong>{{ latest_monthly.message_count }}</strong></div>
+            <div class="metric"><span>Limit</span><strong>{{ latest_monthly.message_limit }}</strong></div>
+            <div class="metric"><span>Extra messages</span><strong>{{ latest_monthly.extra_messages }}</strong></div>
+            <div class="metric"><span>Projected total</span><strong>R{{ '%.2f'|format(latest_monthly.total_due or 0) }}</strong></div>
+        </div>
+        {% else %}
+        <p class="small">No monthly chatbot usage has been recorded yet.</p>
+        {% endif %}
+    </section>
+</div>
+{% endif %}
+{% if current_user.role == 'super_admin' %}
+<section class="panel" style="margin-top:18px;">
+    <h3>Monthly Billing Overview</h3>
+    <div class="table-wrap"><table><tr><th>Client</th><th>Month</th><th>Used</th><th>Extra</th><th>Status</th><th>Total</th></tr>{% for row in monthly_usage[:8] %}<tr><td>{{ row.franchise_name }}</td><td>{{ row.usage_month }}</td><td>{{ row.message_count }}</td><td>{{ row.extra_messages }}</td><td>{{ row.payment_status or 'Unpaid' }}</td><td>R{{ '%.2f'|format(row.total_due or 0) }}</td></tr>{% else %}<tr><td colspan="6">No monthly billing records yet.</td></tr>{% endfor %}</table></div>
+</section>
+{% endif %}
 <div class="grid two" style="margin-top:18px;">
     <section class="panel">
         <h3>Today’s bookings</h3>

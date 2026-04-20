@@ -136,6 +136,18 @@ def _create_tables(connection, backend):
             contact_email TEXT,
             contact_phone TEXT,
             notes TEXT,
+            plan_code TEXT DEFAULT 'basic',
+            branch_limit INTEGER DEFAULT 1,
+            user_limit INTEGER DEFAULT 2,
+            automation_enabled {integer_boolean} DEFAULT 0,
+            chatbot_enabled {integer_boolean} DEFAULT 0,
+            reporting_enabled {integer_boolean} DEFAULT 0,
+            custom_integrations_enabled {integer_boolean} DEFAULT 0,
+            priority_support_enabled {integer_boolean} DEFAULT 0,
+            monthly_base_price REAL DEFAULT 0,
+            monthly_message_limit INTEGER DEFAULT 2000,
+            overage_price_per_message REAL DEFAULT 0.5,
+            billing_day TEXT,
             active {integer_boolean} DEFAULT 1,
             created_at TEXT,
             updated_at TEXT
@@ -253,6 +265,67 @@ def _create_tables(connection, backend):
             sent_at TEXT
         )
         """,
+        f"""
+        CREATE TABLE IF NOT EXISTS service_prices (
+            id {primary_key},
+            franchise_id INTEGER,
+            branch_id INTEGER,
+            service_name TEXT,
+            service_category TEXT,
+            price_amount REAL DEFAULT 0,
+            active {integer_boolean} DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS chatbot_messages (
+            id {primary_key},
+            franchise_id INTEGER,
+            branch_id INTEGER,
+            customer_name TEXT,
+            customer_phone TEXT,
+            customer_email TEXT,
+            channel TEXT,
+            direction TEXT,
+            message_text TEXT,
+            suggested_service TEXT,
+            matched_price REAL,
+            status TEXT,
+            processed {integer_boolean} DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS chatbot_usage_daily (
+            id {primary_key},
+            franchise_id INTEGER,
+            usage_date TEXT,
+            message_count INTEGER DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS chatbot_usage_monthly (
+            id {primary_key},
+            franchise_id INTEGER,
+            usage_month TEXT,
+            message_count INTEGER DEFAULT 0,
+            message_limit INTEGER DEFAULT 2000,
+            extra_messages INTEGER DEFAULT 0,
+            base_price REAL DEFAULT 0,
+            overage_price REAL DEFAULT 0.5,
+            overage_cost REAL DEFAULT 0,
+            total_due REAL DEFAULT 0,
+            payment_status TEXT DEFAULT 'Unpaid',
+            paid_at TEXT,
+            payment_reference TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
     ]:
         _run(connection, backend, query)
 
@@ -264,6 +337,18 @@ def _ensure_columns(connection, backend):
             "contact_email": "TEXT",
             "contact_phone": "TEXT",
             "notes": "TEXT",
+            "plan_code": "TEXT DEFAULT 'basic'",
+            "branch_limit": "INTEGER DEFAULT 1",
+            "user_limit": "INTEGER DEFAULT 2",
+            "automation_enabled": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "chatbot_enabled": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "reporting_enabled": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "custom_integrations_enabled": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "priority_support_enabled": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "monthly_base_price": "REAL DEFAULT 0",
+            "monthly_message_limit": "INTEGER DEFAULT 2000",
+            "overage_price_per_message": "REAL DEFAULT 0.5",
+            "billing_day": "TEXT",
             "active": "BOOLEAN DEFAULT 1" if backend == "postgres" else "INTEGER DEFAULT 1",
             "created_at": "TEXT",
             "updated_at": "TEXT",
@@ -360,6 +445,55 @@ def _ensure_columns(connection, backend):
             "created_at": "TEXT",
             "sent_at": "TEXT",
         },
+        "service_prices": {
+            "franchise_id": "INTEGER",
+            "branch_id": "INTEGER",
+            "service_name": "TEXT",
+            "service_category": "TEXT",
+            "price_amount": "REAL DEFAULT 0",
+            "active": "BOOLEAN DEFAULT 1" if backend == "postgres" else "INTEGER DEFAULT 1",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "chatbot_messages": {
+            "franchise_id": "INTEGER",
+            "branch_id": "INTEGER",
+            "customer_name": "TEXT",
+            "customer_phone": "TEXT",
+            "customer_email": "TEXT",
+            "channel": "TEXT",
+            "direction": "TEXT",
+            "message_text": "TEXT",
+            "suggested_service": "TEXT",
+            "matched_price": "REAL",
+            "status": "TEXT",
+            "processed": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "chatbot_usage_daily": {
+            "franchise_id": "INTEGER",
+            "usage_date": "TEXT",
+            "message_count": "INTEGER DEFAULT 0",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "chatbot_usage_monthly": {
+            "franchise_id": "INTEGER",
+            "usage_month": "TEXT",
+            "message_count": "INTEGER DEFAULT 0",
+            "message_limit": "INTEGER DEFAULT 2000",
+            "extra_messages": "INTEGER DEFAULT 0",
+            "base_price": "REAL DEFAULT 0",
+            "overage_price": "REAL DEFAULT 0.5",
+            "overage_cost": "REAL DEFAULT 0",
+            "total_due": "REAL DEFAULT 0",
+            "payment_status": "TEXT DEFAULT 'Unpaid'",
+            "paid_at": "TEXT",
+            "payment_reference": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
     }
 
     for table_name, columns in desired_columns.items():
@@ -381,9 +515,58 @@ def _ensure_indexes(connection, backend):
         "CREATE INDEX IF NOT EXISTS idx_bookings_scope ON bookings(franchise_id, branch_id, scheduled_date)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_reminder_unique_round ON reminder_campaigns(booking_id, reminder_kind, campaign_round)",
         "CREATE INDEX IF NOT EXISTS idx_communication_logs_scope ON communication_logs(franchise_id, branch_id, channel)",
+        "CREATE INDEX IF NOT EXISTS idx_service_prices_scope ON service_prices(franchise_id, branch_id, service_name)",
+        "CREATE INDEX IF NOT EXISTS idx_chatbot_messages_scope ON chatbot_messages(franchise_id, branch_id, created_at)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_chatbot_usage_daily_scope ON chatbot_usage_daily(franchise_id, usage_date)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_chatbot_usage_monthly_scope ON chatbot_usage_monthly(franchise_id, usage_month)",
     ]
     for query in index_queries:
         _run(connection, backend, query)
+
+
+def _seed_plan_defaults(connection, backend):
+    now = utc_now()
+    plans = {
+        "basic": {"branch_limit": 1, "user_limit": 2, "automation_enabled": 0, "chatbot_enabled": 0, "reporting_enabled": 0, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
+        "growth": {"branch_limit": 5, "user_limit": 10, "automation_enabled": 1, "chatbot_enabled": 1, "reporting_enabled": 1, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
+        "premium": {"branch_limit": 999999, "user_limit": 999999, "automation_enabled": 1, "chatbot_enabled": 1, "reporting_enabled": 1, "custom_integrations_enabled": 1, "priority_support_enabled": 1},
+    }
+    franchises = _run(connection, backend, "SELECT * FROM franchises ORDER BY id") or []
+    for franchise in franchises:
+        plan_code = (franchise.get("plan_code") or "basic").lower()
+        plan = plans.get(plan_code, plans["basic"])
+        _run(
+            connection,
+            backend,
+            """
+            UPDATE franchises
+            SET plan_code=%s,
+                branch_limit=COALESCE(NULLIF(branch_limit, 0), %s),
+                user_limit=COALESCE(NULLIF(user_limit, 0), %s),
+                automation_enabled=COALESCE(automation_enabled, %s),
+                chatbot_enabled=COALESCE(chatbot_enabled, %s),
+                reporting_enabled=COALESCE(reporting_enabled, %s),
+                custom_integrations_enabled=COALESCE(custom_integrations_enabled, %s),
+                priority_support_enabled=COALESCE(priority_support_enabled, %s),
+                monthly_message_limit=COALESCE(NULLIF(monthly_message_limit, 0), 2000),
+                overage_price_per_message=COALESCE(overage_price_per_message, 0.5),
+                billing_day=COALESCE(billing_day, 'month_end'),
+                updated_at=%s
+            WHERE id=%s
+            """,
+            (
+                plan_code,
+                plan["branch_limit"],
+                plan["user_limit"],
+                plan["automation_enabled"],
+                plan["chatbot_enabled"],
+                plan["reporting_enabled"],
+                plan["custom_integrations_enabled"],
+                plan["priority_support_enabled"],
+                now,
+                franchise["id"],
+            ),
+        )
 
 
 def _deduplicate_users(connection, backend):
@@ -772,6 +955,7 @@ def initialize_database():
         _deduplicate_users(connection, backend)
         _ensure_unique_username_index(connection, backend)
         _ensure_indexes(connection, backend)
+        _seed_plan_defaults(connection, backend)
         _migrate_legacy_users(connection, backend)
         _ensure_super_admin(connection, backend)
         _harden_default_credentials(connection, backend)

@@ -2,16 +2,24 @@
 {% block title %}{{ page_title }}{% endblock %}
 {% block content %}
 <div class="topbar"><div class="heading"><h1>{{ page_title }}</h1><p>{{ source_label }} for the correct branch.</p></div></div>
-<section class="panel">
-    <form method="post" class="grid-form">
-        <div class="grid two"><label>First name<input name="first_name" required></label><label>Surname<input name="surname" required></label></div>
-        <div class="grid two"><label>Phone<input name="phone" required></label><label>Email<input name="customer_email"></label></div>
-        <div class="grid two"><label>Branch<select name="branch_id" {% if lock_branch %}disabled{% endif %}>{% for branch in branch_options %}<option value="{{ branch.id }}">{{ branch.franchise_name }} - {{ branch.name }}</option>{% endfor %}</select>{% if lock_branch and branch_options %}<input type="hidden" name="branch_id" value="{{ branch_options[0].id }}">{% endif %}</label><label>Date<input type="date" name="scheduled_date" value="{{ default_values.scheduled_date }}"></label></div>
-        <div class="grid two"><label>Vehicle make<input name="make"></label><label>Vehicle model<input name="model"></label></div>
-        <div class="grid two"><label>Service<input name="service" required></label><label>Preferred contact<select name="preferred_contact_method">{% for option in contact_options %}<option value="{{ option }}" {% if default_values.preferred_contact_method == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label></div>
-        <label>Work to be done<textarea name="work_to_be_done"></textarea></label>
-        <label>Internal notes<textarea name="internal_notes"></textarea></label>
-        <div class="actions"><button type="submit">{{ submit_label }}</button></div>
-    </form>
-</section>
+<div class="grid two">
+    <section class="panel">
+        <form method="post" class="grid-form">
+            <div class="grid two"><label>First name<input name="first_name" required></label><label>Surname<input name="surname" required></label></div>
+            <div class="grid two"><label>Phone<input name="phone" required></label><label>Email<input name="customer_email"></label></div>
+            <div class="grid two"><label>Branch<select name="branch_id" {% if lock_branch %}disabled{% endif %}>{% for branch in branch_options %}<option value="{{ branch.id }}">{{ branch.franchise_name }} - {{ branch.name }}</option>{% endfor %}</select>{% if lock_branch and branch_options %}<input type="hidden" name="branch_id" value="{{ branch_options[0].id }}">{% endif %}</label><label>Date<input type="date" name="scheduled_date" value="{{ default_values.scheduled_date }}"></label></div>
+            <div class="grid two"><label>Vehicle make<input name="make"></label><label>Vehicle model<input name="model"></label></div>
+            <div class="grid two"><label>Service<input name="service" list="service-price-list" required></label><label>Preferred contact<select name="preferred_contact_method">{% for option in contact_options %}<option value="{{ option }}" {% if default_values.preferred_contact_method == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label></div>
+            <datalist id="service-price-list">{% for price in prices %}<option value="{{ price.service_name }}">{{ price.branch_name or price.franchise_name }} - R{{ '%.2f'|format(price.price_amount or 0) }}</option>{% endfor %}</datalist>
+            <label>Work to be done<textarea name="work_to_be_done"></textarea></label>
+            <label>Internal notes<textarea name="internal_notes"></textarea></label>
+            <div class="actions"><button type="submit">{{ submit_label }}</button></div>
+        </form>
+    </section>
+    <section class="panel">
+        <h3>Matched fixed prices</h3>
+        <p class="small">Bookings use the stored price list, so staff can choose the correct service without an AI price lookup.</p>
+        <div class="table-wrap"><table><tr><th>Scope</th><th>Service</th><th>Category</th><th>Price</th></tr>{% for price in prices %}<tr><td>{{ price.branch_name or price.franchise_name }}</td><td>{{ price.service_name }}</td><td>{{ price.service_category or '-' }}</td><td>R{{ '%.2f'|format(price.price_amount or 0) }}</td></tr>{% else %}<tr><td colspan="4">No fixed prices set yet.</td></tr>{% endfor %}</table></div>
+    </section>
+</div>
 {% endblock %}

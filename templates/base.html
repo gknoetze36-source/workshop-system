@@ -90,6 +90,8 @@
                 <a class="nav-link" href="{{ url_for('reports') }}">Reports</a>
                 <a class="nav-link" href="{{ url_for('reminders') }}">Reminders</a>
                 {% if current_user.role in ['franchise_admin', 'super_admin'] %}
+                <a class="nav-link" href="{{ url_for('manage_prices') }}">Service Prices</a>
+                <a class="nav-link" href="{{ url_for('chatbot_inbox') }}">Chatbot Inbox</a>
                 <a class="nav-link" href="{{ url_for('manage_branches') }}">Branches</a>
                 <a class="nav-link" href="{{ url_for('manage_users') }}">Users</a>
                 {% endif %}

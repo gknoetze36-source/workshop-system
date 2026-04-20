@@ -10,6 +10,12 @@ ROLE_LABELS = {
     "super_admin": "Platform Super Admin",
 }
 
+PLAN_DEFINITIONS = {
+    "basic": {"label": "Basic", "branch_limit": 1, "user_limit": 2, "automation_enabled": 0, "chatbot_enabled": 0, "reporting_enabled": 0, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
+    "growth": {"label": "Growth", "branch_limit": 5, "user_limit": 10, "automation_enabled": 1, "chatbot_enabled": 1, "reporting_enabled": 1, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
+    "premium": {"label": "Premium", "branch_limit": 999999, "user_limit": 999999, "automation_enabled": 1, "chatbot_enabled": 1, "reporting_enabled": 1, "custom_integrations_enabled": 1, "priority_support_enabled": 1},
+}
+
 STATUS_OPTIONS = ["Pending", "Confirmed", "In Progress", "Done", "Collected", "Declined"]
 CONTACT_OPTIONS = ["WhatsApp", "SMS", "Email", "Phone Call"]
 DONE_STATUSES = {"Done", "Collected"}
@@ -69,6 +75,10 @@ def role_label(value):
     return ROLE_LABELS.get(value, value or "Unknown")
 
 
+def plan_label(value):
+    return PLAN_DEFINITIONS.get((value or "").lower(), {}).get("label", value or "Unknown")
+
+
 def boolish(value):
     return str(value).lower() in {"1", "true", "yes", "on"}
 
@@ -97,6 +107,120 @@ def visible_franchises(user=None, include_inactive=False):
         args.append(user["franchise_id"])
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     return fetch_all(f"SELECT * FROM franchises {where} ORDER BY name", tuple(args))
+
+
+def franchise_counts(franchise_id):
+    branch_total = fetch_one("SELECT COUNT(*) AS total FROM branches WHERE franchise_id=%s AND COALESCE(active, 1)=1", (franchise_id,))
+    user_total = fetch_one("SELECT COUNT(*) AS total FROM users WHERE franchise_id=%s AND COALESCE(active, 1)=1", (franchise_id,))
+    return {
+        "branches": int((branch_total or {}).get("total") or 0),
+        "users": int((user_total or {}).get("total") or 0),
+    }
+
+
+def can_add_branch(franchise):
+    counts = franchise_counts(franchise["id"])
+    limit = int(franchise.get("branch_limit") or 0)
+    return limit <= 0 or counts["branches"] < limit
+
+
+def can_add_user(franchise):
+    counts = franchise_counts(franchise["id"])
+    limit = int(franchise.get("user_limit") or 0)
+    return limit <= 0 or counts["users"] < limit
+
+
+def fetch_service_prices(user):
+    if user["role"] == "super_admin":
+        return fetch_all(
+            """
+            SELECT sp.*, f.name AS franchise_name, b.name AS branch_name
+            FROM service_prices sp
+            LEFT JOIN franchises f ON f.id = sp.franchise_id
+            LEFT JOIN branches b ON b.id = sp.branch_id
+            ORDER BY f.name, b.name, sp.service_name
+            """
+        )
+    return fetch_all(
+        """
+        SELECT sp.*, f.name AS franchise_name, b.name AS branch_name
+        FROM service_prices sp
+        LEFT JOIN franchises f ON f.id = sp.franchise_id
+        LEFT JOIN branches b ON b.id = sp.branch_id
+        WHERE sp.franchise_id=%s
+        ORDER BY b.name, sp.service_name
+        """,
+        (user["franchise_id"],),
+    )
+
+
+def find_service_price(franchise_id, branch_id, service_name):
+    service_name = (service_name or "").strip()
+    if not service_name:
+        return None
+    return (
+        fetch_one(
+            "SELECT * FROM service_prices WHERE franchise_id=%s AND branch_id=%s AND lower(service_name)=lower(%s) AND COALESCE(active,1)=1",
+            (franchise_id, branch_id, service_name),
+        )
+        or fetch_one(
+            "SELECT * FROM service_prices WHERE franchise_id=%s AND branch_id IS NULL AND lower(service_name)=lower(%s) AND COALESCE(active,1)=1",
+            (franchise_id, service_name),
+        )
+    )
+
+
+def monthly_usage_summary(user=None):
+    clauses = []
+    args = []
+    if user and user["role"] != "super_admin":
+        clauses.append("cum.franchise_id=%s")
+        args.append(user["franchise_id"])
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return fetch_all(
+        """
+        SELECT cum.*, f.name AS franchise_name, f.plan_code, f.monthly_base_price, f.monthly_message_limit, f.overage_price_per_message, f.active
+        FROM chatbot_usage_monthly cum
+        LEFT JOIN franchises f ON f.id = cum.franchise_id
+        """
+        + where
+        + " ORDER BY cum.usage_month DESC, f.name",
+        tuple(args),
+    )
+
+
+def plan_features(franchise):
+    plan = PLAN_DEFINITIONS.get((franchise.get("plan_code") or "basic").lower(), PLAN_DEFINITIONS["basic"])
+    features = [
+        f"{plan['label']} plan",
+        "1 branch only" if plan["branch_limit"] == 1 else ("Up to 5 branches" if plan["branch_limit"] == 5 else "Unlimited branches"),
+        "2 users" if plan["user_limit"] == 2 else ("Up to 10 users" if plan["user_limit"] == 10 else "Unlimited users"),
+        "Automations enabled" if plan["automation_enabled"] else "No automations",
+        "Chatbot enabled" if plan["chatbot_enabled"] else "No chatbot automation",
+        "Reporting dashboard" if plan["reporting_enabled"] else "Basic dashboard only",
+        "Priority support" if plan["priority_support_enabled"] else "Standard support",
+        "Custom integrations" if plan["custom_integrations_enabled"] else "No custom integrations",
+    ]
+    return features
+
+
+def daily_usage_summary(user=None):
+    clauses = []
+    args = []
+    if user and user["role"] != "super_admin":
+        clauses.append("cud.franchise_id=%s")
+        args.append(user["franchise_id"])
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return fetch_all(
+        """
+        SELECT cud.*, f.name AS franchise_name
+        FROM chatbot_usage_daily cud
+        LEFT JOIN franchises f ON f.id = cud.franchise_id
+        """
+        + where
+        + " ORDER BY cud.usage_date DESC, f.name",
+        tuple(args),
+    )
 
 
 def visible_branches(user=None, franchise_id=None, include_inactive=False, public_only=False):

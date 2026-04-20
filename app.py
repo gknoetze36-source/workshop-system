@@ -7,18 +7,28 @@ from database import execute_db, initialize_database, iso_date, query_db, utc_no
 from platform_helpers import (
     CONTACT_OPTIONS,
     DONE_STATUSES,
+    PLAN_DEFINITIONS,
     ROLE_LABELS,
     STATUS_OPTIONS,
     available_roles_for_creator,
     boolish,
     branch_by_id,
     branch_for_public_booking,
+    can_add_branch,
+    can_add_user,
+    daily_usage_summary,
     fetch_all,
     fetch_booking_for_user,
     fetch_one,
+    fetch_service_prices,
     fetch_visible_bookings,
+    find_service_price,
+    franchise_counts,
     human_date,
     insert_booking,
+    monthly_usage_summary,
+    plan_features,
+    plan_label,
     role_label,
     selected_branch_for_user,
     user_scope_clause,
@@ -92,7 +102,9 @@ def inject_globals():
     return {
         "current_user": current_user(),
         "role_label": role_label,
+        "plan_label": plan_label,
         "human_date": human_date,
+        "plan_definitions": PLAN_DEFINITIONS,
         "status_options": STATUS_OPTIONS,
         "contact_options": CONTACT_OPTIONS,
         "today_iso": utc_today(),
@@ -122,6 +134,17 @@ def roles_required(*roles):
         return wrapped
 
     return decorator
+
+
+def _active_franchise_required():
+    user = current_user()
+    if user and user["role"] != "super_admin":
+        franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (user["franchise_id"],))
+        if franchise and not boolish(franchise.get("active", 1)):
+            session.clear()
+            flash("This client account is inactive. Please contact the platform administrator.", "error")
+            return redirect(url_for("login"))
+    return None
 
 
 @app.route("/health")
@@ -266,9 +289,15 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    inactive_redirect = _active_franchise_required()
+    if inactive_redirect:
+        return inactive_redirect
     bookings = fetch_visible_bookings(current_user())
     reminders = fetch_reminders_for_user(current_user())
     today = utc_today()
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (current_user().get("franchise_id"),)) if current_user()["role"] != "super_admin" else None
+    monthly_rows = monthly_usage_summary(current_user())
+    latest_monthly = monthly_rows[0] if monthly_rows else None
     return render_template(
         "dashboard.html",
         today_bookings=[item for item in bookings if item.get("scheduled_date") == today],
@@ -281,12 +310,19 @@ def dashboard():
             "reminders": len([item for item in reminders if item.get("status") == "Pending"]),
         },
         branch_summaries=visible_branches(user=current_user()),
+        franchise=franchise,
+        plan_features_list=plan_features(franchise) if franchise else [],
+        latest_monthly=latest_monthly,
+        monthly_usage=monthly_rows,
     )
 
 
 @app.route("/bookings")
 @login_required
 def bookings():
+    inactive_redirect = _active_franchise_required()
+    if inactive_redirect:
+        return inactive_redirect
     filters = {
         "search": request.args.get("search", ""),
         "status": request.args.get("status", ""),
@@ -372,6 +408,9 @@ def update_booking(reference):
 @app.route("/add", methods=["GET", "POST"])
 @login_required
 def add_booking():
+    inactive_redirect = _active_franchise_required()
+    if inactive_redirect:
+        return inactive_redirect
     if request.method == "POST":
         branch = selected_branch_for_user(current_user(), request.form.get("branch_id"))
         if branch:
@@ -379,12 +418,15 @@ def add_booking():
             flash(f"Reception booking {reference} created.", "success")
             return redirect(url_for("booking_detail", reference=reference))
         flash("Please choose a valid branch.", "error")
-    return render_template("booking_form.html", page_title="Reception Booking", submit_label="Save Booking", source_label="Reception booking", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception")
+    return render_template("booking_form.html", page_title="Reception Booking", submit_label="Save Booking", source_label="Reception booking", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=fetch_service_prices(current_user()))
 
 
 @app.route("/walkin", methods=["GET", "POST"])
 @login_required
 def walkin():
+    inactive_redirect = _active_franchise_required()
+    if inactive_redirect:
+        return inactive_redirect
     if request.method == "POST":
         branch = selected_branch_for_user(current_user(), request.form.get("branch_id"))
         if branch:
@@ -392,12 +434,15 @@ def walkin():
             flash(f"Walk-in {reference} recorded.", "success")
             return redirect(url_for("booking_detail", reference=reference))
         flash("Please choose a valid branch.", "error")
-    return render_template("booking_form.html", page_title="Workshop Walk-In", submit_label="Save Walk-In", source_label="Walk-in", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception")
+    return render_template("booking_form.html", page_title="Workshop Walk-In", submit_label="Save Walk-In", source_label="Walk-in", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=fetch_service_prices(current_user()))
 
 
 @app.route("/customers")
 @login_required
 def customers():
+    inactive_redirect = _active_franchise_required()
+    if inactive_redirect:
+        return inactive_redirect
     customer_map = {}
     for booking in fetch_visible_bookings(current_user()):
         key = (booking.get("phone") or booking.get("customer_email") or booking["booking_reference"]).strip()
@@ -414,6 +459,9 @@ def customer_history(phone):
 @app.route("/reports")
 @login_required
 def reports():
+    inactive_redirect = _active_franchise_required()
+    if inactive_redirect:
+        return inactive_redirect
     bookings = fetch_visible_bookings(current_user())
     by_status = {status: len([item for item in bookings if item.get("status") == status]) for status in STATUS_OPTIONS}
     by_service = {"Major": 0, "Minor": 0, "General": 0}
@@ -425,6 +473,9 @@ def reports():
 @app.route("/reminders")
 @login_required
 def reminders():
+    inactive_redirect = _active_franchise_required()
+    if inactive_redirect:
+        return inactive_redirect
     created = generate_due_reminders(current_user())
     if created:
         flash(f"{created} reminder campaign(s) were generated for the current month-end window.", "success")
@@ -490,11 +541,85 @@ def manage_franchises():
     if request.method == "POST":
         name = (request.form.get("name") or "").strip()
         if name and not fetch_one("SELECT id FROM franchises WHERE lower(name)=lower(%s)", (name,)):
-            execute_db("INSERT INTO franchises (name, slug, contact_email, contact_phone, active, created_at, updated_at) VALUES (%s, %s, %s, %s, 1, %s, %s)", (name, __import__('database').slugify(name), (request.form.get("contact_email") or "").strip(), (request.form.get("contact_phone") or "").strip(), utc_now(), utc_now()))
+            plan_code = (request.form.get("plan_code") or "basic").lower()
+            plan = PLAN_DEFINITIONS.get(plan_code, PLAN_DEFINITIONS["basic"])
+            execute_db(
+                """
+                INSERT INTO franchises (
+                    name, slug, contact_email, contact_phone, notes, plan_code, branch_limit, user_limit,
+                    automation_enabled, chatbot_enabled, reporting_enabled, custom_integrations_enabled,
+                    priority_support_enabled, monthly_base_price, monthly_message_limit, overage_price_per_message,
+                    billing_day, active, created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'month_end', 1, %s, %s)
+                """,
+                (
+                    name,
+                    __import__('database').slugify(name),
+                    (request.form.get("contact_email") or "").strip(),
+                    (request.form.get("contact_phone") or "").strip(),
+                    (request.form.get("notes") or "").strip(),
+                    plan_code,
+                    plan["branch_limit"],
+                    plan["user_limit"],
+                    plan["automation_enabled"],
+                    plan["chatbot_enabled"],
+                    plan["reporting_enabled"],
+                    plan["custom_integrations_enabled"],
+                    plan["priority_support_enabled"],
+                    float(request.form.get("monthly_base_price") or 0),
+                    int(request.form.get("monthly_message_limit") or 2000),
+                    float(request.form.get("overage_price_per_message") or 0.5),
+                    utc_now(),
+                    utc_now(),
+                ),
+            )
             flash(f"Franchise {name} created.", "success")
         else:
             flash("Please use a unique franchise name.", "error")
-    return render_template("manage_franchises.html", franchises=visible_franchises(include_inactive=True))
+    franchises = visible_franchises(include_inactive=True)
+    counts = {item["id"]: franchise_counts(item["id"]) for item in franchises}
+    return render_template("manage_franchises.html", franchises=franchises, franchise_counts=counts, monthly_usage=monthly_usage_summary(), daily_usage=daily_usage_summary())
+
+
+@app.route("/manage/franchises/<int:franchise_id>/update", methods=["POST"])
+@roles_required("super_admin")
+def update_franchise(franchise_id):
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,))
+    if not franchise:
+        abort(404)
+    plan_code = (request.form.get("plan_code") or franchise.get("plan_code") or "basic").lower()
+    plan = PLAN_DEFINITIONS.get(plan_code, PLAN_DEFINITIONS["basic"])
+    execute_db(
+        """
+        UPDATE franchises
+        SET contact_email=%s, contact_phone=%s, notes=%s, plan_code=%s, branch_limit=%s, user_limit=%s,
+            automation_enabled=%s, chatbot_enabled=%s, reporting_enabled=%s, custom_integrations_enabled=%s,
+            priority_support_enabled=%s, monthly_base_price=%s, monthly_message_limit=%s, overage_price_per_message=%s,
+            active=%s, updated_at=%s
+        WHERE id=%s
+        """,
+        (
+            (request.form.get("contact_email") or "").strip(),
+            (request.form.get("contact_phone") or "").strip(),
+            (request.form.get("notes") or "").strip(),
+            plan_code,
+            plan["branch_limit"] if plan_code != "premium" else 999999,
+            plan["user_limit"] if plan_code != "premium" else 999999,
+            plan["automation_enabled"],
+            plan["chatbot_enabled"],
+            plan["reporting_enabled"],
+            plan["custom_integrations_enabled"],
+            plan["priority_support_enabled"],
+            float(request.form.get("monthly_base_price") or 0),
+            int(request.form.get("monthly_message_limit") or 2000),
+            float(request.form.get("overage_price_per_message") or 0.5),
+            1 if boolish(request.form.get("active", "true")) else 0,
+            utc_now(),
+            franchise_id,
+        ),
+    )
+    flash(f"Updated {franchise['name']}.", "success")
+    return redirect(url_for("manage_franchises"))
 
 
 @app.route("/manage/branches", methods=["GET", "POST"])
@@ -506,7 +631,9 @@ def manage_branches():
             franchise_id = current_user()["franchise_id"]
         franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,))
         name = (request.form.get("name") or "").strip()
-        if franchise and name and not fetch_one("SELECT id FROM branches WHERE franchise_id=%s AND lower(name)=lower(%s)", (franchise["id"], name)):
+        if franchise and not can_add_branch(franchise):
+            flash(f"{franchise['name']} has reached its branch limit for the {plan_label(franchise.get('plan_code'))} plan.", "error")
+        elif franchise and name and not fetch_one("SELECT id FROM branches WHERE franchise_id=%s AND lower(name)=lower(%s)", (franchise["id"], name)):
             execute_db("INSERT INTO branches (franchise_id, name, slug, code, location, contact_email, contact_phone, public_booking_enabled, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s)", (franchise["id"], name, __import__('database').slugify(name), (request.form.get("code") or "").strip(), (request.form.get("location") or "").strip(), (request.form.get("contact_email") or "").strip(), (request.form.get("contact_phone") or "").strip(), 1 if boolish(request.form.get("public_booking_enabled", "true")) else 0, utc_now(), utc_now()))
             flash(f"Branch {name} created.", "success")
         else:
@@ -558,10 +685,16 @@ def manage_users():
             franchise_id = request.form.get("franchise_id") or current_user().get("franchise_id")
             branch_id = request.form.get("branch_id") or None
             branch = selected_branch_for_user(current_user(), branch_id) if role == "reception" else None
+            franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"] if branch else franchise_id,))
+            if franchise and not can_add_user(franchise):
+                flash(f"{franchise['name']} has reached its user limit for the {plan_label(franchise.get('plan_code'))} plan.", "error")
+                scope_sql, args = user_scope_clause(current_user())
+                users = fetch_all("SELECT u.*, f.name AS franchise_name, b.name AS branch_name FROM users u LEFT JOIN franchises f ON f.id = u.franchise_id LEFT JOIN branches b ON b.id = u.branch_id WHERE " + scope_sql + " ORDER BY u.role, u.username", tuple(args))
+                return render_template("manage_users.html", users=users, roles=available_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=visible_franchises(user=current_user(), include_inactive=True))
             if role == "reception" and not branch:
                 flash("Reception users must be linked to a visible branch.", "error")
             else:
-                company_name = branch["franchise_name"] if branch else (fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,)) or {}).get("name", "")
+                company_name = branch["franchise_name"] if branch else (franchise or {}).get("name", "")
                 execute_db("INSERT INTO users (username, password, password_hash, full_name, email, phone, branch, company, role, franchise_id, branch_id, active, must_reset_password, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, 0, %s, %s)", (username, "", generate_password_hash(password), (request.form.get("full_name") or username.title()).strip(), (request.form.get("email") or "").strip(), (request.form.get("phone") or "").strip(), branch["name"] if branch else "", company_name, role, branch["franchise_id"] if branch else (None if role == "super_admin" else franchise_id), branch["id"] if branch else None, utc_now(), utc_now()))
                 flash(f"User {username} created.", "success")
         else:
@@ -655,6 +788,138 @@ def reset_user_password(user_id):
         execute_db("UPDATE users SET password_hash=%s, password=%s, must_reset_password=%s, updated_at=%s WHERE id=%s", (generate_password_hash(password), "", 1 if boolish(request.form.get("must_reset_password")) else 0, utc_now(), user_id))
         flash(f"Password reset for {candidate['username']}.", "success")
     return redirect(url_for("manage_users"))
+
+
+@app.route("/manage/prices", methods=["GET", "POST"])
+@roles_required("franchise_admin", "super_admin")
+def manage_prices():
+    if request.method == "POST":
+        franchise_id = request.form.get("franchise_id") or current_user().get("franchise_id")
+        if current_user()["role"] != "super_admin":
+            franchise_id = current_user()["franchise_id"]
+        execute_db(
+            "INSERT INTO service_prices (franchise_id, branch_id, service_name, service_category, price_amount, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, 1, %s, %s)",
+            (
+                franchise_id,
+                request.form.get("branch_id") or None,
+                (request.form.get("service_name") or "").strip(),
+                (request.form.get("service_category") or "").strip(),
+                float(request.form.get("price_amount") or 0),
+                utc_now(),
+                utc_now(),
+            ),
+        )
+        flash("Service price saved.", "success")
+    return render_template("manage_prices.html", prices=fetch_service_prices(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=visible_franchises(user=current_user(), include_inactive=True))
+
+
+@app.route("/chatbot/inbox", methods=["GET", "POST"])
+@roles_required("franchise_admin", "super_admin")
+def chatbot_inbox():
+    if request.method == "POST":
+        franchise_id = request.form.get("franchise_id") or current_user().get("franchise_id")
+        if current_user()["role"] != "super_admin":
+            franchise_id = current_user()["franchise_id"]
+        branch = branch_by_id(request.form.get("branch_id")) if request.form.get("branch_id") else None
+        franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,))
+        service_name = (request.form.get("suggested_service") or "").strip()
+        matched_price = None
+        if branch and franchise:
+            price_match = find_service_price(franchise["id"], branch["id"], service_name)
+            matched_price = (price_match or {}).get("price_amount")
+        execute_db(
+            "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, suggested_service, matched_price, status, processed, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, %s, %s, 'Saved', 0, %s, %s)",
+            (
+                franchise_id,
+                branch["id"] if branch else None,
+                (request.form.get("customer_name") or "").strip(),
+                (request.form.get("customer_phone") or "").strip(),
+                (request.form.get("customer_email") or "").strip(),
+                (request.form.get("channel") or "WhatsApp").strip(),
+                (request.form.get("message_text") or "").strip(),
+                service_name,
+                matched_price,
+                utc_now(),
+                utc_now(),
+            ),
+        )
+        _record_chatbot_usage(franchise_id)
+        flash("Message saved to inbox for processing.", "success")
+    messages = fetch_all(
+        """
+        SELECT cm.*, f.name AS franchise_name, b.name AS branch_name
+        FROM chatbot_messages cm
+        LEFT JOIN franchises f ON f.id = cm.franchise_id
+        LEFT JOIN branches b ON b.id = cm.branch_id
+        """
+        + (" WHERE cm.franchise_id=%s" if current_user()["role"] != "super_admin" else "")
+        + " ORDER BY cm.created_at DESC",
+        (current_user()["franchise_id"],) if current_user()["role"] != "super_admin" else (),
+    )
+    return render_template("chatbot_inbox.html", messages=messages, branches=visible_branches(user=current_user(), include_inactive=True), franchises=visible_franchises(user=current_user(), include_inactive=True), daily_usage=daily_usage_summary(current_user()), monthly_usage=monthly_usage_summary(current_user()))
+
+
+def _record_chatbot_usage(franchise_id):
+    today = utc_today()
+    month_key = today[:7]
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,))
+    if not franchise:
+        return
+    daily = fetch_one("SELECT * FROM chatbot_usage_daily WHERE franchise_id=%s AND usage_date=%s", (franchise_id, today))
+    if daily:
+        execute_db("UPDATE chatbot_usage_daily SET message_count=%s, updated_at=%s WHERE id=%s", (int(daily.get("message_count") or 0) + 1, utc_now(), daily["id"]))
+    else:
+        execute_db("INSERT INTO chatbot_usage_daily (franchise_id, usage_date, message_count, created_at, updated_at) VALUES (%s, %s, 1, %s, %s)", (franchise_id, today, utc_now(), utc_now()))
+    monthly = fetch_one("SELECT * FROM chatbot_usage_monthly WHERE franchise_id=%s AND usage_month=%s", (franchise_id, month_key))
+    if monthly:
+        message_count = int(monthly.get("message_count") or 0) + 1
+        limit = int(monthly.get("message_limit") or franchise.get("monthly_message_limit") or 2000)
+        overage_price = float(monthly.get("overage_price") or franchise.get("overage_price_per_message") or 0.5)
+        extra = max(message_count - limit, 0)
+        overage_cost = extra * overage_price
+        total_due = float(monthly.get("base_price") or franchise.get("monthly_base_price") or 0) + overage_cost
+        execute_db("UPDATE chatbot_usage_monthly SET message_count=%s, extra_messages=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s", (message_count, extra, overage_cost, total_due, utc_now(), monthly["id"]))
+    else:
+        limit = int(franchise.get("monthly_message_limit") or 2000)
+        base_price = float(franchise.get("monthly_base_price") or 0)
+        overage_price = float(franchise.get("overage_price_per_message") or 0.5)
+        execute_db(
+            "INSERT INTO chatbot_usage_monthly (franchise_id, usage_month, message_count, message_limit, extra_messages, base_price, overage_price, overage_cost, total_due, created_at, updated_at) VALUES (%s, %s, 1, %s, 0, %s, %s, 0, %s, %s, %s)",
+            (franchise_id, month_key, limit, base_price, overage_price, base_price, utc_now(), utc_now()),
+        )
+
+
+@app.route("/billing/close-month", methods=["POST"])
+@roles_required("super_admin")
+def close_billing_month():
+    usage_month = (request.form.get("usage_month") or utc_today()[:7]).strip()
+    rows = fetch_all("SELECT cum.*, f.monthly_base_price, f.monthly_message_limit, f.overage_price_per_message FROM chatbot_usage_monthly cum LEFT JOIN franchises f ON f.id = cum.franchise_id WHERE cum.usage_month=%s", (usage_month,))
+    for row in rows:
+        limit = int(row.get("message_limit") or row.get("monthly_message_limit") or 2000)
+        overage_price = float(row.get("overage_price") or row.get("overage_price_per_message") or 0.5)
+        base_price = float(row.get("base_price") or row.get("monthly_base_price") or 0)
+        extra = max(int(row.get("message_count") or 0) - limit, 0)
+        overage_cost = extra * overage_price
+        total_due = base_price + overage_cost
+        execute_db("UPDATE chatbot_usage_monthly SET message_limit=%s, extra_messages=%s, base_price=%s, overage_price=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s", (limit, extra, base_price, overage_price, overage_cost, total_due, utc_now(), row["id"]))
+    flash(f"Closed billing calculations for {usage_month}.", "success")
+    return redirect(url_for("manage_franchises"))
+
+
+@app.route("/billing/<int:billing_id>/payment", methods=["POST"])
+@roles_required("super_admin")
+def update_billing_payment(billing_id):
+    billing = fetch_one("SELECT * FROM chatbot_usage_monthly WHERE id=%s", (billing_id,))
+    if not billing:
+        abort(404)
+    status = request.form.get("payment_status") or "Unpaid"
+    paid_at = utc_now() if status == "Paid" else None
+    execute_db(
+        "UPDATE chatbot_usage_monthly SET payment_status=%s, paid_at=%s, payment_reference=%s, updated_at=%s WHERE id=%s",
+        (status, paid_at, (request.form.get("payment_reference") or "").strip(), utc_now(), billing_id),
+    )
+    flash("Billing payment status updated.", "success")
+    return redirect(url_for("manage_franchises"))
 
 
 @app.errorhandler(403)
