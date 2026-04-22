@@ -168,7 +168,40 @@ def find_service_price(franchise_id, branch_id, service_name):
             (franchise_id, service_name),
         )
     )
+def get_franchise_report(franchise_id):
+    return fetch_all("""
+        SELECT b.name, COUNT(*) as bookings, SUM(price) as revenue
+        FROM bookings
+        JOIN branches b ON b.id = bookings.branch_id
+        WHERE franchise_id=%s
+        GROUP BY b.name
+    """, (franchise_id,))
 
+def get_service_profit(franchise_id):
+    return fetch_all("""
+        SELECT service, SUM(price) as revenue
+        FROM bookings
+        WHERE franchise_id=%s
+        GROUP BY service
+    """, (franchise_id,))
+
+def generate_invoice(franchise_id):
+    usage = fetch_one("""
+        SELECT chatbot_messages_used 
+        FROM franchises WHERE id=%s
+    """, (franchise_id,))
+
+    used = usage["chatbot_messages_used"]
+    extra = max(0, used - 200)
+
+    total = 2000 + (extra * 1)
+
+    execute_db("""
+        INSERT INTO invoices (franchise_id, month, total_messages, extra_messages, amount)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (franchise_id, "2026-04", used, extra, total))
+
+    return total
 
 def monthly_usage_summary(user=None):
     clauses = []

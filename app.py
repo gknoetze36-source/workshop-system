@@ -931,6 +931,37 @@ def forbidden(_error):
 def not_found(_error):
     return render_template("error.html", title="Page Not Found", message="We could not find the page you requested."), 404
 
+from assistant_engine import assistant_reply
+from platform_helpers import branch_by_id
+from platform_messaging import send_twilio_message
+
+@app.route("/webhook/twilio", methods=["POST"])
+def twilio_webhook():
+    phone = request.form.get("From")
+    message = request.form.get("Body")
+
+    branch = branch_by_id(1)  # upgrade later
+
+    reply, should_count = assistant_reply(phone, message, branch)
+
+    if reply:
+        send_twilio_message("whatsapp", phone, reply)
+
+    if should_count:
+        _record_chatbot_usage(branch["franchise_id"])
+
+    return "OK"
+def is_date_available(branch_id, date):
+    capacity = fetch_one("SELECT daily_capacity FROM branches WHERE id=%s", (branch_id,))["daily_capacity"]
+
+    count = fetch_one("""
+        SELECT COUNT(*) as total 
+        FROM bookings 
+        WHERE branch_id=%s AND scheduled_date=%s
+    """, (branch_id, date))["total"]
+
+    return count < capacity
+
 
 if __name__ == "__main__":
     app.run(debug=True)
