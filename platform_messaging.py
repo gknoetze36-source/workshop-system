@@ -143,6 +143,20 @@ def preferred_channels(booking):
     return [channel for channel in ordered if channel in available]
 
 
+def lowest_cost_channels(booking):
+    channels = []
+    if booking.get("phone"):
+        channels.append("whatsapp")
+        channels.append("sms")
+    if booking.get("customer_email"):
+        channels.append("email")
+    seen = []
+    for item in channels:
+        if item not in seen:
+            seen.append(item)
+    return seen
+
+
 def log_communication(booking, reminder, channel, recipient, subject, body, status, user_id=None, external_target=""):
     execute_db(
         """
@@ -287,8 +301,10 @@ def generate_due_reminders(user_scope=None, as_of=None, force=False):
         WHERE {clause}
           AND b.status IN ('Done', 'Collected')
           AND COALESCE(b.reminder_opt_in, 1) = 1
-          AND b.service_level IN ('Major', 'Minor')
-          AND COALESCE(b.service_due_date, '') <> ''
+          AND (
+              (b.service_level IN ('Major', 'Minor') AND COALESCE(b.service_due_date, '') <> '')
+              OR COALESCE(b.work_to_be_done, '') <> ''
+          )
         ORDER BY b.service_due_date ASC
         """,
         tuple(args),
@@ -300,50 +316,57 @@ def generate_due_reminders(user_scope=None, as_of=None, force=False):
         if not due_date:
             continue
 
-        campaign_dates = [month_end(due_date), month_end(month_end(due_date) + timedelta(days=1))]
-        for round_number, campaign_date in enumerate(campaign_dates, start=1):
-            if not campaign_date:
-                continue
-            window_end = campaign_date + timedelta(days=31)
-            if not force and not (campaign_date <= as_of <= window_end):
-                continue
+        reminder_types = []
+        if booking.get("service_level") in {"Major", "Minor"} and due_date:
+            reminder_types.append((f"{booking['service_level'].lower()}_service", [month_end(due_date), month_end(month_end(due_date) + timedelta(days=1))]))
+        if booking.get("work_to_be_done"):
+            work_due = due_date or parse_date(booking.get("scheduled_date")) or as_of
+            reminder_types.append(("work_to_be_done", [month_end(work_due), month_end(month_end(work_due) + timedelta(days=1))]))
 
-            existing = fetch_one(
-                """
-                SELECT id
-                FROM reminder_campaigns
-                WHERE booking_id=%s AND reminder_kind=%s AND campaign_round=%s
-                """,
-                (booking["id"], f"{booking['service_level'].lower()}_service", round_number),
-            )
-            if existing:
-                continue
+        for reminder_kind, campaign_dates in reminder_types:
+            for round_number, campaign_date in enumerate(campaign_dates, start=1):
+                if not campaign_date:
+                    continue
+                window_end = campaign_date + timedelta(days=31)
+                if not force and not (campaign_date <= as_of <= window_end):
+                    continue
 
-            subject, body = build_booking_message(booking, {"due_date": booking["service_due_date"]})
-            execute_db(
-                """
-                INSERT INTO reminder_campaigns (
-                    booking_id, franchise_id, branch_id, reminder_kind, due_date,
-                    campaign_round, scheduled_for, status, message_subject,
-                    message_body, send_count, created_at, updated_at
+                existing = fetch_one(
+                    """
+                    SELECT id
+                    FROM reminder_campaigns
+                    WHERE booking_id=%s AND reminder_kind=%s AND campaign_round=%s
+                    """,
+                    (booking["id"], reminder_kind, round_number),
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'Pending', %s, %s, 0, %s, %s)
-                """,
-                (
-                    booking["id"],
-                    booking["franchise_id"],
-                    booking["branch_id"],
-                    f"{booking['service_level'].lower()}_service",
-                    booking["service_due_date"],
-                    round_number,
-                    campaign_date.strftime("%Y-%m-%d"),
-                    subject,
-                    body,
-                    utc_now(),
-                    utc_now(),
-                ),
-            )
-            created += 1
+                if existing:
+                    continue
+
+                subject, body = build_booking_message(booking, {"due_date": booking.get("service_due_date") or booking.get("scheduled_date")})
+                execute_db(
+                    """
+                    INSERT INTO reminder_campaigns (
+                        booking_id, franchise_id, branch_id, reminder_kind, due_date,
+                        campaign_round, scheduled_for, status, message_subject,
+                        message_body, send_count, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'Pending', %s, %s, 0, %s, %s)
+                    """,
+                    (
+                        booking["id"],
+                        booking["franchise_id"],
+                        booking["branch_id"],
+                        reminder_kind,
+                        booking.get("service_due_date") or booking.get("scheduled_date"),
+                        round_number,
+                        campaign_date.strftime("%Y-%m-%d"),
+                        subject,
+                        body,
+                        utc_now(),
+                        utc_now(),
+                    ),
+                )
+                created += 1
 
     return created
 
@@ -370,7 +393,7 @@ def auto_send_reminder(reminder, actor_user=None):
         return False, "Booking not found."
 
     subject, body = build_booking_message(booking, reminder)
-    for channel in preferred_channels(booking):
+    for channel in lowest_cost_channels(booking):
         try:
             if channel == "email" and smtp_configured() and booking.get("customer_email"):
                 send_email_message(booking["customer_email"], subject, body)
@@ -397,3 +420,108 @@ def auto_send_reminder(reminder, actor_user=None):
             return False, str(exc)
 
     return False, "No direct provider is configured for this customer."
+
+
+def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=None):
+    if not can_send_outbound(booking, subject, body):
+        return False, "suppressed"
+    recipient_email = booking.get("customer_email")
+    recipient_phone = booking.get("phone")
+    for channel in ["whatsapp", "sms", "email"]:
+        try:
+            if channel == "whatsapp" and recipient_phone and boolish(booking.get("whatsapp_opt_in", 0)) and twilio_configured("whatsapp"):
+                send_twilio_message("whatsapp", recipient_phone, body)
+                log_communication(booking, reminder, "whatsapp", recipient_phone, subject, body, "sent", actor_user_id)
+                return True, "whatsapp"
+            if channel == "sms" and recipient_phone and twilio_configured("sms"):
+                send_twilio_message("sms", recipient_phone, body)
+                log_communication(booking, reminder, "sms", recipient_phone, subject, body, "sent", actor_user_id)
+                return True, "sms"
+            if channel == "email" and recipient_email and smtp_configured():
+                send_email_message(recipient_email, subject, body)
+                log_communication(booking, reminder, "email", recipient_email, subject, body, "sent", actor_user_id)
+                return True, "email"
+        except Exception as exc:
+            log_communication(booking, reminder, channel, recipient_phone if channel != "email" else recipient_email, subject, body, f"failed: {exc}", actor_user_id)
+            continue
+    return False, "manual"
+
+
+def can_send_outbound(booking, subject, body):
+    if not booking:
+        return False
+    if not boolish(booking.get("reminder_opt_in", 1)) and "reminder" in (subject or "").lower():
+        return False
+    recipient = booking.get("phone") or booking.get("customer_email") or ""
+    if not recipient:
+        return False
+    threshold = (datetime.utcnow() - timedelta(hours=12)).replace(microsecond=0).isoformat()
+    recent = fetch_one(
+        """
+        SELECT id
+        FROM communication_logs
+        WHERE recipient=%s
+          AND subject=%s
+          AND created_at >= %s
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (recipient, subject, threshold),
+    )
+    return recent is None
+
+
+def send_missed_booking_followups():
+    today = utc_today()
+    bookings = fetch_all(
+        """
+        SELECT
+            b.*,
+            f.name AS franchise_name,
+            f.slug AS franchise_slug,
+            br.name AS branch_name,
+            br.slug AS branch_slug,
+            br.contact_email AS branch_contact_email,
+            br.contact_phone AS branch_contact_phone
+        FROM bookings b
+        LEFT JOIN franchises f ON f.id = b.franchise_id
+        LEFT JOIN branches br ON br.id = b.branch_id
+        WHERE b.scheduled_date < %s
+          AND b.status IN ('Pending', 'Confirmed', 'In Progress')
+          AND COALESCE(b.phone, '') <> ''
+          AND COALESCE(b.missed_followup_count, 0) < 2
+        ORDER BY b.scheduled_date ASC
+        """,
+        (today,),
+    )
+    sent = 0
+    for booking in bookings:
+        recent_reply = fetch_one(
+            """
+            SELECT id
+            FROM chatbot_messages
+            WHERE franchise_id=%s
+              AND customer_phone=%s
+              AND direction='inbound'
+              AND created_at > COALESCE(%s, '1900-01-01T00:00:00')
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (booking["franchise_id"], booking["phone"], booking.get("last_missed_followup_at")),
+        )
+        if recent_reply:
+            execute_db("UPDATE bookings SET last_customer_reply_at=%s, updated_at=%s WHERE id=%s", (utc_now(), utc_now(), booking["id"]))
+            continue
+        subject = f"{booking.get('branch_name')}: missed booking follow-up"
+        body = (
+            f"Hello {booking.get('first_name') or 'Customer'}, we missed you for your booking on "
+            f"{human_date(booking.get('scheduled_date'))}. Reply here if you would like us to reschedule."
+        )
+        success, channel = send_cheapest_message(booking, subject, body)
+        if success:
+            execute_db(
+                "UPDATE bookings SET missed_followup_count=%s, last_missed_followup_at=%s, updated_at=%s WHERE id=%s",
+                (int(booking.get("missed_followup_count") or 0) + 1, utc_now(), utc_now(), booking["id"]),
+            )
+            sent += 1
+    return sent

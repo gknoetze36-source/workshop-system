@@ -19,6 +19,7 @@ from platform_helpers import (
     daily_usage_summary,
     fetch_all,
     fetch_booking_for_user,
+    fetch_credential_audit,
     fetch_one,
     fetch_service_prices,
     fetch_visible_bookings,
@@ -46,6 +47,8 @@ from platform_messaging import (
     manual_channel_link,
     reminder_in_scope,
     send_email_message,
+    send_missed_booking_followups,
+    send_cheapest_message,
     send_twilio_message,
     smtp_configured,
     twilio_configured,
@@ -154,13 +157,17 @@ def health():
 
 @app.route("/")
 def home():
-    return render_template("public_home.html", franchises=visible_franchises(), branches=visible_branches(public_only=True))
+    demo_franchise = fetch_one("SELECT * FROM franchises WHERE slug=%s", ("demo-motor-group",))
+    branches = visible_branches(franchise_id=demo_franchise["id"], public_only=True)[:2] if demo_franchise else []
+    return render_template("public_home.html", franchises=[demo_franchise] if demo_franchise else [], branches=branches)
 
 
 def _render_public_booking(preselected_branch=None):
     if request.method == "POST":
         branch = branch_by_id(request.form.get("branch_id")) if request.form.get("branch_id") else preselected_branch
-        if not branch or not boolish(branch.get("public_booking_enabled", 1)):
+        if not boolish(request.form.get("privacy_consent", "")):
+            flash("Please confirm the consent and privacy notice before submitting your booking.", "error")
+        elif not branch or not boolish(branch.get("public_booking_enabled", 1)):
             flash("Please choose a valid branch before submitting your booking.", "error")
         else:
             reference = insert_booking(branch, request.form, "Website", "Pending")
@@ -266,6 +273,10 @@ def change_password():
             execute_db(
                 "UPDATE users SET password=%s, password_hash=%s, must_reset_password=0, updated_at=%s WHERE id=%s",
                 ("", generate_password_hash(new_password), utc_now(), user["id"]),
+            )
+            execute_db(
+                "INSERT INTO credential_audit (user_id, username, franchise_id, actor_user_id, event_type, note, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (user["id"], user["username"], user.get("franchise_id"), user["id"], "password_changed", "User changed password after reset.", utc_now()),
             )
             flash("Password updated successfully.", "success")
             return redirect(url_for("dashboard"))
@@ -477,8 +488,11 @@ def reminders():
     if inactive_redirect:
         return inactive_redirect
     created = generate_due_reminders(current_user())
+    missed = send_missed_booking_followups()
     if created:
         flash(f"{created} reminder campaign(s) were generated for the current month-end window.", "success")
+    if missed:
+        flash(f"{missed} missed-booking follow-up(s) were sent.", "success")
     return render_template("reminders.html", reminders=fetch_reminders_for_user(current_user()))
 
 
@@ -486,6 +500,7 @@ def reminders():
 @login_required
 def run_reminders():
     created = generate_due_reminders(current_user(), force=boolish(request.form.get("force")))
+    missed = send_missed_booking_followups()
     sent = 0
     for reminder in fetch_reminders_for_user(current_user()) if boolish(request.form.get("send_now")) else []:
         if reminder.get("status") == "Pending":
@@ -493,6 +508,8 @@ def run_reminders():
             if success:
                 sent += 1
     flash(f"Generated {created} reminder campaign(s).", "success")
+    if missed:
+        flash(f"Sent {missed} missed-booking follow-up(s).", "success")
     if sent:
         flash(f"Automatically sent {sent} reminder(s).", "success")
     elif boolish(request.form.get("send_now")):
@@ -549,8 +566,8 @@ def manage_franchises():
                     name, slug, contact_email, contact_phone, notes, plan_code, branch_limit, user_limit,
                     automation_enabled, chatbot_enabled, reporting_enabled, custom_integrations_enabled,
                     priority_support_enabled, monthly_base_price, monthly_message_limit, overage_price_per_message,
-                    billing_day, active, created_at, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'month_end', 1, %s, %s)
+                    billing_day, public_base_url, inbound_webhook_token, active, created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'month_end', %s, %s, 1, %s, %s)
                 """,
                 (
                     name,
@@ -569,6 +586,8 @@ def manage_franchises():
                     float(request.form.get("monthly_base_price") or 0),
                     int(request.form.get("monthly_message_limit") or 2000),
                     float(request.form.get("overage_price_per_message") or 0.5),
+                    (request.form.get("public_base_url") or "").strip(),
+                    (request.form.get("inbound_webhook_token") or "").strip(),
                     utc_now(),
                     utc_now(),
                 ),
@@ -595,7 +614,7 @@ def update_franchise(franchise_id):
         SET contact_email=%s, contact_phone=%s, notes=%s, plan_code=%s, branch_limit=%s, user_limit=%s,
             automation_enabled=%s, chatbot_enabled=%s, reporting_enabled=%s, custom_integrations_enabled=%s,
             priority_support_enabled=%s, monthly_base_price=%s, monthly_message_limit=%s, overage_price_per_message=%s,
-            active=%s, updated_at=%s
+            public_base_url=%s, inbound_webhook_token=%s, active=%s, updated_at=%s
         WHERE id=%s
         """,
         (
@@ -613,6 +632,8 @@ def update_franchise(franchise_id):
             float(request.form.get("monthly_base_price") or 0),
             int(request.form.get("monthly_message_limit") or 2000),
             float(request.form.get("overage_price_per_message") or 0.5),
+            (request.form.get("public_base_url") or "").strip(),
+            (request.form.get("inbound_webhook_token") or "").strip(),
             1 if boolish(request.form.get("active", "true")) else 0,
             utc_now(),
             franchise_id,
@@ -786,8 +807,36 @@ def reset_user_password(user_id):
         flash("Password cannot be empty.", "error")
     else:
         execute_db("UPDATE users SET password_hash=%s, password=%s, must_reset_password=%s, updated_at=%s WHERE id=%s", (generate_password_hash(password), "", 1 if boolish(request.form.get("must_reset_password")) else 0, utc_now(), user_id))
+        execute_db(
+            "INSERT INTO credential_audit (user_id, username, franchise_id, actor_user_id, event_type, note, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (candidate["id"], candidate["username"], candidate.get("franchise_id"), current_user()["id"], "password_reset", "Superadmin/admin reset password.", utc_now()),
+        )
         flash(f"Password reset for {candidate['username']}.", "success")
     return redirect(url_for("manage_users"))
+
+
+@app.route("/manage/credentials")
+@roles_required("super_admin")
+def manage_credentials():
+    users = fetch_all("SELECT u.*, f.name AS franchise_name, b.name AS branch_name FROM users u LEFT JOIN franchises f ON f.id = u.franchise_id LEFT JOIN branches b ON b.id = u.branch_id ORDER BY f.name, u.username")
+    return render_template("manage_credentials.html", users=users, audit=fetch_credential_audit(), temporary_password="login1234")
+
+
+@app.route("/manage/credentials/reset-all", methods=["POST"])
+@roles_required("super_admin")
+def reset_all_passwords():
+    users = fetch_all("SELECT * FROM users WHERE role <> 'super_admin' OR username <> %s", (current_user()["username"],))
+    for user in users:
+        execute_db(
+            "UPDATE users SET password_hash=%s, password=%s, must_reset_password=1, updated_at=%s WHERE id=%s",
+            (generate_password_hash("login1234"), "", utc_now(), user["id"]),
+        )
+        execute_db(
+            "INSERT INTO credential_audit (user_id, username, franchise_id, actor_user_id, event_type, note, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (user["id"], user["username"], user.get("franchise_id"), current_user()["id"], "password_reset_batch", "Temporary password reset to platform-wide temporary credential.", utc_now()),
+        )
+    flash("All client passwords were reset to the current temporary password policy and forced to change on next login.", "success")
+    return redirect(url_for("manage_credentials"))
 
 
 @app.route("/manage/prices", methods=["GET", "POST"])
@@ -828,7 +877,7 @@ def chatbot_inbox():
             price_match = find_service_price(franchise["id"], branch["id"], service_name)
             matched_price = (price_match or {}).get("price_amount")
         execute_db(
-            "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, suggested_service, matched_price, status, processed, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, %s, %s, 'Saved', 0, %s, %s)",
+            "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, suggested_service, matched_price, status, processed, privacy_notice_sent, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, %s, %s, 'Saved', 0, 1, %s, %s)",
             (
                 franchise_id,
                 branch["id"] if branch else None,
@@ -935,17 +984,52 @@ from assistant_engine import assistant_reply
 from platform_helpers import branch_by_id
 from platform_messaging import send_twilio_message
 
-@app.route("/webhook/twilio", methods=["POST"])
-def twilio_webhook():
+@app.route("/webhook/twilio/<franchise_slug>/<branch_slug>/<token>", methods=["POST"])
+def twilio_webhook(franchise_slug, branch_slug, token):
     phone = request.form.get("From")
     message = request.form.get("Body")
+    branch = branch_for_public_booking(franchise_slug, branch_slug)
+    if not branch:
+        abort(404)
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],))
+    if not franchise or (franchise.get("inbound_webhook_token") and franchise.get("inbound_webhook_token") != token):
+        abort(403)
 
-    branch = branch_by_id(1)  # upgrade later
+    execute_db(
+        "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, status, processed, privacy_notice_sent, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, 'Received', 0, 0, %s, %s)",
+        (branch["franchise_id"], branch["id"], "", phone or "", "", "WhatsApp", message or "", utc_now(), utc_now()),
+    )
 
     reply, should_count = assistant_reply(phone, message, branch)
 
     if reply:
-        send_twilio_message("whatsapp", phone, reply)
+        notice = "Automated assistant: we only use your information for bookings and booking-related communication. "
+        prior_notice = fetch_one(
+            """
+            SELECT id
+            FROM chatbot_messages
+            WHERE franchise_id=%s AND customer_phone=%s AND privacy_notice_sent=1
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (branch["franchise_id"], phone or ""),
+        )
+        outbound_text = f"{notice}{reply}" if not prior_notice else reply
+        booking_stub = {
+            "id": None,
+            "franchise_id": branch["franchise_id"],
+            "branch_id": branch["id"],
+            "phone": phone,
+            "customer_email": "",
+            "whatsapp_opt_in": 1,
+            "reminder_opt_in": 1,
+        }
+        sent, _channel = send_cheapest_message(booking_stub, f"{branch['name']} assistant", outbound_text)
+        if sent and not prior_notice:
+            execute_db(
+                "UPDATE chatbot_messages SET privacy_notice_sent=1, updated_at=%s WHERE franchise_id=%s AND customer_phone=%s",
+                (utc_now(), branch["franchise_id"], phone or ""),
+            )
 
     if should_count:
         _record_chatbot_usage(branch["franchise_id"])

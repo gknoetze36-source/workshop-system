@@ -136,6 +136,8 @@ def _create_tables(connection, backend):
             contact_email TEXT,
             contact_phone TEXT,
             notes TEXT,
+            public_base_url TEXT,
+            inbound_webhook_token TEXT,
             plan_code TEXT DEFAULT 'basic',
             branch_limit INTEGER DEFAULT 1,
             user_limit INTEGER DEFAULT 2,
@@ -163,6 +165,7 @@ def _create_tables(connection, backend):
             location TEXT,
             contact_email TEXT,
             contact_phone TEXT,
+            daily_capacity INTEGER DEFAULT 12,
             public_booking_enabled {integer_boolean} DEFAULT 1,
             active {integer_boolean} DEFAULT 1,
             created_at TEXT,
@@ -220,6 +223,11 @@ def _create_tables(connection, backend):
             source TEXT,
             quote_declined TEXT,
             contacted TEXT,
+            missed_followup_count INTEGER DEFAULT 0,
+            last_missed_followup_at TEXT,
+            last_customer_reply_at TEXT,
+            whatsapp_opt_in {integer_boolean} DEFAULT 0,
+            privacy_consent_at TEXT,
             reminder_opt_in {integer_boolean} DEFAULT 1,
             completed_at TEXT,
             created_at TEXT,
@@ -293,6 +301,7 @@ def _create_tables(connection, backend):
             matched_price REAL,
             status TEXT,
             processed {integer_boolean} DEFAULT 0,
+            privacy_notice_sent {integer_boolean} DEFAULT 0,
             created_at TEXT,
             updated_at TEXT
         )
@@ -326,6 +335,18 @@ def _create_tables(connection, backend):
             updated_at TEXT
         )
         """,
+        f"""
+        CREATE TABLE IF NOT EXISTS credential_audit (
+            id {primary_key},
+            user_id INTEGER,
+            username TEXT,
+            franchise_id INTEGER,
+            actor_user_id INTEGER,
+            event_type TEXT,
+            note TEXT,
+            created_at TEXT
+        )
+        """,
     ]:
         _run(connection, backend, query)
 
@@ -337,6 +358,8 @@ def _ensure_columns(connection, backend):
             "contact_email": "TEXT",
             "contact_phone": "TEXT",
             "notes": "TEXT",
+            "public_base_url": "TEXT",
+            "inbound_webhook_token": "TEXT",
             "plan_code": "TEXT DEFAULT 'basic'",
             "branch_limit": "INTEGER DEFAULT 1",
             "user_limit": "INTEGER DEFAULT 2",
@@ -360,6 +383,7 @@ def _ensure_columns(connection, backend):
             "location": "TEXT",
             "contact_email": "TEXT",
             "contact_phone": "TEXT",
+            "daily_capacity": "INTEGER DEFAULT 12",
             "public_booking_enabled": "BOOLEAN DEFAULT 1" if backend == "postgres" else "INTEGER DEFAULT 1",
             "active": "BOOLEAN DEFAULT 1" if backend == "postgres" else "INTEGER DEFAULT 1",
             "created_at": "TEXT",
@@ -412,6 +436,11 @@ def _ensure_columns(connection, backend):
             "source": "TEXT DEFAULT 'Website'",
             "quote_declined": "TEXT DEFAULT 'No'",
             "contacted": "TEXT DEFAULT 'No'",
+            "missed_followup_count": "INTEGER DEFAULT 0",
+            "last_missed_followup_at": "TEXT",
+            "last_customer_reply_at": "TEXT",
+            "whatsapp_opt_in": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "privacy_consent_at": "TEXT",
         },
         "reminder_campaigns": {
             "booking_id": "INTEGER",
@@ -468,6 +497,7 @@ def _ensure_columns(connection, backend):
             "matched_price": "REAL",
             "status": "TEXT",
             "processed": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "privacy_notice_sent": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
             "created_at": "TEXT",
             "updated_at": "TEXT",
         },
@@ -494,6 +524,15 @@ def _ensure_columns(connection, backend):
             "created_at": "TEXT",
             "updated_at": "TEXT",
         },
+        "credential_audit": {
+            "user_id": "INTEGER",
+            "username": "TEXT",
+            "franchise_id": "INTEGER",
+            "actor_user_id": "INTEGER",
+            "event_type": "TEXT",
+            "note": "TEXT",
+            "created_at": "TEXT",
+        },
     }
 
     for table_name, columns in desired_columns.items():
@@ -519,6 +558,7 @@ def _ensure_indexes(connection, backend):
         "CREATE INDEX IF NOT EXISTS idx_chatbot_messages_scope ON chatbot_messages(franchise_id, branch_id, created_at)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_chatbot_usage_daily_scope ON chatbot_usage_daily(franchise_id, usage_date)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_chatbot_usage_monthly_scope ON chatbot_usage_monthly(franchise_id, usage_month)",
+        "CREATE INDEX IF NOT EXISTS idx_credential_audit_scope ON credential_audit(franchise_id, created_at)",
     ]
     for query in index_queries:
         _run(connection, backend, query)
@@ -695,7 +735,9 @@ def _migrate_legacy_users(connection, backend):
         if branch_name and branch_name.upper() not in {"ALL", "MAIN"}:
             branch_record = _get_or_create_branch(connection, backend, franchise_record["id"], branch_name)
 
-        if legacy_role == "super_admin":
+        if legacy_role in {"super_admin", "franchise_admin", "reception"}:
+            role = legacy_role
+        elif legacy_role == "super_admin":
             role = "super_admin"
         elif legacy_role == "admin":
             role = "franchise_admin"
@@ -770,9 +812,9 @@ def _ensure_super_admin(connection, backend):
 
 
 def _harden_default_credentials(connection, backend):
-    from werkzeug.security import check_password_hash, generate_password_hash
+    from werkzeug.security import generate_password_hash
 
-    weak_passwords = {"1234", "admin", "password", "123456", "ChangeMeNow!2026"}
+    weak_passwords = {"1234", "admin", "password", "123456", "ChangeMeNow!2026", "login1234"}
     users = _run(connection, backend, "SELECT * FROM users ORDER BY id") or []
     now = utc_now()
     for user in users:
@@ -781,20 +823,12 @@ def _harden_default_credentials(connection, backend):
         must_reset = int(user.get("must_reset_password") or 0)
 
         matched_weak = plaintext in weak_passwords
-        if not matched_weak and password_hash:
-            for weak in weak_passwords:
-                try:
-                    if check_password_hash(password_hash, weak):
-                        matched_weak = True
-                        break
-                except ValueError:
-                    continue
 
         if plaintext:
             password_hash = generate_password_hash(plaintext) if not password_hash else password_hash
             plaintext = ""
 
-        if matched_weak or plaintext:
+        if matched_weak:
             must_reset = 1
 
         _run(

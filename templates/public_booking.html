@@ -8,6 +8,7 @@
 <div class="grid two">
     <section class="panel">
         <form method="post" class="grid-form">
+            <div class="flash info">By booking here, you are submitting details for booking management and booking-related communication only. You are not speaking to a human-only channel at all times; automated chatbot or reminder messages may be used.</div>
             <div class="grid two">
                 <label>First name<input name="first_name" required></label>
                 <label>Surname<input name="surname" required></label>
@@ -45,7 +46,9 @@
             <label>Current mileage<input name="current_mileage"></label>
             <label>Work or issue to be checked<textarea name="work_to_be_done"></textarea></label>
             <label>Extra notes<textarea name="public_notes"></textarea></label>
+            <label><input type="checkbox" name="whatsapp_opt_in" value="true"> I agree to receive booking-related WhatsApp messages for this booking</label>
             <label><input type="checkbox" name="reminder_opt_in" value="true" checked> Send yearly service reminders and follow-ups</label>
+            <label><input type="checkbox" name="privacy_consent" value="true" required> I consent to the workshop using my details only for bookings and booking-related communication.</label>
             <button type="submit">Send Booking</button>
         </form>
     </section>
@@ -55,6 +58,7 @@
             <div class="metric"><span>Correct workshop routing</span><strong>Locked</strong><div class="small">The customer chooses a real branch before submission.</div></div>
             <div class="metric"><span>Reception visibility</span><strong>Scoped</strong><div class="small">Reception users only see their own branch.</div></div>
             <div class="metric"><span>Franchise visibility</span><strong>Grouped</strong><div class="small">Franchise admins see every branch under them.</div></div>
+            <div class="metric"><span>Anti-spam</span><strong>Guarded</strong><div class="small">Follow-ups are limited and booking communication only.</div></div>
         </div>
     </section>
 </div>

@@ -335,17 +335,31 @@ def generate_booking_reference(scheduled_date):
 
 
 def public_booking_url(branch):
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],)) if branch.get("franchise_id") else None
+    base_url = (franchise or {}).get("public_base_url") or ""
     if has_request_context():
-        return url_for(
+        path = url_for(
             "public_branch_booking",
             franchise_slug=branch["franchise_slug"],
             branch_slug=branch["slug"],
-            _external=True,
+            _external=not bool(base_url),
         )
+        return f"{base_url.rstrip('/')}{url_for('public_branch_booking', franchise_slug=branch['franchise_slug'], branch_slug=branch['slug'])}" if base_url else path
 
-    base = ""
     path = f"/book/{branch['franchise_slug']}/{branch['slug']}"
-    return f"{base}{path}" if base else path
+    return f"{base_url.rstrip('/')}{path}" if base_url else path
+
+
+def fetch_credential_audit():
+    return fetch_all(
+        """
+        SELECT ca.*, u.full_name AS actor_name, f.name AS franchise_name
+        FROM credential_audit ca
+        LEFT JOIN users u ON u.id = ca.actor_user_id
+        LEFT JOIN franchises f ON f.id = ca.franchise_id
+        ORDER BY ca.created_at DESC
+        """
+    )
 
 
 def fetch_visible_bookings(user, filters=None):
@@ -465,8 +479,10 @@ def insert_booking(branch, form_data, source, status):
     completed_at = scheduled_date if status in DONE_STATUSES else ""
     service_due_date = compute_service_due_date(service_level, completed_at)
     booking_reference = generate_booking_reference(scheduled_date)
-    reminder_opt_in = 1 if boolish(form_data.get("reminder_opt_in", "true")) else 0
     now = utc_now()
+    reminder_opt_in = 1 if boolish(form_data.get("reminder_opt_in", "true")) else 0
+    whatsapp_opt_in = 1 if boolish(form_data.get("whatsapp_opt_in", "false")) else 0
+    privacy_consent_at = now if boolish(form_data.get("privacy_consent", "false")) else None
 
     execute_db(
         """
@@ -475,7 +491,7 @@ def insert_booking(branch, form_data, source, status):
             first_name, surname, customer_email, phone, preferred_contact_method,
             make, model, vehicle_year, fuel_type, vehicle_vin, service, service_level,
             current_mileage, scheduled_date, date, status, service_due_date, work_to_be_done,
-            public_notes, internal_notes, source, quote_declined, contacted, reminder_opt_in,
+            public_notes, internal_notes, source, quote_declined, contacted, whatsapp_opt_in, privacy_consent_at, reminder_opt_in,
             completed_at, created_at, updated_at
         )
         VALUES (
@@ -483,7 +499,7 @@ def insert_booking(branch, form_data, source, status):
             %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s
         )
         """,
@@ -516,6 +532,8 @@ def insert_booking(branch, form_data, source, status):
             source,
             (form_data.get("quote_declined") or "No").strip(),
             "No",
+            whatsapp_opt_in,
+            privacy_consent_at,
             reminder_opt_in,
             completed_at or None,
             now,

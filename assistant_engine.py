@@ -1,10 +1,11 @@
-from ai_engine import classify_message
-from platform_helpers import insert_booking, fetch_all
-from database import fetch_one, execute_db, utc_now
 import json
 
+from ai_engine import classify_message
+from platform_helpers import branch_by_id, find_service_price, insert_booking
+from database import query_db, execute_db, utc_now
+
 def get_session(phone):
-    return fetch_one("SELECT * FROM chat_sessions WHERE phone=%s", (phone,))
+    return query_db("SELECT * FROM chat_sessions WHERE phone=%s", (phone,), one=True)
 
 def save_session(phone, branch_id, state, context):
     existing = get_session(phone)
@@ -22,6 +23,8 @@ def save_session(phone, branch_id, state, context):
 
 def assistant_reply(phone, message, branch):
     session = get_session(phone)
+    cleaned_message = (message or "").strip()
+    customer_name = "Client"
 
     # EXISTING FLOW
     if session:
@@ -29,16 +32,16 @@ def assistant_reply(phone, message, branch):
         context = json.loads(session["context"] or "{}")
 
         if state == "awaiting_date":
-            context["date"] = message
+            context["date"] = cleaned_message
             save_session(phone, branch["id"], "awaiting_confirmation", context)
-            return f"Confirm booking on {message}? (yes/no)", True
+            return f"Confirm booking on {cleaned_message}? (yes/no)", True
 
         if state == "awaiting_confirmation":
-            if "yes" in message.lower():
+            if "yes" in cleaned_message.lower():
                 ref = insert_booking(
                     branch,
                     {
-                        "first_name": "Client",
+                        "first_name": customer_name,
                         "phone": phone,
                         "service": context["service"],
                         "scheduled_date": context["date"]
@@ -47,15 +50,22 @@ def assistant_reply(phone, message, branch):
                     "Confirmed"
                 )
                 return f"Booking confirmed. Ref: {ref}", True
+            if "no" in cleaned_message.lower():
+                save_session(phone, branch["id"], "closed", context)
+                return "No problem. Send us another preferred date when you're ready.", True
 
     # NEW MESSAGE
-    intent = classify_message(message)
+    intent = classify_message(cleaned_message)
 
     if intent == "pricing":
-        return "Pricing logic here", True
+        price = find_service_price(branch["franchise_id"], branch["id"], cleaned_message.title())
+        if price:
+            return f"Our fixed price for {price['service_name']} is R{float(price['price_amount'] or 0):.2f}.", True
+        return "We have saved your message for the branch team to price manually. They will reply from the dashboard.", False
 
     if intent in ["booking", "repair"]:
-        save_session(phone, branch["id"], "awaiting_date", {"service": "Service"})
+        service_name = "Vehicle Inspection For Repairs" if intent == "repair" else "General Service"
+        save_session(phone, branch["id"], "awaiting_date", {"service": service_name})
         return "What date would you like?", True
 
     return None, False

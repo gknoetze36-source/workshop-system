@@ -5,6 +5,7 @@
 <div class="grid two">
     <section class="panel">
         <h3>Capture inbound message</h3>
+        <div class="flash info">Use this inbox for booking and booking-related communication only. Customers must be told they are speaking to an automated assistant.</div>
         <form method="post" class="grid-form">
             {% if current_user.role == 'super_admin' %}
             <label>Franchise<select name="franchise_id">{% for franchise in franchises %}<option value="{{ franchise.id }}">{{ franchise.name }}</option>{% endfor %}</select></label>
