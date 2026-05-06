@@ -12,6 +12,34 @@
     <div class="metric"><span>Completed</span><strong>{{ metrics.completed }}</strong></div>
     <div class="metric"><span>Pending reminders</span><strong>{{ metrics.reminders }}</strong></div>
 </section>
+<section class="panel" style="margin-top:18px;">
+    <h3>Inquiry follow-up pipeline</h3>
+    <div class="metrics">
+        <div class="metric"><span>Total inquiries</span><strong>{{ inquiry_metrics.total_inquiries }}</strong></div>
+        <div class="metric"><span>Engaged</span><strong>{{ inquiry_metrics.engaged_inquiries }}</strong></div>
+        <div class="metric"><span>Booking pending</span><strong>{{ inquiry_metrics.booking_pending }}</strong></div>
+        <div class="metric"><span>Follow-ups sent</span><strong>{{ inquiry_metrics.followups_sent }}</strong></div>
+        <div class="metric"><span>Replies after follow-up</span><strong>{{ inquiry_metrics.replies_after_followup }}</strong></div>
+        <div class="metric"><span>Bookings from follow-ups</span><strong>{{ inquiry_metrics.bookings_from_followups }}</strong></div>
+    </div>
+    <div class="table-wrap" style="margin-top:14px;">
+        <table>
+            <tr><th>Customer</th><th>State</th><th>Service</th><th>Last interaction</th><th>Next follow-up</th><th>Stage</th></tr>
+            {% for inquiry in inquiry_rows %}
+            <tr>
+                <td>{{ inquiry.customer_name or inquiry.customer_phone or inquiry.customer_email or "Unknown" }}<div class="small">{{ inquiry.branch_name }}</div></td>
+                <td><span class="status">{{ inquiry.user_state }}</span></td>
+                <td>{{ inquiry.service_type or "General inquiry" }}</td>
+                <td>{{ inquiry.last_user_interaction_at or "-" }}</td>
+                <td>{{ inquiry.next_followup_at or "-" }}</td>
+                <td>{{ inquiry.followup_stage or 0 }}/4</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No active inquiries have been captured yet.</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</section>
 {% if current_user.role != 'super_admin' and franchise %}
 <div class="grid two" style="margin-top:18px;">
     <section class="panel">

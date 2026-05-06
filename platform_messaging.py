@@ -1,14 +1,14 @@
 import re
-import smtplib
 from datetime import datetime, timedelta
-from email.message import EmailMessage
 from urllib.parse import quote
 
 from database import execute_db, utc_now
 from platform_helpers import (
+    INQUIRY_STATES,
     boolish,
     fetch_all,
     fetch_one,
+    find_active_inquiry,
     human_date,
     month_end,
     parse_date,
@@ -30,19 +30,30 @@ def normalize_phone(phone):
     return digits
 
 
+FOLLOWUP_DELAYS_MINUTES = {
+    1: 7,
+    2: 90,
+    4: 60 * 24 * 2,
+}
+
+
+DECLINE_PATTERNS = (
+    "no",
+    "not now",
+    "stop",
+    "cancel",
+    "don't",
+    "do not",
+    "no thanks",
+    "not interested",
+    "leave me",
+)
+
+
 def manual_channel_link(channel, recipient, subject, body):
-    if channel == "email":
-        return f"mailto:{recipient}?subject={quote(subject)}&body={quote(body)}"
     if channel == "sms":
         return f"sms:{recipient}?body={quote(body)}"
     return f"https://wa.me/{normalize_phone(recipient)}?text={quote(body)}"
-
-
-def smtp_configured():
-    return all(
-        __import__("os").environ.get(key)
-        for key in ("SMTP_HOST", "SMTP_PORT", "SMTP_FROM_EMAIL")
-    )
 
 
 def twilio_configured(channel):
@@ -55,23 +66,6 @@ def twilio_configured(channel):
     if channel == "whatsapp":
         return bool(os.environ.get("TWILIO_WHATSAPP_FROM"))
     return False
-
-
-def send_email_message(recipient, subject, body):
-    import os
-
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = os.environ.get("SMTP_FROM_EMAIL")
-    message["To"] = recipient
-    message.set_content(body)
-
-    with smtplib.SMTP(os.environ.get("SMTP_HOST"), int(os.environ.get("SMTP_PORT", "587")), timeout=20) as smtp:
-        if os.environ.get("SMTP_USE_TLS", "true").lower() != "false":
-            smtp.starttls()
-        if os.environ.get("SMTP_USERNAME") and os.environ.get("SMTP_PASSWORD"):
-            smtp.login(os.environ.get("SMTP_USERNAME"), os.environ.get("SMTP_PASSWORD"))
-        smtp.send_message(message)
 
 
 def send_twilio_message(channel, recipient, body):
@@ -125,20 +119,242 @@ def build_booking_message(booking, reminder=None):
     return subject, body
 
 
+def _iso_now(as_of=None):
+    moment = as_of or datetime.utcnow()
+    return moment.replace(microsecond=0).isoformat()
+
+
+def _parse_timestamp(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", ""))
+    except ValueError:
+        return parse_date(text)
+
+
+def _inquiry_stage_time(stage, reference_time):
+    base = reference_time if isinstance(reference_time, datetime) else parse_date(reference_time) or datetime.utcnow()
+    if stage == 1:
+        return (base + timedelta(minutes=FOLLOWUP_DELAYS_MINUTES[1])).replace(microsecond=0)
+    if stage == 2:
+        return (base + timedelta(minutes=FOLLOWUP_DELAYS_MINUTES[2])).replace(microsecond=0)
+    if stage == 3:
+        next_day = (base + timedelta(days=1)).replace(hour=8, minute=30, second=0, microsecond=0)
+        return next_day
+    if stage == 4:
+        return (base + timedelta(minutes=FOLLOWUP_DELAYS_MINUTES[4])).replace(hour=9, minute=30, second=0, microsecond=0)
+    return None
+
+
+def _decline_detected(message):
+    text = (message or "").strip().lower()
+    return any(pattern in text for pattern in DECLINE_PATTERNS)
+
+
+def _inquiry_state_for_message(message, service_type="", existing_state=""):
+    text = (message or "").strip().lower()
+    if _decline_detected(text):
+        return "LOST"
+    if any(keyword in text for keyword in ("book", "booking", "appointment", "come in", "available", "time", "tomorrow", "today")):
+        return "BOOKING_PENDING"
+    if service_type or any(keyword in text for keyword in ("price", "quote", "cost", "repair", "service", "help", "?")):
+        return "ENGAGED"
+    return existing_state or "NEW_INQUIRY"
+
+
+def _available_slot_summary(branch_id, days=(0, 1)):
+    branch = fetch_one("SELECT daily_capacity, name FROM branches WHERE id=%s", (branch_id,))
+    if not branch:
+        return ""
+    capacity = int(branch.get("daily_capacity") or 0)
+    labels = []
+    for offset in days:
+        day = datetime.utcnow().date() + timedelta(days=offset)
+        date_key = day.strftime("%Y-%m-%d")
+        booked = fetch_one("SELECT COUNT(*) AS total FROM bookings WHERE branch_id=%s AND scheduled_date=%s", (branch_id, date_key))
+        total = int((booked or {}).get("total") or 0)
+        remaining = max(capacity - total, 0)
+        if remaining > 0:
+            label = "today" if offset == 0 else ("tomorrow" if offset == 1 else day.strftime("%a"))
+            if remaining >= 3:
+                labels.append(f"{label} morning or afternoon")
+            else:
+                labels.append(f"{label} limited availability")
+    return ", ".join(labels[:2])
+
+
+def _followup_message(inquiry, branch, stage):
+    service_type = (inquiry.get("service_type") or "your service").strip()
+    branch_name = branch.get("name") or "the workshop"
+    slot_summary = _available_slot_summary(branch["id"])
+    slot_text = f" Available times: {slot_summary}." if slot_summary else ""
+    if stage == 1:
+        return (
+            f"{branch_name}: just checking in about {service_type}. "
+            f"Would you like me to book you in for today or tomorrow?{slot_text}"
+        )
+    if stage == 2:
+        return (
+            f"{branch_name}: we still have a few open spots for {service_type}. "
+            f"I can quickly secure one for you. What time works best?{slot_text}"
+        )
+    if stage == 3:
+        return (
+            f"{branch_name}: just following up on {service_type}. "
+            f"Did you still want to come in? I can book you for today or later this week.{slot_text}"
+        )
+    return (
+        f"{branch_name}: one last check-in about {service_type}. "
+        f"Let me know if you'd like me to book something for you."
+    )
+
+
+def _followup_subject(inquiry, branch, stage):
+    service_type = (inquiry.get("service_type") or "booking").strip()
+    return f"{branch.get('name')}: inquiry follow-up {stage} for {service_type}"
+
+
+def ensure_inquiry(branch, phone="", email="", customer_name="", channel="WhatsApp", message="", service_type="", interested=False):
+    phone = (phone or "").strip()
+    email = (email or "").strip()
+    if not phone and not email:
+        return None
+    inquiry = find_active_inquiry(branch["franchise_id"], branch["id"], phone=phone, email=email)
+    state = _inquiry_state_for_message(message, service_type=service_type, existing_state=(inquiry or {}).get("user_state"))
+    now = utc_now()
+    next_followup = _inquiry_stage_time(1, datetime.utcnow()).isoformat() if interested and state in {"ENGAGED", "BOOKING_PENDING", "NEW_INQUIRY"} else None
+    if inquiry:
+        execute_db(
+            """
+            UPDATE booking_inquiries
+            SET customer_name=COALESCE(NULLIF(%s, ''), customer_name),
+                customer_email=COALESCE(NULLIF(%s, ''), customer_email),
+                source_channel=%s,
+                user_state=%s,
+                service_type=COALESCE(NULLIF(%s, ''), service_type),
+                last_message_text=%s,
+                last_user_interaction_at=%s,
+                next_followup_at=CASE
+                    WHEN booking_id IS NOT NULL OR %s='LOST' THEN NULL
+                    WHEN COALESCE(followup_stage, 0)=0 AND %s THEN COALESCE(next_followup_at, %s)
+                    ELSE next_followup_at
+                END,
+                declined=%s,
+                stop_reason=CASE WHEN %s='LOST' THEN 'declined' ELSE NULL END,
+                closed_at=CASE WHEN %s='LOST' THEN %s ELSE NULL END,
+                updated_at=%s
+            WHERE id=%s
+            """,
+            (
+                customer_name,
+                email,
+                channel,
+                state,
+                service_type,
+                message,
+                now,
+                state,
+                1 if interested else 0,
+                next_followup,
+                1 if state == "LOST" else 0,
+                state,
+                state,
+                now,
+                now,
+                inquiry["id"],
+            ),
+        )
+        return find_active_inquiry(branch["franchise_id"], branch["id"], phone=phone, email=email)
+
+    execute_db(
+        """
+        INSERT INTO booking_inquiries (
+            franchise_id, branch_id, customer_name, customer_phone, customer_email,
+            source_channel, user_state, service_type, last_message_text, last_user_interaction_at,
+            next_followup_at, declined, created_at, updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            branch["franchise_id"],
+            branch["id"],
+            customer_name,
+            phone,
+            email,
+            channel,
+            state,
+            service_type,
+            message,
+            now,
+            next_followup,
+            1 if state == "LOST" else 0,
+            now,
+            now,
+        ),
+    )
+    return find_active_inquiry(branch["franchise_id"], branch["id"], phone=phone, email=email)
+
+
+def stop_inquiry_for_reply(branch, phone="", email="", message="", customer_name="", channel="WhatsApp"):
+    inquiry = ensure_inquiry(branch, phone=phone, email=email, customer_name=customer_name, channel=channel, message=message, interested=True)
+    if not inquiry:
+        return None
+    now = utc_now()
+    new_state = "LOST" if _decline_detected(message) else _inquiry_state_for_message(message, service_type=inquiry.get("service_type"), existing_state=inquiry.get("user_state"))
+    prior_followups = int(inquiry.get("followups_sent_count") or 0)
+    replies_after = int(inquiry.get("replies_after_followup_count") or 0) + (1 if prior_followups > 0 else 0)
+    if new_state == "LOST":
+        next_followup = None
+    elif prior_followups > 0:
+        next_followup = None
+    else:
+        next_followup = inquiry.get("next_followup_at") or _inquiry_stage_time(1, datetime.utcnow()).isoformat()
+    execute_db(
+        """
+        UPDATE booking_inquiries
+        SET user_state=%s,
+            last_user_interaction_at=%s,
+            last_message_text=%s,
+            customer_name=COALESCE(NULLIF(%s, ''), customer_name),
+            source_channel=%s,
+            replies_after_followup_count=%s,
+            stop_reason=%s,
+            declined=%s,
+            closed_at=%s,
+            next_followup_at=%s,
+            updated_at=%s
+        WHERE id=%s
+        """,
+        (
+            new_state,
+            now,
+            message,
+            customer_name,
+            channel,
+            replies_after,
+            "declined" if new_state == "LOST" else None,
+            1 if new_state == "LOST" else 0,
+            now if new_state == "LOST" else None,
+            next_followup,
+            now,
+            inquiry["id"],
+        ),
+    )
+    return find_active_inquiry(branch["franchise_id"], branch["id"], phone=phone, email=email)
+
+
 def preferred_channels(booking):
     method = (booking.get("preferred_contact_method") or "").lower()
     available = []
     if booking.get("phone"):
         available.extend(["whatsapp", "sms"])
-    if booking.get("customer_email"):
-        available.append("email")
 
-    if "email" in method:
-        ordered = ["email", "whatsapp", "sms"]
-    elif "sms" in method or "message" in method or "text" in method:
-        ordered = ["sms", "whatsapp", "email"]
+    if "sms" in method or "message" in method or "text" in method:
+        ordered = ["sms", "whatsapp"]
     else:
-        ordered = ["whatsapp", "sms", "email"]
+        ordered = ["whatsapp", "sms"]
 
     return [channel for channel in ordered if channel in available]
 
@@ -148,8 +364,6 @@ def lowest_cost_channels(booking):
     if booking.get("phone"):
         channels.append("whatsapp")
         channels.append("sms")
-    if booking.get("customer_email"):
-        channels.append("email")
     seen = []
     for item in channels:
         if item not in seen:
@@ -395,12 +609,6 @@ def auto_send_reminder(reminder, actor_user=None):
     subject, body = build_booking_message(booking, reminder)
     for channel in lowest_cost_channels(booking):
         try:
-            if channel == "email" and smtp_configured() and booking.get("customer_email"):
-                send_email_message(booking["customer_email"], subject, body)
-                log_communication(booking, reminder, channel, booking["customer_email"], subject, body, "sent", actor_user["id"] if actor_user else None)
-                update_reminder_status(reminder["id"], "Sent", channel, count_as_send=True)
-                return True, f"Email sent to {booking['customer_email']}."
-
             if channel in {"sms", "whatsapp"} and twilio_configured(channel) and booking.get("phone"):
                 send_twilio_message(channel, booking["phone"], body)
                 log_communication(booking, reminder, channel, booking["phone"], subject, body, "sent", actor_user["id"] if actor_user else None)
@@ -411,7 +619,7 @@ def auto_send_reminder(reminder, actor_user=None):
                 booking,
                 reminder,
                 channel,
-                booking.get("customer_email") if channel == "email" else booking.get("phone", ""),
+                booking.get("phone", ""),
                 subject,
                 body,
                 f"failed: {exc}",
@@ -425,9 +633,8 @@ def auto_send_reminder(reminder, actor_user=None):
 def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=None):
     if not can_send_outbound(booking, subject, body):
         return False, "suppressed"
-    recipient_email = booking.get("customer_email")
     recipient_phone = booking.get("phone")
-    for channel in ["whatsapp", "sms", "email"]:
+    for channel in ["whatsapp", "sms"]:
         try:
             if channel == "whatsapp" and recipient_phone and boolish(booking.get("whatsapp_opt_in", 0)) and twilio_configured("whatsapp"):
                 send_twilio_message("whatsapp", recipient_phone, body)
@@ -437,12 +644,8 @@ def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=N
                 send_twilio_message("sms", recipient_phone, body)
                 log_communication(booking, reminder, "sms", recipient_phone, subject, body, "sent", actor_user_id)
                 return True, "sms"
-            if channel == "email" and recipient_email and smtp_configured():
-                send_email_message(recipient_email, subject, body)
-                log_communication(booking, reminder, "email", recipient_email, subject, body, "sent", actor_user_id)
-                return True, "email"
         except Exception as exc:
-            log_communication(booking, reminder, channel, recipient_phone if channel != "email" else recipient_email, subject, body, f"failed: {exc}", actor_user_id)
+            log_communication(booking, reminder, channel, recipient_phone, subject, body, f"failed: {exc}", actor_user_id)
             continue
     return False, "manual"
 
@@ -452,7 +655,7 @@ def can_send_outbound(booking, subject, body):
         return False
     if not boolish(booking.get("reminder_opt_in", 1)) and "reminder" in (subject or "").lower():
         return False
-    recipient = booking.get("phone") or booking.get("customer_email") or ""
+    recipient = booking.get("phone") or ""
     if not recipient:
         return False
     threshold = (datetime.utcnow() - timedelta(hours=12)).replace(microsecond=0).isoformat()
@@ -524,4 +727,110 @@ def send_missed_booking_followups():
                 (int(booking.get("missed_followup_count") or 0) + 1, utc_now(), utc_now(), booking["id"]),
             )
             sent += 1
+    return sent
+
+
+def send_inquiry_followups(as_of=None):
+    now = as_of or datetime.utcnow()
+    now_iso = _iso_now(now)
+    inquiries = fetch_all(
+        """
+        SELECT
+            bi.*,
+            br.name AS branch_name,
+            br.slug AS branch_slug,
+            f.name AS franchise_name,
+            f.slug AS franchise_slug
+        FROM booking_inquiries bi
+        LEFT JOIN branches br ON br.id = bi.branch_id
+        LEFT JOIN franchises f ON f.id = bi.franchise_id
+        WHERE bi.booking_id IS NULL
+          AND bi.user_state IN ('NEW_INQUIRY', 'ENGAGED', 'BOOKING_PENDING')
+          AND COALESCE(bi.declined, 0) = 0
+          AND bi.next_followup_at IS NOT NULL
+          AND bi.next_followup_at <= %s
+        ORDER BY bi.next_followup_at ASC
+        """,
+        (now_iso,),
+    )
+    sent = 0
+    for inquiry in inquiries:
+        stage = int(inquiry.get("followup_stage") or 0) + 1
+        if stage > 4:
+            execute_db(
+                "UPDATE booking_inquiries SET user_state='LOST', stop_reason='sequence_completed', closed_at=%s, next_followup_at=NULL, updated_at=%s WHERE id=%s",
+                (now_iso, now_iso, inquiry["id"]),
+            )
+            continue
+        existing_event = fetch_one(
+            "SELECT id FROM inquiry_followup_events WHERE inquiry_id=%s AND followup_stage=%s",
+            (inquiry["id"], stage),
+        )
+        if existing_event:
+            continue
+        last_interaction = _parse_timestamp(inquiry.get("last_user_interaction_at"))
+        last_followup = _parse_timestamp(inquiry.get("last_followup_at")) or datetime(1900, 1, 1)
+        if int(inquiry.get("followups_sent_count") or 0) > 0 and last_interaction and last_interaction > last_followup:
+            continue
+        branch = {
+            "id": inquiry["branch_id"],
+            "name": inquiry.get("branch_name"),
+            "slug": inquiry.get("branch_slug"),
+            "franchise_id": inquiry["franchise_id"],
+            "franchise_slug": inquiry.get("franchise_slug"),
+        }
+        booking_stub = {
+            "id": None,
+            "franchise_id": inquiry["franchise_id"],
+            "branch_id": inquiry["branch_id"],
+            "phone": inquiry.get("customer_phone"),
+            "customer_email": inquiry.get("customer_email"),
+            "whatsapp_opt_in": 1,
+            "reminder_opt_in": 1,
+        }
+        subject = _followup_subject(inquiry, branch, stage)
+        body = _followup_message(inquiry, branch, stage)
+        success, channel = send_cheapest_message(booking_stub, subject, body)
+        status = "sent" if success else f"failed:{channel}"
+        execute_db(
+            """
+            INSERT INTO inquiry_followup_events (
+                inquiry_id, followup_stage, channel, message_subject, message_body,
+                status, sent_at, created_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (inquiry["id"], stage, channel, subject, body, status, now_iso if success else None, now_iso),
+        )
+        if not success:
+            execute_db(
+                "UPDATE booking_inquiries SET updated_at=%s WHERE id=%s",
+                (now_iso, inquiry["id"]),
+            )
+            continue
+        next_stage_time = _inquiry_stage_time(stage + 1, now)
+        execute_db(
+            """
+            UPDATE booking_inquiries
+            SET followup_stage=%s,
+                last_followup_at=%s,
+                next_followup_at=%s,
+                followups_sent_count=COALESCE(followups_sent_count, 0) + 1,
+                updated_at=%s
+            WHERE id=%s
+            """,
+            (
+                stage,
+                now_iso,
+                next_stage_time.isoformat() if next_stage_time and stage < 4 else None,
+                now_iso,
+                inquiry["id"],
+            ),
+        )
+        if stage >= 4:
+            execute_db(
+                "UPDATE booking_inquiries SET user_state='LOST', stop_reason='sequence_completed', closed_at=%s, updated_at=%s WHERE id=%s",
+                (now_iso, now_iso, inquiry["id"]),
+            )
+        sent += 1
     return sent

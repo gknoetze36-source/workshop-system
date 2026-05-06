@@ -5,6 +5,7 @@ from platform_messaging import (
     fetch_reminders_for_user,
     generate_due_reminders,
     send_cheapest_message,
+    send_inquiry_followups,
     send_missed_booking_followups,
 )
 import sys
@@ -60,6 +61,11 @@ def send_missed_booking_jobs():
     print(f"Missed-booking follow-ups sent: {total}")
 
 
+def send_inquiry_followup_jobs():
+    total = send_inquiry_followups()
+    print(f"Inquiry follow-ups sent: {total}")
+
+
 # ---------------- ENTRY ---------------- #
 
 if __name__ == "__main__":
@@ -76,6 +82,9 @@ if __name__ == "__main__":
 
     elif job == "missed":
         send_missed_booking_jobs()
+
+    elif job == "inquiry":
+        send_inquiry_followup_jobs()
 
     else:
         print("No valid job provided")

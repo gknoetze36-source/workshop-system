@@ -19,6 +19,7 @@ PLAN_DEFINITIONS = {
 STATUS_OPTIONS = ["Pending", "Confirmed", "In Progress", "Done", "Collected", "Declined"]
 CONTACT_OPTIONS = ["WhatsApp", "SMS", "Email", "Phone Call"]
 DONE_STATUSES = {"Done", "Collected"}
+INQUIRY_STATES = ["NEW_INQUIRY", "ENGAGED", "BOOKING_PENDING", "BOOKED", "LOST"]
 
 
 def fetch_one(query, args=()):
@@ -107,6 +108,93 @@ def visible_franchises(user=None, include_inactive=False):
         args.append(user["franchise_id"])
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     return fetch_all(f"SELECT * FROM franchises {where} ORDER BY name", tuple(args))
+
+
+def find_active_inquiry(franchise_id, branch_id, phone="", email=""):
+    phone = (phone or "").strip()
+    email = (email or "").strip().lower()
+    if phone:
+        inquiry = fetch_one(
+            """
+            SELECT *
+            FROM booking_inquiries
+            WHERE franchise_id=%s
+              AND branch_id=%s
+              AND customer_phone=%s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (franchise_id, branch_id, phone),
+        )
+        if inquiry:
+            return inquiry
+    if email:
+        return fetch_one(
+            """
+            SELECT *
+            FROM booking_inquiries
+            WHERE franchise_id=%s
+              AND branch_id=%s
+              AND lower(COALESCE(customer_email, ''))=lower(%s)
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (franchise_id, branch_id, email),
+        )
+    return None
+
+
+def fetch_inquiries_for_user(user, limit=30):
+    clause, args = scope_clause(user, alias="bi")
+    return fetch_all(
+        f"""
+        SELECT
+            bi.*,
+            b.booking_reference,
+            br.name AS branch_name,
+            f.name AS franchise_name
+        FROM booking_inquiries bi
+        LEFT JOIN bookings b ON b.id = bi.booking_id
+        LEFT JOIN branches br ON br.id = bi.branch_id
+        LEFT JOIN franchises f ON f.id = bi.franchise_id
+        WHERE {clause}
+        ORDER BY bi.updated_at DESC, bi.created_at DESC
+        LIMIT %s
+        """,
+        tuple(args + [limit]),
+    )
+
+
+def inquiry_metrics(user):
+    clause, args = scope_clause(user, alias="bi")
+    row = fetch_one(
+        f"""
+        SELECT
+            COUNT(*) AS total_inquiries,
+            SUM(CASE WHEN bi.user_state='NEW_INQUIRY' THEN 1 ELSE 0 END) AS new_inquiries,
+            SUM(CASE WHEN bi.user_state='ENGAGED' THEN 1 ELSE 0 END) AS engaged_inquiries,
+            SUM(CASE WHEN bi.user_state='BOOKING_PENDING' THEN 1 ELSE 0 END) AS booking_pending,
+            SUM(CASE WHEN bi.user_state='BOOKED' THEN 1 ELSE 0 END) AS booked_inquiries,
+            SUM(CASE WHEN bi.user_state='LOST' THEN 1 ELSE 0 END) AS lost_inquiries,
+            SUM(COALESCE(bi.followups_sent_count, 0)) AS followups_sent,
+            SUM(COALESCE(bi.replies_after_followup_count, 0)) AS replies_after_followup,
+            SUM(COALESCE(bi.bookings_from_followups_count, 0)) AS bookings_from_followups
+        FROM booking_inquiries bi
+        WHERE {clause}
+        """,
+        tuple(args),
+    ) or {}
+    return {key: int(row.get(key) or 0) for key in [
+        "total_inquiries",
+        "new_inquiries",
+        "engaged_inquiries",
+        "booking_pending",
+        "booked_inquiries",
+        "lost_inquiries",
+        "followups_sent",
+        "replies_after_followup",
+        "bookings_from_followups",
+    ]}
 
 
 def franchise_counts(franchise_id):
@@ -540,4 +628,23 @@ def insert_booking(branch, form_data, source, status):
             now,
         ),
     )
+    phone = (form_data.get("phone") or "").strip()
+    email = (form_data.get("customer_email") or form_data.get("email") or "").strip()
+    inquiry = find_active_inquiry(branch["franchise_id"], branch["id"], phone=phone, email=email)
+    if inquiry:
+        followup_bookings = 1 if int(inquiry.get("followups_sent_count") or 0) > 0 else 0
+        execute_db(
+            """
+            UPDATE booking_inquiries
+            SET booking_id=(SELECT id FROM bookings WHERE booking_reference=%s),
+                user_state='BOOKED',
+                bookings_from_followups_count=COALESCE(bookings_from_followups_count, 0) + %s,
+                stop_reason='booking_created',
+                closed_at=%s,
+                next_followup_at=NULL,
+                updated_at=%s
+            WHERE id=%s
+            """,
+            (booking_reference, followup_bookings, now, now, inquiry["id"]),
+        )
     return booking_reference

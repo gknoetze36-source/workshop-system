@@ -25,6 +25,7 @@ from platform_helpers import (
     fetch_visible_bookings,
     find_service_price,
     franchise_counts,
+    inquiry_metrics,
     human_date,
     insert_booking,
     monthly_usage_summary,
@@ -34,6 +35,7 @@ from platform_helpers import (
     selected_branch_for_user,
     user_scope_clause,
     utc_today,
+    fetch_inquiries_for_user,
     visible_branches,
     visible_franchises,
 )
@@ -46,11 +48,12 @@ from platform_messaging import (
     log_communication,
     manual_channel_link,
     reminder_in_scope,
-    send_email_message,
+    send_inquiry_followups,
     send_missed_booking_followups,
     send_cheapest_message,
+    stop_inquiry_for_reply,
     send_twilio_message,
-    smtp_configured,
+    ensure_inquiry,
     twilio_configured,
     update_reminder_status,
 )
@@ -305,6 +308,7 @@ def dashboard():
         return inactive_redirect
     bookings = fetch_visible_bookings(current_user())
     reminders = fetch_reminders_for_user(current_user())
+    inquiries = fetch_inquiries_for_user(current_user(), limit=8)
     today = utc_today()
     franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (current_user().get("franchise_id"),)) if current_user()["role"] != "super_admin" else None
     monthly_rows = monthly_usage_summary(current_user())
@@ -325,6 +329,8 @@ def dashboard():
         plan_features_list=plan_features(franchise) if franchise else [],
         latest_monthly=latest_monthly,
         monthly_usage=monthly_rows,
+        inquiry_rows=inquiries,
+        inquiry_metrics=inquiry_metrics(current_user()),
     )
 
 
@@ -521,21 +527,15 @@ def run_reminders():
 @login_required
 def send_reminder(reminder_id, channel):
     reminder = fetch_reminder(reminder_id)
-    if channel not in {"email", "sms", "whatsapp"} or not reminder or not reminder_in_scope(reminder, current_user()):
+    if channel not in {"sms", "whatsapp"} or not reminder or not reminder_in_scope(reminder, current_user()):
         abort(404)
     booking = fetch_one("SELECT b.*, f.name AS franchise_name, f.slug AS franchise_slug, br.name AS branch_name, br.slug AS branch_slug, br.contact_email AS branch_contact_email, br.contact_phone AS branch_contact_phone FROM bookings b LEFT JOIN franchises f ON f.id = b.franchise_id LEFT JOIN branches br ON br.id = b.branch_id WHERE b.id=%s", (reminder["booking_id"],))
     subject, body = build_booking_message(booking, reminder)
-    recipient = booking.get("customer_email") if channel == "email" else booking.get("phone")
+    recipient = booking.get("phone")
     if not recipient:
         flash("This customer does not have the required contact details for that channel.", "error")
         return redirect(url_for("reminders"))
     try:
-        if channel == "email" and smtp_configured():
-            send_email_message(recipient, subject, body)
-            log_communication(booking, reminder, channel, recipient, subject, body, "sent", current_user()["id"])
-            update_reminder_status(reminder_id, "Sent", channel, count_as_send=True)
-            flash("Email sent successfully.", "success")
-            return redirect(url_for("reminders"))
         if channel in {"sms", "whatsapp"} and twilio_configured(channel):
             send_twilio_message(channel, recipient, body)
             log_communication(booking, reminder, channel, recipient, subject, body, "sent", current_user()["id"])
@@ -1000,7 +1000,26 @@ def twilio_webhook(franchise_slug, branch_slug, token):
         (branch["franchise_id"], branch["id"], "", phone or "", "", "WhatsApp", message or "", utc_now(), utc_now()),
     )
 
-    reply, should_count = assistant_reply(phone, message, branch)
+    reply, should_count, metadata = assistant_reply(phone, message, branch)
+    inquiry = stop_inquiry_for_reply(
+        branch,
+        phone=phone or "",
+        email="",
+        message=message or "",
+        customer_name="",
+        channel="WhatsApp",
+    )
+    if inquiry and metadata.get("service_type") and not inquiry.get("service_type"):
+        ensure_inquiry(
+            branch,
+            phone=phone or "",
+            email="",
+            customer_name="",
+            channel="WhatsApp",
+            message=message or "",
+            service_type=metadata.get("service_type") or "",
+            interested=metadata.get("conversation_state") in {"ENGAGED", "BOOKING_PENDING"},
+        )
 
     if reply:
         notice = "Automated assistant: we only use your information for bookings and booking-related communication. "

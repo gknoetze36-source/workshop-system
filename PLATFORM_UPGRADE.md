@@ -10,7 +10,7 @@
   - `super_admin`
 - Added management pages for franchises, branches, and users.
 - Added reports, customer history, and reminder management screens.
-- Added reminder messaging support for email, SMS, and WhatsApp provider hooks.
+- Added reminder messaging support for Twilio SMS and WhatsApp delivery.
 - Updated dependencies to include `requests` for Twilio delivery.
 
 ## Current local bootstrap
@@ -68,18 +68,25 @@
 
 ## Messaging variables
 
-- Email:
-  - `SMTP_HOST`
-  - `SMTP_PORT`
-  - `SMTP_FROM_EMAIL`
-  - optional `SMTP_USERNAME`
-  - optional `SMTP_PASSWORD`
-  - optional `SMTP_USE_TLS`
 - Twilio:
   - `TWILIO_ACCOUNT_SID`
   - `TWILIO_AUTH_TOKEN`
   - `TWILIO_SMS_FROM`
   - `TWILIO_WHATSAPP_FROM`
+- Optional AI fallback:
+  - `OPENAI_API_KEY`
+
+## Client onboarding model
+
+- SMTP/email delivery is no longer part of the platform runtime.
+- Super admin manages client messaging setup through Twilio.
+- Recommended live setup:
+  - register each client using their own work phone number as a Twilio WhatsApp sender
+  - use SMS through Twilio only when needed as fallback
+- Important:
+  - the app does not create Twilio accounts automatically
+  - the super admin still needs to complete Twilio and Meta onboarding for each client number
+  - non-Twilio work numbers used for WhatsApp must be able to receive SMS or voice verification during Twilio setup
 
 ## Verified
 

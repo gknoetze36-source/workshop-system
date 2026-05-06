@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+database.db
+database.local.db
+database.local.db-journal
