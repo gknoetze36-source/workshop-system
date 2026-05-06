@@ -54,7 +54,7 @@ def get_connection():
         import psycopg2
         import psycopg2.extras
 
-        connection = psycopg2.connect(database_url)
+        connection = psycopg2.connect(database_url, connect_timeout=int(os.environ.get("PGCONNECT_TIMEOUT", "5")))
         connection.autocommit = False
         return connection, "postgres"
 
@@ -1063,15 +1063,17 @@ def initialize_database():
     try:
         _create_tables(connection, backend)
         _ensure_columns(connection, backend)
-        _deduplicate_users(connection, backend)
         _ensure_unique_username_index(connection, backend)
         _ensure_indexes(connection, backend)
         _seed_plan_defaults(connection, backend)
-        _migrate_legacy_users(connection, backend)
         _ensure_super_admin(connection, backend)
-        _harden_default_credentials(connection, backend)
-        _migrate_legacy_bookings(connection, backend)
-        _import_csv_bookings(connection, backend)
+        run_legacy_bootstrap = backend == "sqlite" or os.environ.get("RUN_LEGACY_BOOTSTRAP", "").lower() in {"1", "true", "yes"}
+        if run_legacy_bootstrap:
+            _deduplicate_users(connection, backend)
+            _migrate_legacy_users(connection, backend)
+            _harden_default_credentials(connection, backend)
+            _migrate_legacy_bookings(connection, backend)
+            _import_csv_bookings(connection, backend)
         return {"backend": backend, "database_path": PRIMARY_SQLITE_PATH if backend == "sqlite" else "postgres"}
     finally:
         connection.close()
