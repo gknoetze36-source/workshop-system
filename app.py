@@ -475,8 +475,19 @@ def customers():
         return inactive_redirect
     customer_map = {}
     for booking in fetch_visible_bookings(current_user()):
-        key = (booking.get("phone") or booking.get("customer_email") or booking["booking_reference"]).strip()
-        customer_map.setdefault(key, {"name": f"{booking.get('first_name', '')} {booking.get('surname', '')}".strip() or "Unknown", "phone": booking.get("phone") or "", "email": booking.get("customer_email") or "", "branch_name": booking.get("branch_name") or "", "latest_booking": booking.get("booking_reference")})
+        key = str(booking.get("phone") or booking.get("customer_email") or booking.get("booking_reference") or booking.get("id") or "").strip()
+        if not key:
+            continue
+        customer_map.setdefault(
+            key,
+            {
+                "name": f"{booking.get('first_name', '')} {booking.get('surname', '')}".strip() or "Unknown",
+                "phone": (booking.get("phone") or "").strip(),
+                "email": (booking.get("customer_email") or "").strip(),
+                "branch_name": booking.get("branch_name") or "",
+                "latest_booking": booking.get("booking_reference") or "-",
+            },
+        )
     return render_template("customers.html", customers=sorted(customer_map.values(), key=lambda item: item["name"].lower()))
 
 
