@@ -12,6 +12,10 @@ DEFAULT_FRANCHISE_NAME = os.environ.get("DEFAULT_FRANCHISE_NAME", "Main Workshop
 BOOKINGS_CSV_PATH = BASE_DIR / "bookings.csv"
 
 
+def require_postgres_for_service():
+    return os.environ.get("REQUIRE_DATABASE_URL", "").lower() in {"1", "true", "yes"}
+
+
 def utc_now():
     return datetime.utcnow().replace(microsecond=0).isoformat()
 
@@ -57,6 +61,9 @@ def get_connection():
         connection = psycopg2.connect(database_url, connect_timeout=int(os.environ.get("PGCONNECT_TIMEOUT", "5")))
         connection.autocommit = False
         return connection, "postgres"
+
+    if require_postgres_for_service():
+        raise RuntimeError("DATABASE_URL is required for this Railway service. Add DATABASE_URL=${{Postgres.DATABASE_URL}} to the service variables.")
 
     connection = sqlite3.connect(PRIMARY_SQLITE_PATH)
     connection.row_factory = sqlite3.Row

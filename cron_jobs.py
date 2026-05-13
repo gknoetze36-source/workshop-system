@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from database import initialize_database
 from platform_helpers import fetch_all
 from platform_messaging import (
     auto_send_reminder,
@@ -9,6 +10,11 @@ from platform_messaging import (
     send_missed_booking_followups,
 )
 import sys
+
+
+def prepare_database():
+    state = initialize_database()
+    print(f"Database ready: {state['backend']}")
 
 
 # ---------------- DAY BEFORE ---------------- #
@@ -70,6 +76,7 @@ def send_inquiry_followup_jobs():
 
 if __name__ == "__main__":
     job = sys.argv[1] if len(sys.argv) > 1 else None
+    prepare_database()
 
     if job == "daily":
         send_day_before_reminders()

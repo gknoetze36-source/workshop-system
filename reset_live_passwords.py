@@ -1,6 +1,6 @@
 from werkzeug.security import generate_password_hash
 
-from database import execute_db, utc_now
+from database import execute_db, initialize_database, utc_now
 
 
 TEMP_PASSWORD = "password1234"
@@ -8,6 +8,8 @@ TARGET_USERS = ("superadmin", "demo.franchise")
 
 
 def main():
+    state = initialize_database()
+    print(f"Database ready: {state['backend']}")
     password_hash = generate_password_hash(TEMP_PASSWORD)
     for username in TARGET_USERS:
         execute_db(
