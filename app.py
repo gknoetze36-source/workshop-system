@@ -1,4 +1,5 @@
 from functools import wraps
+import re
 
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -169,8 +170,14 @@ def home():
 def _render_public_booking(preselected_branch=None):
     if request.method == "POST":
         branch = branch_by_id(request.form.get("branch_id")) if request.form.get("branch_id") else preselected_branch
+        phone = (request.form.get("phone") or "").strip()
+        service = (request.form.get("service") or "").strip()
         if not boolish(request.form.get("privacy_consent", "")):
             flash("Please confirm the consent and privacy notice before submitting your booking.", "error")
+        elif not re.fullmatch(r"\+[1-9][0-9]{7,14}", phone):
+            flash("Please enter your phone number in international format, for example +27821234567.", "error")
+        elif service not in {"Service", "Repairs"}:
+            flash("Please choose Service or Repairs before submitting your booking.", "error")
         elif not branch or not boolish(branch.get("public_booking_enabled", 1)):
             flash("Please choose a valid branch before submitting your booking.", "error")
         else:

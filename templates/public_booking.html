@@ -2,7 +2,7 @@
 {% block title %}Customer Booking{% endblock %}
 {% block content %}
 <div class="topbar">
-    <div class="heading"><h1>Customer Booking</h1><p>Public bookings are routed to one selected branch only.</p></div>
+    <div class="heading"><h1>Customer Booking</h1><p>{% if preselected_branch %}Booking directly with {{ preselected_branch.name }}.{% else %}Choose a workshop branch before submitting your booking.{% endif %}</p></div>
     <a class="button alt" href="{{ url_for('home') }}">Back to Home</a>
 </div>
 <div class="grid two">
@@ -15,18 +15,22 @@
             </div>
             <div class="grid two">
                 <label>Email<input type="email" name="customer_email"></label>
-                <label>Phone<input name="phone" required></label>
+                <label>Phone<input name="phone" type="tel" placeholder="+27..." pattern="^\+[1-9][0-9]{7,14}$" title="Use international format, for example +27821234567" required></label>
             </div>
             <div class="grid two">
+                {% if preselected_branch %}
+                <input type="hidden" name="branch_id" value="{{ preselected_branch.id }}">
+                <label>Workshop branch<input value="{{ preselected_branch.franchise_name }} - {{ preselected_branch.name }}" disabled></label>
+                {% else %}
                 <label>Branch
                     <select name="branch_id" {% if preselected_branch %}disabled{% endif %} required>
-                        {% if not preselected_branch %}<option value="">Choose a branch</option>{% endif %}
+                        <option value="">Choose a branch</option>
                         {% for branch in branches %}
-                        <option value="{{ branch.id }}" {% if preselected_branch and branch.id == preselected_branch.id %}selected{% endif %}>{{ branch.franchise_name }} - {{ branch.name }}</option>
+                        <option value="{{ branch.id }}">{{ branch.franchise_name }} - {{ branch.name }}</option>
                         {% endfor %}
                     </select>
-                    {% if preselected_branch %}<input type="hidden" name="branch_id" value="{{ preselected_branch.id }}">{% endif %}
                 </label>
+                {% endif %}
                 <label>Preferred date<input type="date" name="scheduled_date" value="{{ today_iso }}" required></label>
             </div>
             <div class="grid two">
@@ -34,7 +38,13 @@
                 <label>Vehicle model<input name="model" required></label>
             </div>
             <div class="grid two">
-                <label>Service needed<input name="service" required></label>
+                <label>Service needed
+                    <select name="service" required>
+                        <option value="">Choose service type</option>
+                        <option value="Service">Service</option>
+                        <option value="Repairs">Repairs</option>
+                    </select>
+                </label>
                 <label>Preferred contact
                     <select name="preferred_contact_method">
                         {% for option in contact_options %}
@@ -53,9 +63,9 @@
         </form>
     </section>
     <section class="panel">
-        <h3>What this setup does</h3>
+        <h3>Booking details</h3>
         <div class="cards">
-            <div class="metric"><span>Correct workshop routing</span><strong>Locked</strong><div class="small">The customer chooses a real branch before submission.</div></div>
+            <div class="metric"><span>Workshop routing</span><strong>{% if preselected_branch %}{{ preselected_branch.name }}{% else %}Choose branch{% endif %}</strong><div class="small">Use a branch booking link to lock the workshop automatically.</div></div>
             <div class="metric"><span>Reception visibility</span><strong>Scoped</strong><div class="small">Reception users only see their own branch.</div></div>
             <div class="metric"><span>Franchise visibility</span><strong>Grouped</strong><div class="small">Franchise admins see every branch under them.</div></div>
             <div class="metric"><span>Anti-spam</span><strong>Guarded</strong><div class="small">Follow-ups are limited and booking communication only.</div></div>
