@@ -480,23 +480,28 @@ def customers():
         clause, args = ("b.franchise_id=%s", [user["franchise_id"]])
     elif user["role"] == "reception":
         clause, args = ("b.branch_id=%s", [user["branch_id"]])
-    bookings = fetch_all(
-        f"""
-        SELECT
-            b.id,
-            b.booking_reference,
-            b.first_name,
-            b.surname,
-            b.customer_email,
-            b.phone,
-            br.name AS branch_name
-        FROM bookings b
-        LEFT JOIN branches br ON br.id = b.branch_id
-        WHERE {clause}
-        ORDER BY b.id DESC
-        """,
-        tuple(args),
-    )
+    try:
+        bookings = fetch_all(
+            f"""
+            SELECT
+                b.id,
+                b.booking_reference,
+                b.first_name,
+                b.surname,
+                b.customer_email,
+                b.phone,
+                br.name AS branch_name
+            FROM bookings b
+            LEFT JOIN branches br ON br.id = b.branch_id
+            WHERE {clause}
+            ORDER BY b.id DESC
+            """,
+            tuple(args),
+        )
+    except Exception:
+        app.logger.exception("Unable to load customers")
+        flash("Customers could not be loaded yet. Please check the deployment logs for the database error.", "error")
+        bookings = []
     for booking in bookings:
         key = str(booking.get("phone") or booking.get("customer_email") or booking.get("booking_reference") or booking.get("id") or "").strip()
         if not key:
@@ -514,9 +519,19 @@ def customers():
     return render_template("customers.html", customers=sorted(customer_map.values(), key=lambda item: item["name"].lower()))
 
 
-@app.route("/customers/<phone>")
+@app.route("/customers/history")
+@login_required
+def customer_history_query():
+    return _render_customer_history((request.args.get("phone") or "").strip())
+
+
+@app.route("/customers/<path:phone>")
 @login_required
 def customer_history(phone):
+    return _render_customer_history(phone)
+
+
+def _render_customer_history(phone):
     user = current_user()
     clause, args = ("1=1", [])
     if user["role"] == "franchise_admin":
@@ -524,22 +539,27 @@ def customer_history(phone):
     elif user["role"] == "reception":
         clause, args = ("b.branch_id=%s", [user["branch_id"]])
     args.append(phone)
-    bookings = fetch_all(
-        f"""
-        SELECT
-            b.booking_reference,
-            b.scheduled_date,
-            b.service,
-            b.status,
-            br.name AS branch_name
-        FROM bookings b
-        LEFT JOIN branches br ON br.id = b.branch_id
-        WHERE {clause}
-          AND COALESCE(b.phone, '')=%s
-        ORDER BY b.id DESC
-        """,
-        tuple(args),
-    )
+    try:
+        bookings = fetch_all(
+            f"""
+            SELECT
+                b.booking_reference,
+                b.scheduled_date,
+                b.service,
+                b.status,
+                br.name AS branch_name
+            FROM bookings b
+            LEFT JOIN branches br ON br.id = b.branch_id
+            WHERE {clause}
+              AND COALESCE(b.phone, '')=%s
+            ORDER BY b.id DESC
+            """,
+            tuple(args),
+        )
+    except Exception:
+        app.logger.exception("Unable to load customer history")
+        flash("Customer history could not be loaded yet. Please check the deployment logs for the database error.", "error")
+        bookings = []
     return render_template("customer_history.html", phone=phone, bookings=bookings)
 
 
