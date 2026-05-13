@@ -474,7 +474,30 @@ def customers():
     if inactive_redirect:
         return inactive_redirect
     customer_map = {}
-    for booking in fetch_visible_bookings(current_user()):
+    user = current_user()
+    clause, args = ("1=1", [])
+    if user["role"] == "franchise_admin":
+        clause, args = ("b.franchise_id=%s", [user["franchise_id"]])
+    elif user["role"] == "reception":
+        clause, args = ("b.branch_id=%s", [user["branch_id"]])
+    bookings = fetch_all(
+        f"""
+        SELECT
+            b.id,
+            b.booking_reference,
+            b.first_name,
+            b.surname,
+            b.customer_email,
+            b.phone,
+            br.name AS branch_name
+        FROM bookings b
+        LEFT JOIN branches br ON br.id = b.branch_id
+        WHERE {clause}
+        ORDER BY b.id DESC
+        """,
+        tuple(args),
+    )
+    for booking in bookings:
         key = str(booking.get("phone") or booking.get("customer_email") or booking.get("booking_reference") or booking.get("id") or "").strip()
         if not key:
             continue
@@ -494,7 +517,30 @@ def customers():
 @app.route("/customers/<phone>")
 @login_required
 def customer_history(phone):
-    return render_template("customer_history.html", phone=phone, bookings=[item for item in fetch_visible_bookings(current_user()) if (item.get("phone") or "") == phone])
+    user = current_user()
+    clause, args = ("1=1", [])
+    if user["role"] == "franchise_admin":
+        clause, args = ("b.franchise_id=%s", [user["franchise_id"]])
+    elif user["role"] == "reception":
+        clause, args = ("b.branch_id=%s", [user["branch_id"]])
+    args.append(phone)
+    bookings = fetch_all(
+        f"""
+        SELECT
+            b.booking_reference,
+            b.scheduled_date,
+            b.service,
+            b.status,
+            br.name AS branch_name
+        FROM bookings b
+        LEFT JOIN branches br ON br.id = b.branch_id
+        WHERE {clause}
+          AND COALESCE(b.phone, '')=%s
+        ORDER BY b.id DESC
+        """,
+        tuple(args),
+    )
+    return render_template("customer_history.html", phone=phone, bookings=bookings)
 
 
 @app.route("/reports")
