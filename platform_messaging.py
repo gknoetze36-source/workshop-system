@@ -119,6 +119,43 @@ def build_booking_message(booking, reminder=None):
     return subject, body
 
 
+def build_booking_confirmation_message(booking):
+    branch_name = booking.get("branch_name") or booking.get("branch") or "your workshop"
+    customer_name = booking.get("first_name") or "Customer"
+    service = booking.get("service") or "your booking"
+    scheduled = human_date(booking.get("scheduled_date") or booking.get("date"))
+    reference = booking.get("booking_reference") or "pending"
+    subject = f"{branch_name}: booking received"
+    body = (
+        f"Hi {customer_name}, your booking request for {service} at {branch_name} "
+        f"has been received for {scheduled}. Your reference is {reference}. "
+        "The workshop will confirm the final time if needed."
+    )
+    return subject, body
+
+
+def send_booking_confirmation(reference):
+    booking = fetch_one(
+        """
+        SELECT
+            b.*,
+            f.name AS franchise_name,
+            f.slug AS franchise_slug,
+            br.name AS branch_name,
+            br.slug AS branch_slug
+        FROM bookings b
+        LEFT JOIN franchises f ON f.id = b.franchise_id
+        LEFT JOIN branches br ON br.id = b.branch_id
+        WHERE b.booking_reference=%s
+        """,
+        (reference,),
+    )
+    if not booking:
+        return False, "booking not found"
+    subject, body = build_booking_confirmation_message(booking)
+    return send_cheapest_message(booking, subject, body)
+
+
 def _iso_now(as_of=None):
     moment = as_of or datetime.utcnow()
     return moment.replace(microsecond=0).isoformat()

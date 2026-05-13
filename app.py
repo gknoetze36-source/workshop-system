@@ -48,6 +48,7 @@ from platform_messaging import (
     log_communication,
     manual_channel_link,
     reminder_in_scope,
+    send_booking_confirmation,
     send_inquiry_followups,
     send_missed_booking_followups,
     send_cheapest_message,
@@ -174,7 +175,12 @@ def _render_public_booking(preselected_branch=None):
             flash("Please choose a valid branch before submitting your booking.", "error")
         else:
             reference = insert_booking(branch, request.form, "Website", "Pending")
+            sent, channel = send_booking_confirmation(reference)
             flash(f"Booking {reference} has been created.", "success")
+            if sent:
+                flash(f"Booking confirmation sent by {channel}.", "success")
+            else:
+                flash("Booking was saved, but no direct confirmation message could be sent. Check WhatsApp opt-in and Twilio setup.", "info")
             return redirect(url_for("booking_success", reference=reference))
 
     return render_template(
