@@ -2,7 +2,7 @@
 {% block title %}Customer Booking{% endblock %}
 {% block content %}
 <div class="topbar">
-    <div class="heading"><h1>Customer Booking</h1><p>{% if preselected_branch %}Booking directly with {{ preselected_branch.name }}.{% else %}Choose a workshop branch before submitting your booking.{% endif %}</p></div>
+    <div class="heading"><h1>Customer Booking</h1><p>{% if preselected_branch %}Booking directly with {{ preselected_branch.name }}.{% else %}Choose a service location before submitting your booking.{% endif %}</p></div>
     <a class="button alt" href="{{ url_for('home') }}">Back to Home</a>
 </div>
 <div class="grid">
@@ -20,11 +20,11 @@
             <div class="grid two">
                 {% if preselected_branch %}
                 <input type="hidden" name="branch_id" value="{{ preselected_branch.id }}">
-                <label>Workshop branch<input value="{{ preselected_branch.franchise_name }} - {{ preselected_branch.name }}" disabled></label>
+                <label>Service location<input value="{{ preselected_branch.franchise_name }} - {{ preselected_branch.name }}" disabled></label>
                 {% else %}
-                <label>Branch
+                <label>Location
                     <select name="branch_id" {% if preselected_branch %}disabled{% endif %} required>
-                        <option value="">Choose a branch</option>
+                        <option value="">Choose a location</option>
                         {% for branch in branches %}
                         <option value="{{ branch.id }}">{{ branch.franchise_name }} - {{ branch.name }}</option>
                         {% endfor %}
@@ -58,7 +58,7 @@
             <label>Extra notes<textarea name="public_notes"></textarea></label>
             <label><input type="checkbox" name="whatsapp_opt_in" value="true"> I agree to receive booking-related WhatsApp messages for this booking</label>
             <label><input type="checkbox" name="reminder_opt_in" value="true" checked> Send yearly service reminders and follow-ups</label>
-            <label><input type="checkbox" name="privacy_consent" value="true" required> I consent to the workshop using my details only for bookings and booking-related communication.</label>
+            <label><input type="checkbox" name="privacy_consent" value="true" required> I consent to this business using my details only for bookings and booking-related communication.</label>
             <button type="submit">Send Booking</button>
         </form>
     </section>

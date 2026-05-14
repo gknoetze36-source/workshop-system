@@ -1,4 +1,5 @@
 from functools import wraps
+from datetime import datetime, timedelta
 import re
 
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
@@ -650,14 +651,17 @@ def manage_franchises():
         if name and not fetch_one("SELECT id FROM franchises WHERE lower(name)=lower(%s)", (name,)):
             plan_code = (request.form.get("plan_code") or "basic").lower()
             plan = PLAN_DEFINITIONS.get(plan_code, PLAN_DEFINITIONS["basic"])
+            subscription_start = utc_today()
+            subscription_end = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
             execute_db(
                 """
                 INSERT INTO franchises (
-                    name, slug, contact_email, contact_phone, notes, plan_code, branch_limit, user_limit,
+                    name, slug, contact_email, contact_phone, notes, industry, subscription_status,
+                    subscription_start, subscription_end, setup_fee, plan_code, branch_limit, user_limit,
                     automation_enabled, chatbot_enabled, reporting_enabled, custom_integrations_enabled,
                     priority_support_enabled, monthly_base_price, monthly_message_limit, overage_price_per_message,
                     billing_day, public_base_url, inbound_webhook_token, active, created_at, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'month_end', %s, %s, 1, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'month_end', %s, %s, 1, %s, %s)
                 """,
                 (
                     name,
@@ -665,6 +669,10 @@ def manage_franchises():
                     (request.form.get("contact_email") or "").strip(),
                     (request.form.get("contact_phone") or "").strip(),
                     (request.form.get("notes") or "").strip(),
+                    (request.form.get("industry") or "workshop").strip().lower(),
+                    subscription_start,
+                    subscription_end,
+                    float(request.form.get("setup_fee") or 0),
                     plan_code,
                     plan["branch_limit"],
                     plan["user_limit"],
@@ -687,7 +695,8 @@ def manage_franchises():
             flash("Please use a unique franchise name.", "error")
     franchises = visible_franchises(include_inactive=True)
     counts = {item["id"]: franchise_counts(item["id"]) for item in franchises}
-    return render_template("manage_franchises.html", franchises=franchises, franchise_counts=counts, monthly_usage=monthly_usage_summary(), daily_usage=daily_usage_summary())
+    industries = fetch_all("SELECT * FROM industry_templates WHERE active=1 ORDER BY name")
+    return render_template("manage_franchises.html", franchises=franchises, franchise_counts=counts, industries=industries, monthly_usage=monthly_usage_summary(), daily_usage=daily_usage_summary())
 
 
 @app.route("/manage/franchises/<int:franchise_id>/update", methods=["POST"])
@@ -701,7 +710,9 @@ def update_franchise(franchise_id):
     execute_db(
         """
         UPDATE franchises
-        SET contact_email=%s, contact_phone=%s, notes=%s, plan_code=%s, branch_limit=%s, user_limit=%s,
+        SET contact_email=%s, contact_phone=%s, notes=%s, industry=%s, subscription_status=%s,
+            subscription_start=%s, subscription_end=%s, setup_fee=%s,
+            plan_code=%s, branch_limit=%s, user_limit=%s,
             automation_enabled=%s, chatbot_enabled=%s, reporting_enabled=%s, custom_integrations_enabled=%s,
             priority_support_enabled=%s, monthly_base_price=%s, monthly_message_limit=%s, overage_price_per_message=%s,
             public_base_url=%s, inbound_webhook_token=%s, active=%s, updated_at=%s
@@ -711,6 +722,11 @@ def update_franchise(franchise_id):
             (request.form.get("contact_email") or "").strip(),
             (request.form.get("contact_phone") or "").strip(),
             (request.form.get("notes") or "").strip(),
+            (request.form.get("industry") or franchise.get("industry") or "workshop").strip().lower(),
+            (request.form.get("subscription_status") or franchise.get("subscription_status") or "active").strip().lower(),
+            (request.form.get("subscription_start") or franchise.get("subscription_start") or "").strip(),
+            (request.form.get("subscription_end") or franchise.get("subscription_end") or "").strip(),
+            float(request.form.get("setup_fee") or franchise.get("setup_fee") or 0),
             plan_code,
             plan["branch_limit"] if plan_code != "premium" else 999999,
             plan["user_limit"] if plan_code != "premium" else 999999,

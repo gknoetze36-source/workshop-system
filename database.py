@@ -2,7 +2,7 @@ import csv
 import os
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -143,6 +143,11 @@ def _create_tables(connection, backend):
             contact_email TEXT,
             contact_phone TEXT,
             notes TEXT,
+            industry TEXT DEFAULT 'workshop',
+            subscription_status TEXT DEFAULT 'active',
+            subscription_start TEXT,
+            subscription_end TEXT,
+            setup_fee REAL DEFAULT 0,
             public_base_url TEXT,
             inbound_webhook_token TEXT,
             plan_code TEXT DEFAULT 'basic',
@@ -394,6 +399,167 @@ def _create_tables(connection, backend):
             created_at TEXT
         )
         """,
+        f"""
+        CREATE TABLE IF NOT EXISTS industry_templates (
+            id {primary_key},
+            industry TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            default_plan TEXT DEFAULT 'basic',
+            default_message_limit INTEGER DEFAULT 2000,
+            active {integer_boolean} DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS automation_templates (
+            id {primary_key},
+            industry TEXT NOT NULL,
+            name TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            trigger_timing TEXT,
+            default_delay_minutes INTEGER DEFAULT 0,
+            default_message TEXT,
+            channel_priority TEXT DEFAULT 'whatsapp,sms',
+            active {integer_boolean} DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS automation_rules (
+            id {primary_key},
+            franchise_id INTEGER,
+            template_id INTEGER,
+            name TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            conditions_json TEXT,
+            action_json TEXT,
+            delay_minutes INTEGER DEFAULT 0,
+            active {integer_boolean} DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS scheduled_jobs (
+            id {primary_key},
+            franchise_id INTEGER,
+            automation_rule_id INTEGER,
+            job_type TEXT NOT NULL,
+            payload_json TEXT,
+            scheduled_for TEXT,
+            status TEXT DEFAULT 'pending',
+            attempts INTEGER DEFAULT 0,
+            max_attempts INTEGER DEFAULT 3,
+            locked_at TEXT,
+            completed_at TEXT,
+            last_error TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS automation_logs (
+            id {primary_key},
+            franchise_id INTEGER,
+            automation_rule_id INTEGER,
+            scheduled_job_id INTEGER,
+            event_type TEXT,
+            status TEXT,
+            message TEXT,
+            created_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS failed_jobs (
+            id {primary_key},
+            franchise_id INTEGER,
+            scheduled_job_id INTEGER,
+            error_message TEXT,
+            payload_json TEXT,
+            failed_at TEXT,
+            resolved {integer_boolean} DEFAULT 0,
+            resolved_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS billing_records (
+            id {primary_key},
+            franchise_id INTEGER,
+            amount REAL DEFAULT 0,
+            base_amount REAL DEFAULT 0,
+            usage_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'unpaid',
+            billing_period TEXT,
+            stripe_invoice_id TEXT,
+            payment_link TEXT,
+            paid_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS usage_daily (
+            id {primary_key},
+            franchise_id INTEGER,
+            usage_date TEXT,
+            messages_used INTEGER DEFAULT 0,
+            extra_messages INTEGER DEFAULT 0,
+            extra_cost REAL DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS onboarding_sessions (
+            id {primary_key},
+            franchise_id INTEGER,
+            industry TEXT,
+            selected_plan TEXT,
+            status TEXT DEFAULT 'started',
+            current_step TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS onboarding_answers (
+            id {primary_key},
+            franchise_id INTEGER,
+            session_id INTEGER,
+            question_key TEXT,
+            answer_value TEXT,
+            created_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS onboarding_state (
+            id {primary_key},
+            franchise_id INTEGER,
+            setup_progress INTEGER DEFAULT 0,
+            payment_completed {integer_boolean} DEFAULT 0,
+            whatsapp_connected {integer_boolean} DEFAULT 0,
+            services_created {integer_boolean} DEFAULT 0,
+            automations_enabled {integer_boolean} DEFAULT 0,
+            go_live_ready {integer_boolean} DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS feature_flags (
+            id {primary_key},
+            franchise_id INTEGER,
+            feature_key TEXT NOT NULL,
+            enabled {integer_boolean} DEFAULT 0,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
     ]:
         _run(connection, backend, query)
 
@@ -405,6 +571,11 @@ def _ensure_columns(connection, backend):
             "contact_email": "TEXT",
             "contact_phone": "TEXT",
             "notes": "TEXT",
+            "industry": "TEXT DEFAULT 'workshop'",
+            "subscription_status": "TEXT DEFAULT 'active'",
+            "subscription_start": "TEXT",
+            "subscription_end": "TEXT",
+            "setup_fee": "REAL DEFAULT 0",
             "public_base_url": "TEXT",
             "inbound_webhook_token": "TEXT",
             "plan_code": "TEXT DEFAULT 'basic'",
@@ -614,6 +785,131 @@ def _ensure_columns(connection, backend):
             "note": "TEXT",
             "created_at": "TEXT",
         },
+        "industry_templates": {
+            "industry": "TEXT",
+            "name": "TEXT",
+            "description": "TEXT",
+            "default_plan": "TEXT DEFAULT 'basic'",
+            "default_message_limit": "INTEGER DEFAULT 2000",
+            "active": "BOOLEAN DEFAULT 1" if backend == "postgres" else "INTEGER DEFAULT 1",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "automation_templates": {
+            "industry": "TEXT",
+            "name": "TEXT",
+            "event_type": "TEXT",
+            "trigger_timing": "TEXT",
+            "default_delay_minutes": "INTEGER DEFAULT 0",
+            "default_message": "TEXT",
+            "channel_priority": "TEXT DEFAULT 'whatsapp,sms'",
+            "active": "BOOLEAN DEFAULT 1" if backend == "postgres" else "INTEGER DEFAULT 1",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "automation_rules": {
+            "franchise_id": "INTEGER",
+            "template_id": "INTEGER",
+            "name": "TEXT",
+            "event_type": "TEXT",
+            "conditions_json": "TEXT",
+            "action_json": "TEXT",
+            "delay_minutes": "INTEGER DEFAULT 0",
+            "active": "BOOLEAN DEFAULT 1" if backend == "postgres" else "INTEGER DEFAULT 1",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "scheduled_jobs": {
+            "franchise_id": "INTEGER",
+            "automation_rule_id": "INTEGER",
+            "job_type": "TEXT",
+            "payload_json": "TEXT",
+            "scheduled_for": "TEXT",
+            "status": "TEXT DEFAULT 'pending'",
+            "attempts": "INTEGER DEFAULT 0",
+            "max_attempts": "INTEGER DEFAULT 3",
+            "locked_at": "TEXT",
+            "completed_at": "TEXT",
+            "last_error": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "automation_logs": {
+            "franchise_id": "INTEGER",
+            "automation_rule_id": "INTEGER",
+            "scheduled_job_id": "INTEGER",
+            "event_type": "TEXT",
+            "status": "TEXT",
+            "message": "TEXT",
+            "created_at": "TEXT",
+        },
+        "failed_jobs": {
+            "franchise_id": "INTEGER",
+            "scheduled_job_id": "INTEGER",
+            "error_message": "TEXT",
+            "payload_json": "TEXT",
+            "failed_at": "TEXT",
+            "resolved": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "resolved_at": "TEXT",
+        },
+        "billing_records": {
+            "franchise_id": "INTEGER",
+            "amount": "REAL DEFAULT 0",
+            "base_amount": "REAL DEFAULT 0",
+            "usage_amount": "REAL DEFAULT 0",
+            "status": "TEXT DEFAULT 'unpaid'",
+            "billing_period": "TEXT",
+            "stripe_invoice_id": "TEXT",
+            "payment_link": "TEXT",
+            "paid_at": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "usage_daily": {
+            "franchise_id": "INTEGER",
+            "usage_date": "TEXT",
+            "messages_used": "INTEGER DEFAULT 0",
+            "extra_messages": "INTEGER DEFAULT 0",
+            "extra_cost": "REAL DEFAULT 0",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "onboarding_sessions": {
+            "franchise_id": "INTEGER",
+            "industry": "TEXT",
+            "selected_plan": "TEXT",
+            "status": "TEXT DEFAULT 'started'",
+            "current_step": "TEXT",
+            "started_at": "TEXT",
+            "completed_at": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "onboarding_answers": {
+            "franchise_id": "INTEGER",
+            "session_id": "INTEGER",
+            "question_key": "TEXT",
+            "answer_value": "TEXT",
+            "created_at": "TEXT",
+        },
+        "onboarding_state": {
+            "franchise_id": "INTEGER",
+            "setup_progress": "INTEGER DEFAULT 0",
+            "payment_completed": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "whatsapp_connected": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "services_created": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "automations_enabled": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "go_live_ready": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "feature_flags": {
+            "franchise_id": "INTEGER",
+            "feature_key": "TEXT",
+            "enabled": "BOOLEAN DEFAULT 0" if backend == "postgres" else "INTEGER DEFAULT 0",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
     }
 
     for table_name, columns in desired_columns.items():
@@ -643,6 +939,19 @@ def _ensure_indexes(connection, backend):
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_chatbot_usage_daily_scope ON chatbot_usage_daily(franchise_id, usage_date)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_chatbot_usage_monthly_scope ON chatbot_usage_monthly(franchise_id, usage_month)",
         "CREATE INDEX IF NOT EXISTS idx_credential_audit_scope ON credential_audit(franchise_id, created_at)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_industry_templates_industry ON industry_templates(industry)",
+        "CREATE INDEX IF NOT EXISTS idx_automation_templates_industry ON automation_templates(industry, event_type)",
+        "CREATE INDEX IF NOT EXISTS idx_automation_rules_scope ON automation_rules(franchise_id, event_type, active)",
+        "CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_due ON scheduled_jobs(status, scheduled_for)",
+        "CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_scope ON scheduled_jobs(franchise_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_automation_logs_scope ON automation_logs(franchise_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_failed_jobs_scope ON failed_jobs(franchise_id, resolved, failed_at)",
+        "CREATE INDEX IF NOT EXISTS idx_billing_records_scope ON billing_records(franchise_id, billing_period, status)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_daily_scope ON usage_daily(franchise_id, usage_date)",
+        "CREATE INDEX IF NOT EXISTS idx_onboarding_sessions_scope ON onboarding_sessions(franchise_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_onboarding_answers_session ON onboarding_answers(session_id, question_key)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_onboarding_state_franchise ON onboarding_state(franchise_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_feature_flags_scope ON feature_flags(franchise_id, feature_key)",
     ]
     for query in index_queries:
         _run(connection, backend, query)
@@ -650,6 +959,8 @@ def _ensure_indexes(connection, backend):
 
 def _seed_plan_defaults(connection, backend):
     now = utc_now()
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    default_subscription_end = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
     plans = {
         "basic": {"branch_limit": 1, "user_limit": 2, "automation_enabled": 0, "chatbot_enabled": 0, "reporting_enabled": 0, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
         "growth": {"branch_limit": 5, "user_limit": 10, "automation_enabled": 1, "chatbot_enabled": 1, "reporting_enabled": 1, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
@@ -672,6 +983,11 @@ def _seed_plan_defaults(connection, backend):
                 reporting_enabled=COALESCE(reporting_enabled, %s),
                 custom_integrations_enabled=COALESCE(custom_integrations_enabled, %s),
                 priority_support_enabled=COALESCE(priority_support_enabled, %s),
+                industry=COALESCE(NULLIF(industry, ''), 'workshop'),
+                subscription_status=COALESCE(NULLIF(subscription_status, ''), 'active'),
+                subscription_start=COALESCE(NULLIF(subscription_start, ''), %s),
+                subscription_end=COALESCE(NULLIF(subscription_end, ''), %s),
+                setup_fee=COALESCE(setup_fee, 0),
                 monthly_message_limit=COALESCE(NULLIF(monthly_message_limit, 0), 2000),
                 overage_price_per_message=COALESCE(overage_price_per_message, 0.5),
                 billing_day=COALESCE(billing_day, 'month_end'),
@@ -687,9 +1003,76 @@ def _seed_plan_defaults(connection, backend):
                 plan["reporting_enabled"],
                 plan["custom_integrations_enabled"],
                 plan["priority_support_enabled"],
+                today,
+                default_subscription_end,
                 now,
                 franchise["id"],
             ),
+        )
+
+
+def _seed_saas_templates(connection, backend):
+    now = utc_now()
+    industries = [
+        ("workshop", "Workshop", "Vehicle service, repair, maintenance, yearly service reminders, and missed booking recovery.", "growth", 5000),
+        ("salon", "Salon", "Appointments, confirmations, simple reminders, rebooking prompts, and no-show recovery.", "basic", 2000),
+        ("dentist", "Dentist", "Appointment reminders, missed appointment recovery, treatment follow-ups, and six-month checkups.", "growth", 4000),
+        ("clinic", "Clinic", "Appointment reminders, follow-ups, recurring care reminders, and patient communication workflows.", "growth", 5000),
+        ("hotel", "Hotel", "Booking confirmations, check-in reminders, check-out messages, and review requests.", "growth", 6000),
+        ("consultant", "Consultant", "Consultation bookings, confirmations, follow-ups, and lead recovery.", "basic", 2000),
+        ("gym", "Gym", "Membership follow-ups, class bookings, attendance recovery, and renewal reminders.", "growth", 5000),
+        ("cleaning", "Cleaning Company", "Job bookings, staff dispatch reminders, recurring cleaning reminders, and follow-ups.", "growth", 4000),
+        ("repair", "Repair Business", "Repair bookings, quote follow-ups, status updates, and collection reminders.", "growth", 4000),
+    ]
+    for industry, name, description, default_plan, message_limit in industries:
+        existing = _run(connection, backend, "SELECT id FROM industry_templates WHERE industry=%s", (industry,), one=True)
+        if existing:
+            continue
+        _run(
+            connection,
+            backend,
+            """
+            INSERT INTO industry_templates (industry, name, description, default_plan, default_message_limit, active, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, 1, %s, %s)
+            """,
+            (industry, name, description, default_plan, message_limit, now, now),
+        )
+
+    automation_templates = [
+        ("workshop", "Booking confirmation", "booking.created", "immediate", 0, "Your booking is confirmed. We will see you at {business_name}."),
+        ("workshop", "Missed booking recovery", "booking.missed", "same_day", 60, "We missed you today. Would you like us to help book a new time?"),
+        ("workshop", "Yearly service reminder", "service.annual_due", "annual", 0, "Your yearly service reminder is due. Would you like us to book you in?"),
+        ("salon", "Booking confirmation", "booking.created", "immediate", 0, "Your appointment is confirmed with {business_name}."),
+        ("salon", "No-show recovery", "booking.missed", "same_day", 30, "We missed you today. Would you like another appointment?"),
+        ("dentist", "Appointment reminder", "booking.reminder_due", "day_before", 1440, "Reminder: your dental appointment is coming up with {business_name}."),
+        ("dentist", "Checkup reminder", "service.recurring_due", "six_monthly", 0, "It is time for your dental checkup. Would you like to book?"),
+        ("clinic", "Appointment reminder", "booking.reminder_due", "day_before", 1440, "Reminder: your appointment is coming up with {business_name}."),
+        ("hotel", "Check-in reminder", "booking.reminder_due", "day_before", 1440, "Your check-in at {business_name} is coming up. Reply if you need help."),
+        ("consultant", "Lead follow-up", "inquiry.created", "after_delay", 30, "Thanks for reaching out. Would you like me to secure a consultation time?"),
+        ("gym", "Class reminder", "booking.reminder_due", "same_day", 120, "Reminder: your class/session at {business_name} is coming up."),
+        ("cleaning", "Job confirmation", "booking.created", "immediate", 0, "Your cleaning booking is confirmed with {business_name}."),
+        ("repair", "Quote follow-up", "quote.pending", "after_delay", 120, "Just following up on your quote. Would you like us to proceed?"),
+    ]
+    for industry, name, event_type, trigger_timing, delay_minutes, message in automation_templates:
+        existing = _run(
+            connection,
+            backend,
+            "SELECT id FROM automation_templates WHERE industry=%s AND name=%s AND event_type=%s",
+            (industry, name, event_type),
+            one=True,
+        )
+        if existing:
+            continue
+        _run(
+            connection,
+            backend,
+            """
+            INSERT INTO automation_templates (
+                industry, name, event_type, trigger_timing, default_delay_minutes, default_message,
+                channel_priority, active, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, 'whatsapp,sms', 1, %s, %s)
+            """,
+            (industry, name, event_type, trigger_timing, delay_minutes, message, now, now),
         )
 
 
@@ -1073,6 +1456,7 @@ def initialize_database():
         _ensure_unique_username_index(connection, backend)
         _ensure_indexes(connection, backend)
         _seed_plan_defaults(connection, backend)
+        _seed_saas_templates(connection, backend)
         _ensure_super_admin(connection, backend)
         run_legacy_bootstrap = backend == "sqlite" or os.environ.get("RUN_LEGACY_BOOTSTRAP", "").lower() in {"1", "true", "yes"}
         if run_legacy_bootstrap:
