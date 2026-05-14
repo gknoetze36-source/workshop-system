@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #00272b;
+  --foreground: #f9fafb;
+  --muted: rgba(249, 250, 251, 0.66);
+  --line: rgba(249, 250, 251, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  color: var(--foreground);
+  background:
+    radial-gradient(circle at 15% 4%, rgba(224, 255, 79, 0.12), transparent 26rem),
+    radial-gradient(circle at 86% 18%, rgba(6, 57, 47, 0.95), transparent 34rem),
+    linear-gradient(180deg, #00272b 0%, #00191d 58%, #001114 100%);
+  font-family: var(--font-inter), sans-serif;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -2;
+  background-image:
+    linear-gradient(rgba(249, 250, 251, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(249, 250, 251, 0.035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: linear-gradient(to bottom, black, transparent 72%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.14;
+  background-image:
+    radial-gradient(circle, rgba(224, 255, 79, 0.42) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: radial-gradient(circle at 50% 10%, black, transparent 62%);
+}
+
+::selection {
+  color: #00272b;
+  background: #e0ff4f;
+}
+
+.container-shell {
+  width: min(1180px, calc(100% - 40px));
+  margin-inline: auto;
+}
+
+.glass {
+  border: 1px solid var(--line);
+  background: linear-gradient(145deg, rgba(249, 250, 251, 0.08), rgba(249, 250, 251, 0.025));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(22px);
+}
+
+.pixel-corner {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, calc(100% - 14px) 7px, 100% 7px, 100% 100%, 14px 100%, 14px calc(100% - 7px), 0 calc(100% - 7px));
+}
+
+.soft-border {
+  border: 1px solid rgba(249, 250, 251, 0.1);
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.terrain {
+  background-image:
+    linear-gradient(90deg, rgba(224, 255, 79, 0.2) 1px, transparent 1px),
+    linear-gradient(rgba(224, 255, 79, 0.16) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
