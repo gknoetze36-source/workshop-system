@@ -561,6 +561,8 @@ def available_roles_for_creator(user):
 
 
 def insert_booking(branch, form_data, source, status):
+    from automation_engine import emit_event
+
     scheduled_date = iso_date(form_data.get("scheduled_date") or form_data.get("date")) or utc_today()
     service = (form_data.get("service") or "").strip()
     service_level = classify_service_level(service)
@@ -647,4 +649,15 @@ def insert_booking(branch, form_data, source, status):
             """,
             (booking_reference, followup_bookings, now, now, inquiry["id"]),
         )
+    emit_event(
+        branch["franchise_id"],
+        "booking.created",
+        {
+            "booking_reference": booking_reference,
+            "branch_id": branch["id"],
+            "source": source,
+            "status": status,
+            "scheduled_date": scheduled_date,
+        },
+    )
     return booking_reference

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from automation_engine import process_due_jobs
 from database import initialize_database
 from platform_helpers import fetch_all
 from platform_messaging import (
@@ -72,6 +73,11 @@ def send_inquiry_followup_jobs():
     print(f"Inquiry follow-ups sent: {total}")
 
 
+def process_automation_jobs():
+    total = process_due_jobs()
+    print(f"Automation jobs processed: {total}")
+
+
 # ---------------- ENTRY ---------------- #
 
 if __name__ == "__main__":
@@ -92,6 +98,9 @@ if __name__ == "__main__":
 
     elif job == "inquiry":
         send_inquiry_followup_jobs()
+
+    elif job == "automation":
+        process_automation_jobs()
 
     else:
         print("No valid job provided")
