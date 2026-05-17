@@ -6,6 +6,7 @@ from database import execute_db, utc_now
 from platform_helpers import (
     INQUIRY_STATES,
     boolish,
+    can_send_messages,
     fetch_all,
     fetch_one,
     find_active_inquiry,
@@ -15,6 +16,7 @@ from platform_helpers import (
     public_booking_url,
     role_label,
     scope_clause,
+    track_message_usage,
     utc_today,
 )
 
@@ -644,11 +646,14 @@ def auto_send_reminder(reminder, actor_user=None):
         return False, "Booking not found."
 
     subject, body = build_booking_message(booking, reminder)
+    if not can_send_outbound(booking, subject, body):
+        return False, "Outbound messaging is disabled for this client account."
     for channel in lowest_cost_channels(booking):
         try:
             if channel in {"sms", "whatsapp"} and twilio_configured(channel) and booking.get("phone"):
                 send_twilio_message(channel, booking["phone"], body)
                 log_communication(booking, reminder, channel, booking["phone"], subject, body, "sent", actor_user["id"] if actor_user else None)
+                track_message_usage(booking.get("franchise_id"))
                 update_reminder_status(reminder["id"], "Sent", channel, count_as_send=True)
                 return True, f"{channel.title()} message sent."
         except Exception as exc:
@@ -676,10 +681,12 @@ def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=N
             if channel == "whatsapp" and recipient_phone and boolish(booking.get("whatsapp_opt_in", 0)) and twilio_configured("whatsapp"):
                 send_twilio_message("whatsapp", recipient_phone, body)
                 log_communication(booking, reminder, "whatsapp", recipient_phone, subject, body, "sent", actor_user_id)
+                track_message_usage(booking.get("franchise_id"))
                 return True, "whatsapp"
             if channel == "sms" and recipient_phone and twilio_configured("sms"):
                 send_twilio_message("sms", recipient_phone, body)
                 log_communication(booking, reminder, "sms", recipient_phone, subject, body, "sent", actor_user_id)
+                track_message_usage(booking.get("franchise_id"))
                 return True, "sms"
         except Exception as exc:
             log_communication(booking, reminder, channel, recipient_phone, subject, body, f"failed: {exc}", actor_user_id)
@@ -689,6 +696,9 @@ def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=N
 
 def can_send_outbound(booking, subject, body):
     if not booking:
+        return False
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (booking.get("franchise_id"),))
+    if not can_send_messages(franchise):
         return False
     if not boolish(booking.get("reminder_opt_in", 1)) and "reminder" in (subject or "").lower():
         return False

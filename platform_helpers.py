@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import os
 
 from flask import has_request_context, url_for
 
@@ -14,6 +15,18 @@ PLAN_DEFINITIONS = {
     "basic": {"label": "Basic", "branch_limit": 1, "user_limit": 2, "automation_enabled": 0, "chatbot_enabled": 0, "reporting_enabled": 0, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
     "growth": {"label": "Growth", "branch_limit": 5, "user_limit": 10, "automation_enabled": 1, "chatbot_enabled": 1, "reporting_enabled": 1, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
     "premium": {"label": "Premium", "branch_limit": 999999, "user_limit": 999999, "automation_enabled": 1, "chatbot_enabled": 1, "reporting_enabled": 1, "custom_integrations_enabled": 1, "priority_support_enabled": 1},
+}
+
+DEFAULT_SERVICES_BY_INDUSTRY = {
+    "workshop": ["Service", "Repairs", "Inspection"],
+    "salon": ["Consultation", "Hair Appointment", "Treatment"],
+    "dentist": ["Consultation", "Checkup", "Follow-up"],
+    "clinic": ["Consultation", "Follow-up", "Procedure"],
+    "hotel": ["Room Booking", "Check-in", "Guest Request"],
+    "consultant": ["Consultation", "Strategy Session", "Follow-up"],
+    "gym": ["Class Booking", "Personal Training", "Assessment"],
+    "cleaning": ["Once-off Cleaning", "Recurring Cleaning", "Deep Clean"],
+    "repair": ["Repair Booking", "Quote", "Collection"],
 }
 
 STATUS_OPTIONS = ["Pending", "Confirmed", "In Progress", "Done", "Collected", "Declined"]
@@ -82,6 +95,282 @@ def plan_label(value):
 
 def boolish(value):
     return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def refresh_subscription_status(franchise):
+    if not franchise:
+        return None
+    subscription_end = parse_date(franchise.get("subscription_end"))
+    current_status = (franchise.get("subscription_status") or "active").lower()
+    if subscription_end and subscription_end.date() < datetime.utcnow().date() and current_status not in {"inactive", "cancelled"}:
+        execute_db(
+            "UPDATE franchises SET subscription_status='inactive', updated_at=%s WHERE id=%s",
+            (utc_now(), franchise["id"]),
+        )
+        franchise = dict(franchise)
+        franchise["subscription_status"] = "inactive"
+    return franchise
+
+
+def subscription_status(franchise):
+    franchise = refresh_subscription_status(franchise)
+    if not franchise:
+        return "inactive"
+    if not boolish(franchise.get("active", 1)):
+        return "inactive"
+    return (franchise.get("subscription_status") or "active").lower()
+
+
+def subscription_is_active(franchise):
+    return subscription_status(franchise) in {"active", "trialing"}
+
+
+def feature_enabled(franchise, feature_key):
+    if not franchise:
+        return False
+    flag = fetch_one(
+        "SELECT enabled FROM feature_flags WHERE franchise_id=%s AND feature_key=%s",
+        (franchise["id"], feature_key),
+    )
+    if flag is not None:
+        return boolish(flag.get("enabled", 0))
+    plan = PLAN_DEFINITIONS.get((franchise.get("plan_code") or "basic").lower(), PLAN_DEFINITIONS["basic"])
+    return boolish(plan.get(feature_key, franchise.get(feature_key, 0)))
+
+
+def can_use_paid_feature(franchise, feature_key=None):
+    if not subscription_is_active(franchise):
+        return False
+    return feature_enabled(franchise, feature_key) if feature_key else True
+
+
+def can_create_booking(franchise):
+    return can_use_paid_feature(franchise)
+
+
+def can_run_automation(franchise):
+    return can_use_paid_feature(franchise, "automation_enabled")
+
+
+def can_send_messages(franchise):
+    return can_use_paid_feature(franchise)
+
+
+def track_message_usage(franchise_id, count=1):
+    if not franchise_id or count <= 0:
+        return
+    today = utc_today()
+    month_key = today[:7]
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,))
+    if not franchise:
+        return
+
+    limit = int(franchise.get("monthly_message_limit") or 2000)
+    overage_price = float(franchise.get("overage_price_per_message") or 0.5)
+    base_price = float(franchise.get("monthly_base_price") or 0)
+
+    daily = fetch_one("SELECT * FROM usage_daily WHERE franchise_id=%s AND usage_date=%s", (franchise_id, today))
+    if daily:
+        messages_used = int(daily.get("messages_used") or 0) + count
+        extra_messages = max(messages_used - limit, 0)
+        execute_db(
+            "UPDATE usage_daily SET messages_used=%s, extra_messages=%s, extra_cost=%s, updated_at=%s WHERE id=%s",
+            (messages_used, extra_messages, extra_messages * overage_price, utc_now(), daily["id"]),
+        )
+    else:
+        execute_db(
+            "INSERT INTO usage_daily (franchise_id, usage_date, messages_used, extra_messages, extra_cost, created_at, updated_at) VALUES (%s, %s, %s, 0, 0, %s, %s)",
+            (franchise_id, today, count, utc_now(), utc_now()),
+        )
+
+    monthly = fetch_one("SELECT * FROM chatbot_usage_monthly WHERE franchise_id=%s AND usage_month=%s", (franchise_id, month_key))
+    if monthly:
+        message_count = int(monthly.get("message_count") or 0) + count
+        extra_messages = max(message_count - limit, 0)
+        overage_cost = extra_messages * overage_price
+        execute_db(
+            "UPDATE chatbot_usage_monthly SET message_count=%s, message_limit=%s, extra_messages=%s, base_price=%s, overage_price=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s",
+            (message_count, limit, extra_messages, base_price, overage_price, overage_cost, base_price + overage_cost, utc_now(), monthly["id"]),
+        )
+    else:
+        execute_db(
+            "INSERT INTO chatbot_usage_monthly (franchise_id, usage_month, message_count, message_limit, extra_messages, base_price, overage_price, overage_cost, total_due, created_at, updated_at) VALUES (%s, %s, %s, %s, 0, %s, %s, 0, %s, %s, %s)",
+            (franchise_id, month_key, count, limit, base_price, overage_price, base_price, utc_now(), utc_now()),
+        )
+
+    execute_db(
+        "UPDATE franchises SET messages_used=COALESCE(messages_used, 0) + %s, updated_at=%s WHERE id=%s",
+        (count, utc_now(), franchise_id),
+    )
+
+
+def close_billing_period(usage_month=None, franchise_id=None):
+    usage_month = (usage_month or utc_today()[:7]).strip()
+    clauses = ["cum.usage_month=%s"]
+    args = [usage_month]
+    if franchise_id:
+        clauses.append("cum.franchise_id=%s")
+        args.append(franchise_id)
+    rows = fetch_all(
+        """
+        SELECT cum.*, f.monthly_base_price, f.monthly_message_limit, f.overage_price_per_message
+        FROM chatbot_usage_monthly cum
+        LEFT JOIN franchises f ON f.id = cum.franchise_id
+        WHERE
+        """
+        + " AND ".join(clauses),
+        tuple(args),
+    )
+    closed = 0
+    for row in rows:
+        limit = int(row.get("message_limit") or row.get("monthly_message_limit") or 2000)
+        overage_price = float(row.get("overage_price") or row.get("overage_price_per_message") or 0.5)
+        base_price = float(row.get("base_price") or row.get("monthly_base_price") or 0)
+        extra = max(int(row.get("message_count") or 0) - limit, 0)
+        usage_amount = extra * overage_price
+        total_due = base_price + usage_amount
+        execute_db(
+            "UPDATE chatbot_usage_monthly SET message_limit=%s, extra_messages=%s, base_price=%s, overage_price=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s",
+            (limit, extra, base_price, overage_price, usage_amount, total_due, utc_now(), row["id"]),
+        )
+        existing = fetch_one("SELECT id FROM billing_records WHERE franchise_id=%s AND billing_period=%s", (row["franchise_id"], usage_month))
+        if existing:
+            execute_db("UPDATE billing_records SET amount=%s, base_amount=%s, usage_amount=%s, updated_at=%s WHERE id=%s", (total_due, base_price, usage_amount, utc_now(), existing["id"]))
+        else:
+            execute_db(
+                "INSERT INTO billing_records (franchise_id, amount, base_amount, usage_amount, status, billing_period, created_at, updated_at) VALUES (%s, %s, %s, %s, 'unpaid', %s, %s, %s)",
+                (row["franchise_id"], total_due, base_price, usage_amount, usage_month, utc_now(), utc_now()),
+            )
+        closed += 1
+    return closed
+
+
+def mark_billing_paid(franchise_id, billing_period, payment_reference=""):
+    subscription_start = utc_today()
+    subscription_end = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
+    execute_db(
+        """
+        UPDATE franchises
+        SET subscription_status='active', subscription_start=%s, subscription_end=%s,
+            messages_used=0, updated_at=%s
+        WHERE id=%s
+        """,
+        (subscription_start, subscription_end, utc_now(), franchise_id),
+    )
+    execute_db(
+        "UPDATE chatbot_usage_monthly SET payment_status='Paid', paid_at=%s, payment_reference=%s, updated_at=%s WHERE franchise_id=%s AND usage_month=%s",
+        (utc_now(), payment_reference, utc_now(), franchise_id, billing_period),
+    )
+    execute_db(
+        "UPDATE billing_records SET status='paid', paid_at=%s, updated_at=%s WHERE franchise_id=%s AND billing_period=%s",
+        (utc_now(), utc_now(), franchise_id, billing_period),
+    )
+
+
+def expire_due_subscriptions():
+    today = utc_today()
+    execute_db(
+        "UPDATE franchises SET subscription_status='inactive', updated_at=%s WHERE active=1 AND subscription_end IS NOT NULL AND subscription_end<>'' AND subscription_end < %s AND subscription_status NOT IN ('inactive','cancelled')",
+        (utc_now(), today),
+    )
+
+
+def create_payment_link(billing_id):
+    billing = fetch_one("SELECT br.*, f.name AS franchise_name FROM billing_records br LEFT JOIN franchises f ON f.id=br.franchise_id WHERE br.id=%s", (billing_id,))
+    if not billing:
+        return None
+    base_url = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    fallback = f"{base_url}/manage/franchises" if base_url else ""
+    payment_link = fallback
+    execute_db("UPDATE billing_records SET payment_link=%s, updated_at=%s WHERE id=%s", (payment_link, utc_now(), billing_id))
+    return payment_link
+
+
+def provision_business(franchise_id, answers=None):
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,))
+    if not franchise:
+        return {"ok": False, "error": "business not found"}
+
+    answers = answers or {}
+    industry = (answers.get("industry") or franchise.get("industry") or "workshop").strip().lower()
+    plan_code = (answers.get("plan") or franchise.get("plan_code") or "basic").strip().lower()
+    plan = PLAN_DEFINITIONS.get(plan_code, PLAN_DEFINITIONS["basic"])
+    template = fetch_one("SELECT * FROM industry_templates WHERE industry=%s AND active=1", (industry,))
+    message_limit = int(answers.get("monthly_message_limit") or (template or {}).get("default_message_limit") or franchise.get("monthly_message_limit") or 2000)
+
+    execute_db(
+        """
+        UPDATE franchises
+        SET industry=%s, plan_code=%s, branch_limit=%s, user_limit=%s,
+            automation_enabled=%s, chatbot_enabled=%s, reporting_enabled=%s,
+            custom_integrations_enabled=%s, priority_support_enabled=%s,
+            monthly_message_limit=%s, updated_at=%s
+        WHERE id=%s
+        """,
+        (
+            industry,
+            plan_code,
+            plan["branch_limit"],
+            plan["user_limit"],
+            plan["automation_enabled"],
+            plan["chatbot_enabled"],
+            plan["reporting_enabled"],
+            plan["custom_integrations_enabled"],
+            plan["priority_support_enabled"],
+            message_limit,
+            utc_now(),
+            franchise_id,
+        ),
+    )
+
+    for key in ("automation_enabled", "chatbot_enabled", "reporting_enabled", "custom_integrations_enabled", "priority_support_enabled"):
+        existing = fetch_one("SELECT id FROM feature_flags WHERE franchise_id=%s AND feature_key=%s", (franchise_id, key))
+        enabled = 1 if boolish(plan.get(key, 0)) else 0
+        if existing:
+            execute_db("UPDATE feature_flags SET enabled=%s, updated_at=%s WHERE id=%s", (enabled, utc_now(), existing["id"]))
+        else:
+            execute_db("INSERT INTO feature_flags (franchise_id, feature_key, enabled, created_at, updated_at) VALUES (%s, %s, %s, %s, %s)", (franchise_id, key, enabled, utc_now(), utc_now()))
+
+    branch = fetch_one("SELECT * FROM branches WHERE franchise_id=%s ORDER BY id LIMIT 1", (franchise_id,))
+    for service_name in DEFAULT_SERVICES_BY_INDUSTRY.get(industry, ["Consultation", "Booking", "Follow-up"]):
+        ensure_service(franchise_id, branch.get("id") if branch else None, service_name)
+
+    assigned_rules = 0
+    if boolish(plan.get("automation_enabled", 0)):
+        templates = fetch_all("SELECT * FROM automation_templates WHERE industry=%s AND active=1", (industry,))
+        for item in templates:
+            existing = fetch_one("SELECT id FROM automation_rules WHERE franchise_id=%s AND template_id=%s", (franchise_id, item["id"]))
+            action_json = '{"type":"send_message","job_type":"send_message"}' if item.get("event_type") == "booking.created" else '{"type":"log","job_type":"automation_log"}'
+            if existing:
+                execute_db("UPDATE automation_rules SET active=1, delay_minutes=%s, updated_at=%s WHERE id=%s", (item.get("default_delay_minutes") or 0, utc_now(), existing["id"]))
+            else:
+                execute_db(
+                    """
+                    INSERT INTO automation_rules (
+                        franchise_id, template_id, name, event_type, conditions_json, action_json,
+                        delay_minutes, active, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, '{}', %s, %s, 1, %s, %s)
+                    """,
+                    (franchise_id, item["id"], item["name"], item["event_type"], action_json, item.get("default_delay_minutes") or 0, utc_now(), utc_now()),
+                )
+                assigned_rules += 1
+
+    session_row = fetch_one("SELECT id FROM onboarding_sessions WHERE franchise_id=%s ORDER BY id DESC LIMIT 1", (franchise_id,))
+    if not session_row:
+        execute_db(
+            "INSERT INTO onboarding_sessions (franchise_id, industry, selected_plan, status, current_step, started_at, completed_at, created_at, updated_at) VALUES (%s, %s, %s, 'completed', 'provisioned', %s, %s, %s, %s)",
+            (franchise_id, industry, plan_code, utc_now(), utc_now(), utc_now(), utc_now()),
+        )
+    else:
+        execute_db("UPDATE onboarding_sessions SET industry=%s, selected_plan=%s, status='completed', current_step='provisioned', completed_at=%s, updated_at=%s WHERE id=%s", (industry, plan_code, utc_now(), utc_now(), session_row["id"]))
+
+    state = fetch_one("SELECT id FROM onboarding_state WHERE franchise_id=%s", (franchise_id,))
+    if state:
+        execute_db("UPDATE onboarding_state SET setup_progress=100, services_created=1, automations_enabled=%s, go_live_ready=1, updated_at=%s WHERE id=%s", (1 if boolish(plan.get("automation_enabled", 0)) else 0, utc_now(), state["id"]))
+    else:
+        execute_db("INSERT INTO onboarding_state (franchise_id, setup_progress, services_created, automations_enabled, go_live_ready, created_at, updated_at) VALUES (%s, 100, 1, %s, 1, %s, %s)", (franchise_id, 1 if boolish(plan.get("automation_enabled", 0)) else 0, utc_now(), utc_now()))
+
+    return {"ok": True, "industry": industry, "plan": plan_code, "message_limit": message_limit, "automation_rules_created": assigned_rules}
 
 
 def scope_clause(user, alias="b"):
@@ -560,8 +849,78 @@ def available_roles_for_creator(user):
     return ["reception", "franchise_admin"]
 
 
+def upsert_customer(franchise_id, form_data):
+    phone = (form_data.get("phone") or "").strip()
+    email = (form_data.get("customer_email") or form_data.get("email") or "").strip().lower()
+    first_name = (form_data.get("first_name") or "").strip()
+    surname = (form_data.get("surname") or "").strip()
+    full_name = " ".join(part for part in [first_name, surname] if part).strip() or (form_data.get("customer_name") or "").strip()
+    customer = None
+    if phone:
+        customer = fetch_one("SELECT * FROM customers WHERE franchise_id=%s AND phone=%s ORDER BY id DESC LIMIT 1", (franchise_id, phone))
+    if not customer and email:
+        customer = fetch_one("SELECT * FROM customers WHERE franchise_id=%s AND lower(COALESCE(email, ''))=lower(%s) ORDER BY id DESC LIMIT 1", (franchise_id, email))
+    if customer:
+        execute_db(
+            """
+            UPDATE customers
+            SET first_name=COALESCE(NULLIF(%s, ''), first_name),
+                surname=COALESCE(NULLIF(%s, ''), surname),
+                full_name=COALESCE(NULLIF(%s, ''), full_name),
+                phone=COALESCE(NULLIF(%s, ''), phone),
+                email=COALESCE(NULLIF(%s, ''), email),
+                accepts_whatsapp=%s,
+                accepts_sms=%s,
+                updated_at=%s
+            WHERE id=%s
+            """,
+            (first_name, surname, full_name, phone, email, 1 if boolish(form_data.get("whatsapp_opt_in", "true")) else 0, 1, utc_now(), customer["id"]),
+        )
+        return customer["id"]
+    execute_db(
+        """
+        INSERT INTO customers (
+            franchise_id, first_name, surname, full_name, phone, email,
+            accepts_whatsapp, accepts_sms, created_at, updated_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
+        """,
+        (franchise_id, first_name, surname, full_name, phone, email, 1 if boolish(form_data.get("whatsapp_opt_in", "true")) else 0, utc_now(), utc_now()),
+    )
+    if phone:
+        row = fetch_one("SELECT id FROM customers WHERE franchise_id=%s AND phone=%s ORDER BY id DESC LIMIT 1", (franchise_id, phone))
+    else:
+        row = fetch_one("SELECT id FROM customers WHERE franchise_id=%s AND lower(COALESCE(email, ''))=lower(%s) ORDER BY id DESC LIMIT 1", (franchise_id, email))
+    return row["id"] if row else None
+
+
+def ensure_service(franchise_id, branch_id, service_name):
+    service_name = (service_name or "").strip()
+    if not service_name:
+        return None
+    service = fetch_one(
+        "SELECT id FROM services WHERE franchise_id=%s AND COALESCE(branch_id, 0)=COALESCE(%s, 0) AND lower(name)=lower(%s) ORDER BY id DESC LIMIT 1",
+        (franchise_id, branch_id, service_name),
+    )
+    if service:
+        return service["id"]
+    price = find_service_price(franchise_id, branch_id, service_name)
+    execute_db(
+        """
+        INSERT INTO services (franchise_id, branch_id, name, category, price_amount, active, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, 1, %s, %s)
+        """,
+        (franchise_id, branch_id, service_name, (price or {}).get("service_category"), float((price or {}).get("price_amount") or 0), utc_now(), utc_now()),
+    )
+    row = fetch_one("SELECT id FROM services WHERE franchise_id=%s AND lower(name)=lower(%s) ORDER BY id DESC LIMIT 1", (franchise_id, service_name))
+    return row["id"] if row else None
+
+
 def insert_booking(branch, form_data, source, status):
     from automation_engine import emit_event
+
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],))
+    if not can_create_booking(franchise):
+        raise PermissionError("This client account is unpaid or inactive, so new bookings are disabled.")
 
     scheduled_date = iso_date(form_data.get("scheduled_date") or form_data.get("date")) or utc_today()
     service = (form_data.get("service") or "").strip()
@@ -573,11 +932,14 @@ def insert_booking(branch, form_data, source, status):
     reminder_opt_in = 1 if boolish(form_data.get("reminder_opt_in", "true")) else 0
     whatsapp_opt_in = 1 if boolish(form_data.get("whatsapp_opt_in", "false")) else 0
     privacy_consent_at = now if boolish(form_data.get("privacy_consent", "false")) else None
+    customer_id = upsert_customer(branch["franchise_id"], form_data)
+    service_id = ensure_service(branch["franchise_id"], branch["id"], service)
 
     execute_db(
         """
         INSERT INTO bookings (
             booking_reference, franchise_id, branch_id, company, branch,
+            customer_id, service_id,
             first_name, surname, customer_email, phone, preferred_contact_method,
             make, model, vehicle_year, fuel_type, vehicle_vin, service, service_level,
             current_mileage, scheduled_date, date, status, service_due_date, work_to_be_done,
@@ -586,6 +948,7 @@ def insert_booking(branch, form_data, source, status):
         )
         VALUES (
             %s, %s, %s, %s, %s,
+            %s, %s,
             %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
@@ -599,6 +962,8 @@ def insert_booking(branch, form_data, source, status):
             branch["id"],
             branch["franchise_name"],
             branch["name"],
+            customer_id,
+            service_id,
             (form_data.get("first_name") or "").strip(),
             (form_data.get("surname") or "").strip(),
             (form_data.get("customer_email") or form_data.get("email") or "").strip(),

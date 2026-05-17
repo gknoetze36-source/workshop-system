@@ -2,11 +2,13 @@ import time
 from datetime import datetime, timedelta
 
 from cron_jobs import send_day_before_reminders, send_declined_work_reminders, send_inquiry_followup_jobs, send_missed_booking_jobs, yearly_reminders
+from database import initialize_database
 
 
 # ---------------- DAY BEFORE REMINDERS ---------------- #
 
 def run_scheduler():
+    initialize_database()
     print("Scheduler started...")
     last_daily = None
     last_evening = None

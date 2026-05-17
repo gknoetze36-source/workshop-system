@@ -18,7 +18,11 @@ from platform_helpers import (
     branch_for_public_booking,
     can_add_branch,
     can_add_user,
+    can_send_messages,
+    close_billing_period,
+    create_payment_link,
     daily_usage_summary,
+    expire_due_subscriptions,
     fetch_all,
     fetch_booking_for_user,
     fetch_credential_audit,
@@ -33,8 +37,13 @@ from platform_helpers import (
     monthly_usage_summary,
     plan_features,
     plan_label,
+    provision_business,
     role_label,
     selected_branch_for_user,
+    refresh_subscription_status,
+    subscription_is_active,
+    track_message_usage,
+    mark_billing_paid,
     user_scope_clause,
     utc_today,
     fetch_inquiries_for_user,
@@ -60,6 +69,7 @@ from platform_messaging import (
     twilio_configured,
     update_reminder_status,
 )
+from automation_engine import retry_failed_job
 
 app = Flask(__name__)
 app.secret_key = __import__("os").environ.get("SECRET_KEY", "dev-key-change-me")
@@ -101,6 +111,8 @@ def load_current_user():
         session.clear()
         g.current_user = None
         return
+    if g.current_user.get("franchise_id"):
+        refresh_subscription_status(fetch_one("SELECT * FROM franchises WHERE id=%s", (g.current_user["franchise_id"],)))
     if g.current_user.get("must_reset_password") and request.endpoint not in {"logout", "change_password"}:
         if request.endpoint and not request.endpoint.startswith("static"):
             return redirect(url_for("change_password"))
@@ -153,6 +165,8 @@ def _active_franchise_required():
             session.clear()
             flash("This client account is inactive. Please contact the platform administrator.", "error")
             return redirect(url_for("login"))
+        if franchise and not subscription_is_active(franchise):
+            flash("This client account is unpaid or expired. Dashboard access remains available, but new bookings, automations, and outbound messages are disabled.", "error")
     return None
 
 
@@ -161,11 +175,17 @@ def health():
     return {"status": "ok", "database": "error" if DATABASE_INIT_ERROR else "ready"}
 
 
+@app.route("/health/db")
+def health_db():
+    fetch_one("SELECT 1 AS ok")
+    return {"status": "ok"}
+
+
 @app.route("/")
 def home():
-    demo_franchise = fetch_one("SELECT * FROM franchises WHERE slug=%s", ("demo-motor-group",))
-    branches = visible_branches(franchise_id=demo_franchise["id"], public_only=True)[:2] if demo_franchise else []
-    return render_template("public_home.html", franchises=[demo_franchise] if demo_franchise else [], branches=branches)
+    if current_user():
+        return redirect(url_for("dashboard"))
+    return redirect(url_for("login"))
 
 
 def _render_public_booking(preselected_branch=None):
@@ -177,12 +197,16 @@ def _render_public_booking(preselected_branch=None):
             flash("Please confirm the consent and privacy notice before submitting your booking.", "error")
         elif not re.fullmatch(r"\+[1-9][0-9]{7,14}", phone):
             flash("Please enter your phone number in international format, for example +27821234567.", "error")
-        elif service not in {"Service", "Repairs"}:
-            flash("Please choose Service or Repairs before submitting your booking.", "error")
+        elif not service:
+            flash("Please choose a service before submitting your booking.", "error")
         elif not branch or not boolish(branch.get("public_booking_enabled", 1)):
             flash("Please choose a valid branch before submitting your booking.", "error")
         else:
-            reference = insert_booking(branch, request.form, "Website", "Pending")
+            try:
+                reference = insert_booking(branch, request.form, "Website", "Pending")
+            except PermissionError as exc:
+                flash(str(exc), "error")
+                return redirect(request.path)
             sent, channel = send_booking_confirmation(reference)
             flash(f"Booking {reference} has been created.", "success")
             if sent:
@@ -210,6 +234,39 @@ def public_branch_booking(franchise_slug, branch_slug):
     if not branch:
         abort(404)
     return _render_public_booking(branch)
+
+
+@app.route("/webhook/booking/<franchise_slug>/<branch_slug>/<token>", methods=["POST"])
+def booking_webhook(franchise_slug, branch_slug, token):
+    branch = branch_for_public_booking(franchise_slug, branch_slug)
+    if not branch:
+        abort(404)
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],))
+    if not franchise or (franchise.get("inbound_webhook_token") and franchise.get("inbound_webhook_token") != token):
+        abort(403)
+    payload = request.get_json(silent=True) or request.form.to_dict()
+    normalized = {
+        "first_name": payload.get("first_name") or payload.get("name") or payload.get("customer_name") or "",
+        "surname": payload.get("surname") or "",
+        "customer_email": payload.get("customer_email") or payload.get("email") or "",
+        "phone": payload.get("phone") or payload.get("customer_phone") or "",
+        "service": payload.get("service") or payload.get("service_name") or "General",
+        "scheduled_date": payload.get("scheduled_date") or payload.get("date") or utc_today(),
+        "preferred_contact_method": payload.get("preferred_contact_method") or "WhatsApp",
+        "whatsapp_opt_in": payload.get("whatsapp_opt_in", "true"),
+        "reminder_opt_in": payload.get("reminder_opt_in", "true"),
+        "privacy_consent": payload.get("privacy_consent", "true"),
+        "public_notes": payload.get("notes") or payload.get("message") or "",
+        "make": payload.get("make") or "",
+        "model": payload.get("model") or "",
+        "work_to_be_done": payload.get("work_to_be_done") or "",
+    }
+    try:
+        reference = insert_booking(branch, normalized, "Webhook", "Pending")
+    except PermissionError as exc:
+        return {"ok": False, "error": str(exc)}, 402
+    sent, channel = send_booking_confirmation(reference)
+    return {"ok": True, "booking_reference": reference, "confirmation_sent": sent, "channel": channel}
 
 
 @app.route("/booking-success/<reference>")
@@ -445,7 +502,11 @@ def add_booking():
     if request.method == "POST":
         branch = selected_branch_for_user(current_user(), request.form.get("branch_id"))
         if branch:
-            reference = insert_booking(branch, request.form, "Reception", "Confirmed")
+            try:
+                reference = insert_booking(branch, request.form, "Reception", "Confirmed")
+            except PermissionError as exc:
+                flash(str(exc), "error")
+                return redirect(url_for("add_booking"))
             flash(f"Reception booking {reference} created.", "success")
             return redirect(url_for("booking_detail", reference=reference))
         flash("Please choose a valid branch.", "error")
@@ -461,7 +522,11 @@ def walkin():
     if request.method == "POST":
         branch = selected_branch_for_user(current_user(), request.form.get("branch_id"))
         if branch:
-            reference = insert_booking(branch, request.form, "Walk-in", "In Progress")
+            try:
+                reference = insert_booking(branch, request.form, "Walk-in", "In Progress")
+            except PermissionError as exc:
+                flash(str(exc), "error")
+                return redirect(url_for("walkin"))
             flash(f"Walk-in {reference} recorded.", "success")
             return redirect(url_for("booking_detail", reference=reference))
         flash("Please choose a valid branch.", "error")
@@ -626,10 +691,15 @@ def send_reminder(reminder_id, channel):
     if not recipient:
         flash("This customer does not have the required contact details for that channel.", "error")
         return redirect(url_for("reminders"))
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (booking.get("franchise_id"),))
+    if not can_send_messages(franchise):
+        flash("Outbound messaging is disabled because this client account is unpaid or inactive.", "error")
+        return redirect(url_for("reminders"))
     try:
         if channel in {"sms", "whatsapp"} and twilio_configured(channel):
             send_twilio_message(channel, recipient, body)
             log_communication(booking, reminder, channel, recipient, subject, body, "sent", current_user()["id"])
+            track_message_usage(booking.get("franchise_id"))
             update_reminder_status(reminder_id, "Sent", channel, count_as_send=True)
             flash(f"{channel.title()} message sent successfully.", "success")
             return redirect(url_for("reminders"))
@@ -690,6 +760,9 @@ def manage_franchises():
                     utc_now(),
                 ),
             )
+            created = fetch_one("SELECT id FROM franchises WHERE slug=%s", (__import__('database').slugify(name),))
+            if created:
+                provision_business(created["id"], {"industry": (request.form.get("industry") or "workshop").strip().lower(), "plan": plan_code})
             flash(f"Franchise {name} created.", "success")
         else:
             flash("Please use a unique franchise name.", "error")
@@ -745,8 +818,37 @@ def update_franchise(franchise_id):
             franchise_id,
         ),
     )
+    provision_business(franchise_id, {"industry": (request.form.get("industry") or franchise.get("industry") or "workshop").strip().lower(), "plan": plan_code})
     flash(f"Updated {franchise['name']}.", "success")
     return redirect(url_for("manage_franchises"))
+
+
+@app.route("/manage/franchises/<int:franchise_id>/provision", methods=["POST"])
+@roles_required("super_admin")
+def provision_franchise(franchise_id):
+    result = provision_business(
+        franchise_id,
+        {
+            "industry": (request.form.get("industry") or "").strip().lower(),
+            "plan": (request.form.get("plan_code") or "").strip().lower(),
+            "monthly_message_limit": request.form.get("monthly_message_limit") or "",
+        },
+    )
+    if result.get("ok"):
+        flash(f"Provisioned {result['industry']} workflow on the {result['plan']} plan.", "success")
+    else:
+        flash(result.get("error") or "Provisioning failed.", "error")
+    return redirect(url_for("manage_franchises"))
+
+
+@app.route("/admin/failed-jobs/<int:failed_job_id>/retry", methods=["POST"])
+@roles_required("super_admin")
+def retry_failed_automation_job(failed_job_id):
+    if retry_failed_job(failed_job_id):
+        flash("Failed automation job queued for retry.", "success")
+    else:
+        flash("Failed automation job was not found or is already resolved.", "error")
+    return redirect(request.referrer or url_for("dashboard"))
 
 
 @app.route("/manage/branches", methods=["GET", "POST"])
@@ -1048,16 +1150,8 @@ def _record_chatbot_usage(franchise_id):
 @roles_required("super_admin")
 def close_billing_month():
     usage_month = (request.form.get("usage_month") or utc_today()[:7]).strip()
-    rows = fetch_all("SELECT cum.*, f.monthly_base_price, f.monthly_message_limit, f.overage_price_per_message FROM chatbot_usage_monthly cum LEFT JOIN franchises f ON f.id = cum.franchise_id WHERE cum.usage_month=%s", (usage_month,))
-    for row in rows:
-        limit = int(row.get("message_limit") or row.get("monthly_message_limit") or 2000)
-        overage_price = float(row.get("overage_price") or row.get("overage_price_per_message") or 0.5)
-        base_price = float(row.get("base_price") or row.get("monthly_base_price") or 0)
-        extra = max(int(row.get("message_count") or 0) - limit, 0)
-        overage_cost = extra * overage_price
-        total_due = base_price + overage_cost
-        execute_db("UPDATE chatbot_usage_monthly SET message_limit=%s, extra_messages=%s, base_price=%s, overage_price=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s", (limit, extra, base_price, overage_price, overage_cost, total_due, utc_now(), row["id"]))
-    flash(f"Closed billing calculations for {usage_month}.", "success")
+    closed = close_billing_period(usage_month)
+    flash(f"Closed billing calculations for {closed} account(s) in {usage_month}.", "success")
     return redirect(url_for("manage_franchises"))
 
 
@@ -1073,8 +1167,27 @@ def update_billing_payment(billing_id):
         "UPDATE chatbot_usage_monthly SET payment_status=%s, paid_at=%s, payment_reference=%s, updated_at=%s WHERE id=%s",
         (status, paid_at, (request.form.get("payment_reference") or "").strip(), utc_now(), billing_id),
     )
+    if status == "Paid":
+        mark_billing_paid(billing["franchise_id"], billing["usage_month"], (request.form.get("payment_reference") or "").strip())
     flash("Billing payment status updated.", "success")
     return redirect(url_for("manage_franchises"))
+
+
+@app.route("/billing/<int:billing_id>/payment-link", methods=["POST"])
+@roles_required("super_admin")
+def generate_payment_link(billing_id):
+    link = create_payment_link(billing_id)
+    flash("Payment link generated." if link is not None else "Billing record not found.", "success" if link is not None else "error")
+    return redirect(url_for("manage_franchises"))
+
+
+@app.route("/webhook/stripe", methods=["POST"])
+def stripe_webhook():
+    payload = request.get_json(silent=True) or {}
+    metadata = ((payload.get("data") or {}).get("object") or {}).get("metadata") or payload.get("metadata") or {}
+    if metadata.get("franchise_id") and metadata.get("billing_period"):
+        mark_billing_paid(metadata["franchise_id"], metadata["billing_period"], payload.get("id") or "")
+    return {"ok": True}
 
 
 @app.errorhandler(403)

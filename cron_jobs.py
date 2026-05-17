@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from automation_engine import process_due_jobs
 from database import initialize_database
-from platform_helpers import fetch_all
+from platform_helpers import close_billing_period, expire_due_subscriptions, fetch_all
 from platform_messaging import (
     auto_send_reminder,
     fetch_reminders_for_user,
@@ -78,6 +78,16 @@ def process_automation_jobs():
     print(f"Automation jobs processed: {total}")
 
 
+def subscription_check_jobs():
+    expire_due_subscriptions()
+    print("Subscription status checked")
+
+
+def billing_close_jobs():
+    total = close_billing_period()
+    print(f"Billing records closed: {total}")
+
+
 # ---------------- ENTRY ---------------- #
 
 if __name__ == "__main__":
@@ -85,6 +95,7 @@ if __name__ == "__main__":
     prepare_database()
 
     if job == "daily":
+        subscription_check_jobs()
         send_day_before_reminders()
 
     elif job == "monthly":
@@ -101,6 +112,12 @@ if __name__ == "__main__":
 
     elif job == "automation":
         process_automation_jobs()
+
+    elif job == "subscriptions":
+        subscription_check_jobs()
+
+    elif job == "billing":
+        billing_close_jobs()
 
     else:
         print("No valid job provided")
