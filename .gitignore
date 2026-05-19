@@ -1,5 +1,72 @@
+# Python cache
 __pycache__/
 *.py[cod]
-database.db
-database.local.db
-database.local.db-journal
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite-journal
+*.sqlite3-journal
+
+# Backups and exports
+*.bak
+*.backup
+*.dump
+*.sql
+backups/
+exports/
+
+# Uploads and media generated at runtime
+uploads/
+media/
+static/uploads/
+static/media/
+instance/
+
+# Logs and temp files
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+desktop.ini
