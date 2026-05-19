@@ -1,8 +1,14 @@
 from functools import wraps
 from datetime import datetime, timedelta
+import json
+import logging
+import os
 import re
 
-from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import execute_db, initialize_database, iso_date, query_db, utc_now
@@ -70,9 +76,33 @@ from platform_messaging import (
     update_reminder_status,
 )
 from automation_engine import retry_failed_job
+from services.paystack import valid_webhook_signature, verify_transaction
+from validators.phone_validator import is_valid_phone
+from validators.request_validator import require_fields
 
 app = Flask(__name__)
-app.secret_key = __import__("os").environ.get("SECRET_KEY", "dev-key-change-me")
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY is required")
+app.secret_key = SECRET_KEY
+app.config.update(
+    SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "true").lower() in {"1", "true", "yes"},
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE=os.environ.get("SESSION_COOKIE_SAMESITE", "Lax"),
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=int(os.environ.get("SESSION_LIFETIME_HOURS", "12"))),
+)
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        payload = {"level": record.levelname, "logger": record.name, "message": record.getMessage(), "time": self.formatTime(record)}
+        return json.dumps(payload, separators=(",", ":"))
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter())
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), handlers=[handler], force=True)
+logger = logging.getLogger("vanta")
+csrf = CSRFProtect(app)
+limiter = Limiter(get_remote_address, app=app, default_limits=[os.environ.get("DEFAULT_RATE_LIMIT", "300 per hour")], storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"))
 
 DATABASE_INIT_ERROR = None
 DATABASE_STATE = None
@@ -94,6 +124,7 @@ def local_database_unavailable():
 
 @app.before_request
 def load_current_user():
+    session.permanent = True
     g.current_user = None
     if not session.get("user_id"):
         return
@@ -195,7 +226,7 @@ def _render_public_booking(preselected_branch=None):
         service = (request.form.get("service") or "").strip()
         if not boolish(request.form.get("privacy_consent", "")):
             flash("Please confirm the consent and privacy notice before submitting your booking.", "error")
-        elif not re.fullmatch(r"\+[1-9][0-9]{7,14}", phone):
+        elif not is_valid_phone(phone):
             flash("Please enter your phone number in international format, for example +27821234567.", "error")
         elif not service:
             flash("Please choose a service before submitting your booking.", "error")
@@ -237,6 +268,8 @@ def public_branch_booking(franchise_slug, branch_slug):
 
 
 @app.route("/webhook/booking/<franchise_slug>/<branch_slug>/<token>", methods=["POST"])
+@csrf.exempt
+@limiter.limit("30 per minute")
 def booking_webhook(franchise_slug, branch_slug, token):
     branch = branch_for_public_booking(franchise_slug, branch_slug)
     if not branch:
@@ -287,6 +320,7 @@ def booking_success(reference):
 
 
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute")
 def login():
     if local_database_unavailable():
         return render_template("login.html", error="The local database is unavailable. Set SQLITE_PATH to a writable path or use DATABASE_URL.")
@@ -295,6 +329,7 @@ def login():
 
     error = None
     if request.method == "POST":
+        require_fields(request.form, ("username", "password"))
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
         user = fetch_one("SELECT * FROM users WHERE lower(username)=lower(%s)", (username,))
@@ -321,6 +356,7 @@ def login():
 
 @app.route("/account/password", methods=["GET", "POST"])
 @login_required
+@limiter.limit("10 per hour")
 def change_password():
     error = None
     if request.method == "POST":
@@ -1004,6 +1040,7 @@ def toggle_user(user_id):
 
 @app.route("/manage/users/<int:user_id>/password", methods=["POST"])
 @roles_required("franchise_admin", "super_admin")
+@limiter.limit("20 per hour")
 def reset_user_password(user_id):
     candidate = fetch_one("SELECT * FROM users WHERE id=%s", (user_id,))
     if not candidate:
@@ -1032,6 +1069,7 @@ def manage_credentials():
 
 @app.route("/manage/credentials/reset-all", methods=["POST"])
 @roles_required("super_admin")
+@limiter.limit("3 per hour")
 def reset_all_passwords():
     users = fetch_all("SELECT * FROM users WHERE role <> 'super_admin' OR username <> %s", (current_user()["username"],))
     for user in users:
@@ -1175,35 +1213,80 @@ def update_billing_payment(billing_id):
 
 @app.route("/billing/<int:billing_id>/payment-link", methods=["POST"])
 @roles_required("super_admin")
+@limiter.limit("20 per hour")
 def generate_payment_link(billing_id):
     link = create_payment_link(billing_id)
     flash("Payment link generated." if link is not None else "Billing record not found.", "success" if link is not None else "error")
     return redirect(url_for("manage_franchises"))
 
 
-@app.route("/webhook/stripe", methods=["POST"])
-def stripe_webhook():
+@app.route("/webhook/paystack", methods=["POST"])
+@csrf.exempt
+@limiter.limit("60 per minute")
+def paystack_webhook():
+    raw_body = request.get_data() or b""
+    if not valid_webhook_signature(raw_body, request.headers.get("x-paystack-signature")):
+        logger.warning("paystack_webhook_invalid_signature")
+        abort(403)
     payload = request.get_json(silent=True) or {}
-    metadata = ((payload.get("data") or {}).get("object") or {}).get("metadata") or payload.get("metadata") or {}
-    if metadata.get("franchise_id") and metadata.get("billing_period"):
-        mark_billing_paid(metadata["franchise_id"], metadata["billing_period"], payload.get("id") or "")
+    event = payload.get("event") or ""
+    data = payload.get("data") or {}
+    metadata = data.get("metadata") or {}
+    reference = data.get("reference") or payload.get("reference") or ""
+    if event == "charge.success" and metadata.get("franchise_id") and metadata.get("billing_period"):
+        verified = verify_transaction(reference)
+        if ((verified.get("data") or {}).get("status")) == "success":
+            mark_billing_paid(metadata["franchise_id"], metadata["billing_period"], reference)
+            logger.info("paystack_payment_marked_paid reference=%s", reference)
+    elif event.startswith("charge."):
+        logger.info("paystack_payment_event event=%s reference=%s", event, reference)
     return {"ok": True}
 
 
 @app.errorhandler(403)
 def forbidden(_error):
+    if request.path.startswith("/webhook/") or request.is_json:
+        return jsonify({"ok": False, "error": "forbidden"}), 403
     return render_template("error.html", title="Access Denied", message="You do not have permission to view that page."), 403
 
 
 @app.errorhandler(404)
 def not_found(_error):
+    if request.path.startswith("/webhook/") or request.is_json:
+        return jsonify({"ok": False, "error": "not_found"}), 404
     return render_template("error.html", title="Page Not Found", message="We could not find the page you requested."), 404
+
+
+@app.errorhandler(400)
+def bad_request(error):
+    message = getattr(error, "description", "bad_request")
+    if request.path.startswith("/webhook/") or request.is_json:
+        return jsonify({"ok": False, "error": message}), 400
+    flash(message, "error")
+    return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.errorhandler(429)
+def rate_limited(_error):
+    if request.path.startswith("/webhook/") or request.is_json:
+        return jsonify({"ok": False, "error": "rate_limited"}), 429
+    return render_template("error.html", title="Rate Limited", message="Too many requests. Please wait and try again."), 429
+
+
+@app.errorhandler(500)
+def server_error(error):
+    logger.exception("unhandled_error path=%s", request.path)
+    if request.path.startswith("/webhook/") or request.is_json:
+        return jsonify({"ok": False, "error": "server_error"}), 500
+    return render_template("error.html", title="Server Error", message="Something went wrong."), 500
 
 from assistant_engine import assistant_reply
 from platform_helpers import branch_by_id
 from platform_messaging import send_twilio_message
 
 @app.route("/webhook/twilio/<franchise_slug>/<branch_slug>/<token>", methods=["POST"])
+@csrf.exempt
+@limiter.limit("60 per minute")
 def twilio_webhook(franchise_slug, branch_slug, token):
     phone = request.form.get("From")
     message = request.form.get("Body")
@@ -1286,4 +1369,4 @@ def is_date_available(branch_id, date):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()

@@ -282,8 +282,14 @@ def create_payment_link(billing_id):
     if not billing:
         return None
     base_url = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
-    fallback = f"{base_url}/manage/franchises" if base_url else ""
-    payment_link = fallback
+    reference = f"billing-{billing['id']}-{billing['billing_period']}".replace(" ", "-")
+    callback_url = f"{base_url}/manage/franchises" if base_url else ""
+    email = os.environ.get("BILLING_EMAIL") or os.environ.get("ADMIN_EMAIL") or "billing@example.com"
+    metadata = {"franchise_id": billing["franchise_id"], "billing_period": billing["billing_period"], "billing_record_id": billing["id"]}
+    from services.paystack import initialize_transaction
+
+    result = initialize_transaction(email, billing.get("amount") or 0, reference, callback_url=callback_url, metadata=metadata)
+    payment_link = ((result.get("data") or {}).get("authorization_url")) or callback_url
     execute_db("UPDATE billing_records SET payment_link=%s, updated_at=%s WHERE id=%s", (payment_link, utc_now(), billing_id))
     return payment_link
 
