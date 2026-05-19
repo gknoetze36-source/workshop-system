@@ -3,7 +3,7 @@ import os
 
 from flask import has_request_context, url_for
 
-from database import classify_service_level, execute_db, iso_date, parse_any_date, query_db, utc_now
+from database import classify_service_level, execute_db, iso_date, parse_any_date, query_db, transaction, utc_now
 
 ROLE_LABELS = {
     "reception": "Reception",
@@ -221,50 +221,52 @@ def close_billing_period(usage_month=None, franchise_id=None):
         + " AND ".join(clauses),
         tuple(args),
     )
-    closed = 0
-    for row in rows:
-        limit = int(row.get("message_limit") or row.get("monthly_message_limit") or 2000)
-        overage_price = float(row.get("overage_price") or row.get("overage_price_per_message") or 0.5)
-        base_price = float(row.get("base_price") or row.get("monthly_base_price") or 0)
-        extra = max(int(row.get("message_count") or 0) - limit, 0)
-        usage_amount = extra * overage_price
-        total_due = base_price + usage_amount
-        execute_db(
-            "UPDATE chatbot_usage_monthly SET message_limit=%s, extra_messages=%s, base_price=%s, overage_price=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s",
-            (limit, extra, base_price, overage_price, usage_amount, total_due, utc_now(), row["id"]),
-        )
-        existing = fetch_one("SELECT id FROM billing_records WHERE franchise_id=%s AND billing_period=%s", (row["franchise_id"], usage_month))
-        if existing:
-            execute_db("UPDATE billing_records SET amount=%s, base_amount=%s, usage_amount=%s, updated_at=%s WHERE id=%s", (total_due, base_price, usage_amount, utc_now(), existing["id"]))
-        else:
+    with transaction():
+        closed = 0
+        for row in rows:
+            limit = int(row.get("message_limit") or row.get("monthly_message_limit") or 2000)
+            overage_price = float(row.get("overage_price") or row.get("overage_price_per_message") or 0.5)
+            base_price = float(row.get("base_price") or row.get("monthly_base_price") or 0)
+            extra = max(int(row.get("message_count") or 0) - limit, 0)
+            usage_amount = extra * overage_price
+            total_due = base_price + usage_amount
             execute_db(
-                "INSERT INTO billing_records (franchise_id, amount, base_amount, usage_amount, status, billing_period, created_at, updated_at) VALUES (%s, %s, %s, %s, 'unpaid', %s, %s, %s)",
-                (row["franchise_id"], total_due, base_price, usage_amount, usage_month, utc_now(), utc_now()),
+                "UPDATE chatbot_usage_monthly SET message_limit=%s, extra_messages=%s, base_price=%s, overage_price=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s",
+                (limit, extra, base_price, overage_price, usage_amount, total_due, utc_now(), row["id"]),
             )
-        closed += 1
-    return closed
+            existing = fetch_one("SELECT id FROM billing_records WHERE franchise_id=%s AND billing_period=%s", (row["franchise_id"], usage_month))
+            if existing:
+                execute_db("UPDATE billing_records SET amount=%s, base_amount=%s, usage_amount=%s, updated_at=%s WHERE id=%s", (total_due, base_price, usage_amount, utc_now(), existing["id"]))
+            else:
+                execute_db(
+                    "INSERT INTO billing_records (franchise_id, amount, base_amount, usage_amount, status, billing_period, created_at, updated_at) VALUES (%s, %s, %s, %s, 'unpaid', %s, %s, %s)",
+                    (row["franchise_id"], total_due, base_price, usage_amount, usage_month, utc_now(), utc_now()),
+                )
+            closed += 1
+        return closed
 
 
 def mark_billing_paid(franchise_id, billing_period, payment_reference=""):
     subscription_start = utc_today()
     subscription_end = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
-    execute_db(
-        """
-        UPDATE franchises
-        SET subscription_status='active', subscription_start=%s, subscription_end=%s,
-            messages_used=0, updated_at=%s
-        WHERE id=%s
-        """,
-        (subscription_start, subscription_end, utc_now(), franchise_id),
-    )
-    execute_db(
-        "UPDATE chatbot_usage_monthly SET payment_status='Paid', paid_at=%s, payment_reference=%s, updated_at=%s WHERE franchise_id=%s AND usage_month=%s",
-        (utc_now(), payment_reference, utc_now(), franchise_id, billing_period),
-    )
-    execute_db(
-        "UPDATE billing_records SET status='paid', paid_at=%s, updated_at=%s WHERE franchise_id=%s AND billing_period=%s",
-        (utc_now(), utc_now(), franchise_id, billing_period),
-    )
+    with transaction():
+        execute_db(
+            """
+            UPDATE franchises
+            SET subscription_status='active', subscription_start=%s, subscription_end=%s,
+                messages_used=0, updated_at=%s
+            WHERE id=%s
+            """,
+            (subscription_start, subscription_end, utc_now(), franchise_id),
+        )
+        execute_db(
+            "UPDATE chatbot_usage_monthly SET payment_status='Paid', paid_at=%s, payment_reference=%s, updated_at=%s WHERE franchise_id=%s AND usage_month=%s",
+            (utc_now(), payment_reference, utc_now(), franchise_id, billing_period),
+        )
+        execute_db(
+            "UPDATE billing_records SET status='paid', paid_at=%s, updated_at=%s WHERE franchise_id=%s AND billing_period=%s",
+            (utc_now(), utc_now(), franchise_id, billing_period),
+        )
 
 
 def expire_due_subscriptions():
@@ -799,13 +801,17 @@ def fetch_visible_bookings(user, filters=None):
 
 
 def booking_in_scope(booking, user):
-    if not booking:
+    return assert_tenant_scope(booking, user)
+
+
+def assert_tenant_scope(row, user, branch_key="branch_id", franchise_key="franchise_id"):
+    if not row or not user:
         return False
     if user["role"] == "super_admin":
         return True
     if user["role"] == "franchise_admin":
-        return booking.get("franchise_id") == user.get("franchise_id")
-    return booking.get("branch_id") == user.get("branch_id")
+        return row.get(franchise_key) == user.get("franchise_id")
+    return row.get(branch_key) == user.get("branch_id")
 
 
 def fetch_booking_for_user(reference, user):

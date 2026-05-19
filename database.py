@@ -1,7 +1,9 @@
 import csv
+import threading
 import os
 import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -13,7 +15,49 @@ BOOKINGS_CSV_PATH = BASE_DIR / "bookings.csv"
 
 
 def require_postgres_for_service():
-    return os.environ.get("REQUIRE_DATABASE_URL", "").lower() in {"1", "true", "yes"}
+    production_markers = (
+        os.environ.get("REQUIRE_DATABASE_URL"),
+        os.environ.get("RAILWAY_ENVIRONMENT"),
+        os.environ.get("RAILWAY_SERVICE_ID"),
+        os.environ.get("FLASK_ENV"),
+        os.environ.get("APP_ENV"),
+    )
+    return any(str(value or "").lower() in {"1", "true", "yes", "production"} for value in production_markers)
+
+
+_POOL = None
+_POOL_LOCK = threading.Lock()
+_LOCAL = threading.local()
+
+
+class _PooledConnection:
+    def __init__(self, pool, connection):
+        self._pool = pool
+        self._connection = connection
+        self._closed = False
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+    def close(self):
+        if not self._closed:
+            self._pool.putconn(self._connection)
+            self._closed = True
+
+
+def _postgres_pool():
+    global _POOL
+    if _POOL is None:
+        with _POOL_LOCK:
+            if _POOL is None:
+                from psycopg2.pool import ThreadedConnectionPool
+
+                database_url = os.environ.get("DATABASE_URL")
+                minconn = int(os.environ.get("PGPOOL_MINCONN", "1"))
+                maxconn = int(os.environ.get("PGPOOL_MAXCONN", "5"))
+                timeout = int(os.environ.get("PGCONNECT_TIMEOUT", "5"))
+                _POOL = ThreadedConnectionPool(minconn, maxconn, database_url, connect_timeout=timeout)
+    return _POOL
 
 
 def utc_now():
@@ -55,10 +99,7 @@ def classify_service_level(service_name):
 def get_connection():
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
-        import psycopg2
-        import psycopg2.extras
-
-        connection = psycopg2.connect(database_url, connect_timeout=int(os.environ.get("PGCONNECT_TIMEOUT", "5")))
+        connection = _PooledConnection(_postgres_pool(), _postgres_pool().getconn())
         connection.autocommit = False
         return connection, "postgres"
 
@@ -91,22 +132,68 @@ def _run(connection, backend, query, args=(), one=False):
         if cursor.description:
             rows = [dict(row) for row in cursor.fetchall()]
             return rows[0] if one and rows else (None if one else rows)
-        connection.commit()
+        if not getattr(_LOCAL, "in_transaction", False):
+            connection.commit()
         return None
     finally:
         cursor.close()
 
 
 def query_db(query, args=(), one=False):
+    active = getattr(_LOCAL, "connection", None)
+    if active:
+        connection, backend = active
+        return _run(connection, backend, query, args, one=one)
+
     connection, backend = get_connection()
     try:
-        return _run(connection, backend, query, args, one=one)
+        result = _run(connection, backend, query, args, one=one)
+        connection.commit()
+        return result
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
 
 def execute_db(query, args=()):
     query_db(query, args=args, one=False)
+
+
+@contextmanager
+def transaction():
+    if getattr(_LOCAL, "connection", None):
+        yield
+        return
+
+    connection, backend = get_connection()
+    _LOCAL.connection = (connection, backend)
+    _LOCAL.in_transaction = True
+    try:
+        yield
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        _LOCAL.connection = None
+        _LOCAL.in_transaction = False
+        connection.close()
+
+
+def run_alembic_migrations():
+    if os.environ.get("SKIP_ALEMBIC_MIGRATIONS", "").lower() in {"1", "true", "yes"}:
+        return
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        return
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config(str(BASE_DIR / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "head")
 
 
 def _get_columns(connection, backend, table_name):
@@ -1517,7 +1604,10 @@ def initialize_database():
     connection, backend = get_connection()
     try:
         _create_tables(connection, backend)
-        _ensure_columns(connection, backend)
+        if backend == "postgres":
+            run_alembic_migrations()
+        else:
+            _ensure_columns(connection, backend)
         _ensure_unique_username_index(connection, backend)
         _ensure_indexes(connection, backend)
         _seed_plan_defaults(connection, backend)
