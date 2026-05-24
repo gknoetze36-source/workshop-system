@@ -3,6 +3,7 @@ import logging
 import threading
 import os
 import re
+import secrets
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -117,6 +118,10 @@ def _adapt_query(query, backend):
     if backend == "sqlite":
         return query.replace("%s", "?")
     return query
+
+
+def _db_bool(value, backend):
+    return bool(value) if backend == "postgres" else int(bool(value))
 
 
 def _get_cursor(connection, backend):
@@ -1121,9 +1126,9 @@ def _seed_plan_defaults(connection, backend):
     today = datetime.utcnow().strftime("%Y-%m-%d")
     default_subscription_end = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d")
     plans = {
-        "basic": {"branch_limit": 1, "user_limit": 2, "automation_enabled": 0, "chatbot_enabled": 0, "reporting_enabled": 0, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
-        "growth": {"branch_limit": 5, "user_limit": 10, "automation_enabled": 1, "chatbot_enabled": 1, "reporting_enabled": 1, "custom_integrations_enabled": 0, "priority_support_enabled": 0},
-        "premium": {"branch_limit": 999999, "user_limit": 999999, "automation_enabled": 1, "chatbot_enabled": 1, "reporting_enabled": 1, "custom_integrations_enabled": 1, "priority_support_enabled": 1},
+        "basic": {"branch_limit": 1, "user_limit": 2, "automation_enabled": False, "chatbot_enabled": False, "reporting_enabled": False, "custom_integrations_enabled": False, "priority_support_enabled": False},
+        "growth": {"branch_limit": 5, "user_limit": 10, "automation_enabled": True, "chatbot_enabled": True, "reporting_enabled": True, "custom_integrations_enabled": False, "priority_support_enabled": False},
+        "premium": {"branch_limit": 999999, "user_limit": 999999, "automation_enabled": True, "chatbot_enabled": True, "reporting_enabled": True, "custom_integrations_enabled": True, "priority_support_enabled": True},
     }
     franchises = _run(connection, backend, "SELECT * FROM franchises ORDER BY id") or []
     for franchise in franchises:
@@ -1157,11 +1162,11 @@ def _seed_plan_defaults(connection, backend):
                 plan_code,
                 plan["branch_limit"],
                 plan["user_limit"],
-                plan["automation_enabled"],
-                plan["chatbot_enabled"],
-                plan["reporting_enabled"],
-                plan["custom_integrations_enabled"],
-                plan["priority_support_enabled"],
+                _db_bool(plan["automation_enabled"], backend),
+                _db_bool(plan["chatbot_enabled"], backend),
+                _db_bool(plan["reporting_enabled"], backend),
+                _db_bool(plan["custom_integrations_enabled"], backend),
+                _db_bool(plan["priority_support_enabled"], backend),
                 today,
                 default_subscription_end,
                 now,
@@ -1192,9 +1197,9 @@ def _seed_saas_templates(connection, backend):
             backend,
             """
             INSERT INTO industry_templates (industry, name, description, default_plan, default_message_limit, active, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, 1, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            (industry, name, description, default_plan, message_limit, now, now),
+            (industry, name, description, default_plan, message_limit, _db_bool(True, backend), now, now),
         )
 
     automation_templates = [
@@ -1229,9 +1234,9 @@ def _seed_saas_templates(connection, backend):
             INSERT INTO automation_templates (
                 industry, name, event_type, trigger_timing, default_delay_minutes, default_message,
                 channel_priority, active, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, 'whatsapp,sms', 1, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, 'whatsapp,sms', %s, %s, %s)
             """,
-            (industry, name, event_type, trigger_timing, delay_minutes, message, now, now),
+            (industry, name, event_type, trigger_timing, delay_minutes, message, _db_bool(True, backend), now, now),
         )
 
 
@@ -1419,10 +1424,14 @@ def _ensure_super_admin(connection, backend):
         return
 
     username = os.environ.get("SUPERADMIN_USERNAME", "superadmin")
-    password = os.environ.get("SUPERADMIN_PASSWORD", "ChangeMeNow!2026")
+    password = os.environ.get("SUPERADMIN_PASSWORD")
     full_name = os.environ.get("SUPERADMIN_NAME", "Platform Super Admin")
-    if require_postgres_for_service() and not os.environ.get("SUPERADMIN_PASSWORD"):
-        raise RuntimeError("SUPERADMIN_PASSWORD is required when bootstrapping a production super admin.")
+    if not password:
+        if require_postgres_for_service():
+            password = secrets.token_urlsafe(32)
+            logger.warning("SUPERADMIN_PASSWORD is not set; created super admin with a generated password. Set SUPERADMIN_PASSWORD and reset this account before use.")
+        else:
+            password = "ChangeMeNow!2026"
     now = utc_now()
 
     _run(
@@ -1433,9 +1442,9 @@ def _ensure_super_admin(connection, backend):
             username, password, password_hash, full_name, role, active,
             must_reset_password, created_at, updated_at
         )
-        VALUES (%s, %s, %s, %s, 'super_admin', 1, 1, %s, %s)
+        VALUES (%s, %s, %s, %s, 'super_admin', %s, %s, %s, %s)
         """,
-        (username, "", generate_password_hash(password), full_name, now, now),
+        (username, "", generate_password_hash(password), full_name, _db_bool(True, backend), _db_bool(True, backend), now, now),
     )
 
 
