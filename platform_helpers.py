@@ -264,8 +264,8 @@ def mark_billing_paid(franchise_id, billing_period, payment_reference=""):
             (utc_now(), payment_reference, utc_now(), franchise_id, billing_period),
         )
         execute_db(
-            "UPDATE billing_records SET status='paid', paid_at=%s, updated_at=%s WHERE franchise_id=%s AND billing_period=%s",
-            (utc_now(), utc_now(), franchise_id, billing_period),
+            "UPDATE billing_records SET status='paid', payment_reference_id=%s, paid_at=%s, updated_at=%s WHERE franchise_id=%s AND billing_period=%s",
+            (payment_reference, utc_now(), utc_now(), franchise_id, billing_period),
         )
 
 

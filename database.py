@@ -614,7 +614,7 @@ def _create_tables(connection, backend):
             usage_amount REAL DEFAULT 0,
             status TEXT DEFAULT 'unpaid',
             billing_period TEXT,
-            stripe_invoice_id TEXT,
+            payment_reference_id TEXT,
             payment_link TEXT,
             paid_at TEXT,
             created_at TEXT,
@@ -1008,7 +1008,7 @@ def _ensure_columns(connection, backend):
             "usage_amount": "REAL DEFAULT 0",
             "status": "TEXT DEFAULT 'unpaid'",
             "billing_period": "TEXT",
-            "stripe_invoice_id": "TEXT",
+            "payment_reference_id": "TEXT",
             "payment_link": "TEXT",
             "paid_at": "TEXT",
             "created_at": "TEXT",
@@ -1414,6 +1414,8 @@ def _ensure_super_admin(connection, backend):
     username = os.environ.get("SUPERADMIN_USERNAME", "superadmin")
     password = os.environ.get("SUPERADMIN_PASSWORD", "ChangeMeNow!2026")
     full_name = os.environ.get("SUPERADMIN_NAME", "Platform Super Admin")
+    if require_postgres_for_service() and not os.environ.get("SUPERADMIN_PASSWORD"):
+        raise RuntimeError("SUPERADMIN_PASSWORD is required when bootstrapping a production super admin.")
     now = utc_now()
 
     _run(

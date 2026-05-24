@@ -17,7 +17,7 @@ Create one Railway project with one PostgreSQL database and these app services f
 
 | Service | Type | Start command |
 |---|---|---|
-| `web` | Web | `gunicorn app:app --bind 0.0.0.0:$PORT` |
+| `web` | Web | `sh -c "gunicorn app:app --bind 0.0.0.0:${PORT:-8080}"` |
 | `automation-worker` | Worker | `python automation_worker.py` |
 | `scheduler` | Worker | `python scheduler.py` |
 | `daily-jobs` | Cron | `python cron_jobs.py daily` |
@@ -42,6 +42,7 @@ Set on all app services:
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 REQUIRE_DATABASE_URL=true
 SECRET_KEY=<strong-random-secret>
+SUPERADMIN_PASSWORD=<strong-initial-admin-password>
 PUBLIC_BASE_URL=https://your-production-domain
 AUTOMATION_WORKER_INTERVAL_SECONDS=30
 AUTOMATION_WORKER_BATCH_SIZE=50
@@ -55,6 +56,13 @@ TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_SMS_FROM=
 TWILIO_WHATSAPP_FROM=
+```
+
+Set where Paystack billing is needed:
+
+```txt
+PAYSTACK_SECRET_KEY=
+PAYSTACK_WEBHOOK_SECRET=
 ```
 
 Optional:
@@ -109,10 +117,10 @@ Twilio webhook:
 POST /webhook/twilio/<franchise_slug>/<branch_slug>/<token>
 ```
 
-Stripe webhook placeholder:
+Paystack webhook:
 
 ```txt
-POST /webhook/stripe
+POST /webhook/paystack
 ```
 
 ## Backups

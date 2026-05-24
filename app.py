@@ -1,5 +1,8 @@
 from functools import wraps
 from datetime import datetime, timedelta
+import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -188,6 +191,26 @@ def roles_required(*roles):
     return decorator
 
 
+def _validate_required_webhook_token(franchise, token):
+    expected = (franchise or {}).get("inbound_webhook_token") or ""
+    return bool(expected) and hmac.compare_digest(str(expected), str(token or ""))
+
+
+def _twilio_signature_valid():
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    signature = request.headers.get("X-Twilio-Signature", "")
+    if not auth_token or not signature:
+        return False
+    public_base_url = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    query = f"?{request.query_string.decode('utf-8')}" if request.query_string else ""
+    base = f"{public_base_url}{request.path}{query}" if public_base_url else request.url
+    for key, value in sorted(request.form.items()):
+        base += key + value
+    digest = hmac.new(auth_token.encode("utf-8"), base.encode("utf-8"), hashlib.sha1).digest()
+    expected = base64.b64encode(digest).decode("utf-8")
+    return hmac.compare_digest(expected, signature)
+
+
 def _active_franchise_required():
     user = current_user()
     if user and user["role"] != "super_admin":
@@ -275,7 +298,7 @@ def booking_webhook(franchise_slug, branch_slug, token):
     if not branch:
         abort(404)
     franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],))
-    if not franchise or (franchise.get("inbound_webhook_token") and franchise.get("inbound_webhook_token") != token):
+    if not _validate_required_webhook_token(franchise, token):
         abort(403)
     payload = request.get_json(silent=True) or request.form.to_dict()
     normalized = {
@@ -715,7 +738,7 @@ def run_reminders():
     return redirect(url_for("reminders"))
 
 
-@app.route("/reminders/<int:reminder_id>/send/<channel>")
+@app.route("/reminders/<int:reminder_id>/send/<channel>", methods=["POST"])
 @login_required
 def send_reminder(reminder_id, channel):
     reminder = fetch_reminder(reminder_id)
@@ -948,6 +971,8 @@ def manage_users():
         role = request.form.get("role") or "reception"
         if role in available_roles_for_creator(current_user()) and username and password and not fetch_one("SELECT id FROM users WHERE lower(username)=lower(%s)", (username,)):
             franchise_id = request.form.get("franchise_id") or current_user().get("franchise_id")
+            if current_user()["role"] != "super_admin":
+                franchise_id = current_user()["franchise_id"]
             branch_id = request.form.get("branch_id") or None
             branch = selected_branch_for_user(current_user(), branch_id) if role == "reception" else None
             franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"] if branch else franchise_id,))
@@ -987,6 +1012,8 @@ def assign_user(user_id):
     franchise = None
     branch_id = request.form.get("branch_id") or None
     franchise_id = request.form.get("franchise_id") or candidate.get("franchise_id")
+    if current_user()["role"] != "super_admin":
+        franchise_id = current_user()["franchise_id"]
 
     if role == "reception":
         branch = selected_branch_for_user(current_user(), branch_id)
@@ -1092,11 +1119,18 @@ def manage_prices():
         franchise_id = request.form.get("franchise_id") or current_user().get("franchise_id")
         if current_user()["role"] != "super_admin":
             franchise_id = current_user()["franchise_id"]
+        branch_id = request.form.get("branch_id") or None
+        branch = selected_branch_for_user(current_user(), branch_id) if branch_id else None
+        if branch_id and not branch:
+            flash("Please choose a valid branch for that franchise.", "error")
+            return redirect(url_for("manage_prices"))
+        if branch:
+            franchise_id = branch["franchise_id"]
         execute_db(
             "INSERT INTO service_prices (franchise_id, branch_id, service_name, service_category, price_amount, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, 1, %s, %s)",
             (
                 franchise_id,
-                request.form.get("branch_id") or None,
+                branch["id"] if branch else None,
                 (request.form.get("service_name") or "").strip(),
                 (request.form.get("service_category") or "").strip(),
                 float(request.form.get("price_amount") or 0),
@@ -1115,7 +1149,13 @@ def chatbot_inbox():
         franchise_id = request.form.get("franchise_id") or current_user().get("franchise_id")
         if current_user()["role"] != "super_admin":
             franchise_id = current_user()["franchise_id"]
-        branch = branch_by_id(request.form.get("branch_id")) if request.form.get("branch_id") else None
+        branch_id = request.form.get("branch_id") or None
+        branch = selected_branch_for_user(current_user(), branch_id) if branch_id else None
+        if branch_id and not branch:
+            flash("Please choose a valid branch for that franchise.", "error")
+            return redirect(url_for("chatbot_inbox"))
+        if branch:
+            franchise_id = branch["franchise_id"]
         franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,))
         service_name = (request.form.get("suggested_service") or "").strip()
         matched_price = None
@@ -1290,11 +1330,14 @@ from platform_messaging import send_twilio_message
 def twilio_webhook(franchise_slug, branch_slug, token):
     phone = request.form.get("From")
     message = request.form.get("Body")
+    if not _twilio_signature_valid():
+        logger.warning("twilio_webhook_invalid_signature")
+        abort(403)
     branch = branch_for_public_booking(franchise_slug, branch_slug)
     if not branch:
         abort(404)
     franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],))
-    if not franchise or (franchise.get("inbound_webhook_token") and franchise.get("inbound_webhook_token") != token):
+    if not _validate_required_webhook_token(franchise, token):
         abort(403)
 
     execute_db(
