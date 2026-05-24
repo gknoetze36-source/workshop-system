@@ -1,4 +1,5 @@
 import csv
+import logging
 import threading
 import os
 import re
@@ -12,6 +13,7 @@ BASE_DIR = Path(__file__).resolve().parent
 PRIMARY_SQLITE_PATH = os.environ.get("SQLITE_PATH") or str(BASE_DIR / "database.db")
 DEFAULT_FRANCHISE_NAME = os.environ.get("DEFAULT_FRANCHISE_NAME", "Main Workshop Group")
 BOOKINGS_CSV_PATH = BASE_DIR / "bookings.csv"
+logger = logging.getLogger(__name__)
 
 
 def require_postgres_for_service():
@@ -193,7 +195,12 @@ def run_alembic_migrations():
 
     config = Config(str(BASE_DIR / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
-    command.upgrade(config, "head")
+    try:
+        command.upgrade(config, "head")
+    except Exception:
+        logger.exception("alembic_migration_failed")
+        if os.environ.get("STRICT_ALEMBIC_MIGRATIONS", "").lower() in {"1", "true", "yes"}:
+            raise
 
 
 def _get_columns(connection, backend, table_name):

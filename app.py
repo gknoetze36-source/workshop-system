@@ -114,6 +114,7 @@ try:
 except Exception as exc:
     DATABASE_INIT_ERROR = exc
     if __import__("os").environ.get("DATABASE_URL"):
+        logger.exception("database_initialization_failed")
         raise
 
 
