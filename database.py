@@ -1606,10 +1606,9 @@ def initialize_database():
     connection, backend = get_connection()
     try:
         _create_tables(connection, backend)
+        _ensure_columns(connection, backend)
         if backend == "postgres":
             run_alembic_migrations()
-        else:
-            _ensure_columns(connection, backend)
         _ensure_unique_username_index(connection, backend)
         _ensure_indexes(connection, backend)
         _seed_plan_defaults(connection, backend)
