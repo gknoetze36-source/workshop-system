@@ -98,6 +98,10 @@ def boolish(value):
     return str(value).lower() in {"1", "true", "yes", "on"}
 
 
+def db_bool(value):
+    return value if isinstance(value, bool) else boolish(value)
+
+
 def refresh_subscription_status(franchise):
     if not franchise:
         return None
@@ -273,7 +277,7 @@ def mark_billing_paid(franchise_id, billing_period, payment_reference=""):
 def expire_due_subscriptions():
     today = utc_today()
     execute_db(
-        "UPDATE franchises SET subscription_status='inactive', updated_at=%s WHERE active=1 AND subscription_end IS NOT NULL AND subscription_end<>'' AND subscription_end < %s AND subscription_status NOT IN ('inactive','cancelled')",
+        "UPDATE franchises SET subscription_status='inactive', updated_at=%s WHERE active=TRUE AND subscription_end IS NOT NULL AND subscription_end<>'' AND subscription_end < %s AND subscription_status NOT IN ('inactive','cancelled')",
         (utc_now(), today),
     )
 
@@ -304,7 +308,7 @@ def provision_business(franchise_id, answers=None):
     industry = (answers.get("industry") or franchise.get("industry") or "workshop").strip().lower()
     plan_code = (answers.get("plan") or franchise.get("plan_code") or "basic").strip().lower()
     plan = PLAN_DEFINITIONS.get(plan_code, PLAN_DEFINITIONS["basic"])
-    template = fetch_one("SELECT * FROM industry_templates WHERE industry=%s AND active=1", (industry,))
+    template = fetch_one("SELECT * FROM industry_templates WHERE industry=%s AND active=TRUE", (industry,))
     message_limit = int(answers.get("monthly_message_limit") or (template or {}).get("default_message_limit") or franchise.get("monthly_message_limit") or 2000)
 
     execute_db(
@@ -321,11 +325,11 @@ def provision_business(franchise_id, answers=None):
             plan_code,
             plan["branch_limit"],
             plan["user_limit"],
-            plan["automation_enabled"],
-            plan["chatbot_enabled"],
-            plan["reporting_enabled"],
-            plan["custom_integrations_enabled"],
-            plan["priority_support_enabled"],
+            db_bool(plan["automation_enabled"]),
+            db_bool(plan["chatbot_enabled"]),
+            db_bool(plan["reporting_enabled"]),
+            db_bool(plan["custom_integrations_enabled"]),
+            db_bool(plan["priority_support_enabled"]),
             message_limit,
             utc_now(),
             franchise_id,
@@ -334,7 +338,7 @@ def provision_business(franchise_id, answers=None):
 
     for key in ("automation_enabled", "chatbot_enabled", "reporting_enabled", "custom_integrations_enabled", "priority_support_enabled"):
         existing = fetch_one("SELECT id FROM feature_flags WHERE franchise_id=%s AND feature_key=%s", (franchise_id, key))
-        enabled = 1 if boolish(plan.get(key, 0)) else 0
+        enabled = db_bool(plan.get(key, 0))
         if existing:
             execute_db("UPDATE feature_flags SET enabled=%s, updated_at=%s WHERE id=%s", (enabled, utc_now(), existing["id"]))
         else:
@@ -346,21 +350,21 @@ def provision_business(franchise_id, answers=None):
 
     assigned_rules = 0
     if boolish(plan.get("automation_enabled", 0)):
-        templates = fetch_all("SELECT * FROM automation_templates WHERE industry=%s AND active=1", (industry,))
+        templates = fetch_all("SELECT * FROM automation_templates WHERE industry=%s AND active=TRUE", (industry,))
         for item in templates:
             existing = fetch_one("SELECT id FROM automation_rules WHERE franchise_id=%s AND template_id=%s", (franchise_id, item["id"]))
             action_json = '{"type":"send_message","job_type":"send_message"}' if item.get("event_type") == "booking.created" else '{"type":"log","job_type":"automation_log"}'
             if existing:
-                execute_db("UPDATE automation_rules SET active=1, delay_minutes=%s, updated_at=%s WHERE id=%s", (item.get("default_delay_minutes") or 0, utc_now(), existing["id"]))
+                execute_db("UPDATE automation_rules SET active=%s, delay_minutes=%s, updated_at=%s WHERE id=%s", (db_bool(True), item.get("default_delay_minutes") or 0, utc_now(), existing["id"]))
             else:
                 execute_db(
                     """
                     INSERT INTO automation_rules (
                         franchise_id, template_id, name, event_type, conditions_json, action_json,
                         delay_minutes, active, created_at, updated_at
-                    ) VALUES (%s, %s, %s, %s, '{}', %s, %s, 1, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, '{}', %s, %s, %s, %s, %s)
                     """,
-                    (franchise_id, item["id"], item["name"], item["event_type"], action_json, item.get("default_delay_minutes") or 0, utc_now(), utc_now()),
+                    (franchise_id, item["id"], item["name"], item["event_type"], action_json, item.get("default_delay_minutes") or 0, db_bool(True), utc_now(), utc_now()),
                 )
                 assigned_rules += 1
 
@@ -375,9 +379,9 @@ def provision_business(franchise_id, answers=None):
 
     state = fetch_one("SELECT id FROM onboarding_state WHERE franchise_id=%s", (franchise_id,))
     if state:
-        execute_db("UPDATE onboarding_state SET setup_progress=100, services_created=1, automations_enabled=%s, go_live_ready=1, updated_at=%s WHERE id=%s", (1 if boolish(plan.get("automation_enabled", 0)) else 0, utc_now(), state["id"]))
+        execute_db("UPDATE onboarding_state SET setup_progress=100, services_created=%s, automations_enabled=%s, go_live_ready=%s, updated_at=%s WHERE id=%s", (db_bool(True), db_bool(plan.get("automation_enabled", 0)), db_bool(True), utc_now(), state["id"]))
     else:
-        execute_db("INSERT INTO onboarding_state (franchise_id, setup_progress, services_created, automations_enabled, go_live_ready, created_at, updated_at) VALUES (%s, 100, 1, %s, 1, %s, %s)", (franchise_id, 1 if boolish(plan.get("automation_enabled", 0)) else 0, utc_now(), utc_now()))
+        execute_db("INSERT INTO onboarding_state (franchise_id, setup_progress, services_created, automations_enabled, go_live_ready, created_at, updated_at) VALUES (%s, 100, %s, %s, %s, %s, %s)", (franchise_id, db_bool(True), db_bool(plan.get("automation_enabled", 0)), db_bool(True), utc_now(), utc_now()))
 
     return {"ok": True, "industry": industry, "plan": plan_code, "message_limit": message_limit, "automation_rules_created": assigned_rules}
 
@@ -400,7 +404,7 @@ def visible_franchises(user=None, include_inactive=False):
     clauses = []
     args = []
     if not include_inactive:
-        clauses.append("active = 1")
+        clauses.append("active = TRUE")
     if user and user["role"] != "super_admin":
         clauses.append("id = %s")
         args.append(user["franchise_id"])
@@ -496,8 +500,8 @@ def inquiry_metrics(user):
 
 
 def franchise_counts(franchise_id):
-    branch_total = fetch_one("SELECT COUNT(*) AS total FROM branches WHERE franchise_id=%s AND COALESCE(active, 1)=1", (franchise_id,))
-    user_total = fetch_one("SELECT COUNT(*) AS total FROM users WHERE franchise_id=%s AND COALESCE(active, 1)=1", (franchise_id,))
+    branch_total = fetch_one("SELECT COUNT(*) AS total FROM branches WHERE franchise_id=%s AND COALESCE(active, TRUE)=TRUE", (franchise_id,))
+    user_total = fetch_one("SELECT COUNT(*) AS total FROM users WHERE franchise_id=%s AND COALESCE(active, TRUE)=TRUE", (franchise_id,))
     return {
         "branches": int((branch_total or {}).get("total") or 0),
         "users": int((user_total or {}).get("total") or 0),
@@ -546,11 +550,11 @@ def find_service_price(franchise_id, branch_id, service_name):
         return None
     return (
         fetch_one(
-            "SELECT * FROM service_prices WHERE franchise_id=%s AND branch_id=%s AND lower(service_name)=lower(%s) AND COALESCE(active,1)=1",
+            "SELECT * FROM service_prices WHERE franchise_id=%s AND branch_id=%s AND lower(service_name)=lower(%s) AND COALESCE(active,TRUE)=TRUE",
             (franchise_id, branch_id, service_name),
         )
         or fetch_one(
-            "SELECT * FROM service_prices WHERE franchise_id=%s AND branch_id IS NULL AND lower(service_name)=lower(%s) AND COALESCE(active,1)=1",
+            "SELECT * FROM service_prices WHERE franchise_id=%s AND branch_id IS NULL AND lower(service_name)=lower(%s) AND COALESCE(active,TRUE)=TRUE",
             (franchise_id, service_name),
         )
     )
@@ -646,9 +650,9 @@ def visible_branches(user=None, franchise_id=None, include_inactive=False, publi
     clauses = []
     args = []
     if not include_inactive:
-        clauses.append("b.active = 1")
+        clauses.append("b.active = TRUE")
     if public_only:
-        clauses.append("b.public_booking_enabled = 1")
+        clauses.append("b.public_booking_enabled = TRUE")
     if user:
         if user["role"] == "reception":
             clauses.append("b.id = %s")
@@ -685,7 +689,7 @@ def branch_for_public_booking(franchise_slug, branch_slug):
             f.slug AS franchise_slug
         FROM branches b
         JOIN franchises f ON f.id = b.franchise_id
-        WHERE f.slug=%s AND b.slug=%s AND b.active=1 AND b.public_booking_enabled=1
+        WHERE f.slug=%s AND b.slug=%s AND b.active=TRUE AND b.public_booking_enabled=TRUE
         """,
         (franchise_slug, branch_slug),
     )

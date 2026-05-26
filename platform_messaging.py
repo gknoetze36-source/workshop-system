@@ -553,7 +553,7 @@ def generate_due_reminders(user_scope=None, as_of=None, force=False):
         LEFT JOIN branches br ON br.id = b.branch_id
         WHERE {clause}
           AND b.status IN ('Done', 'Collected')
-          AND COALESCE(b.reminder_opt_in, 1) = 1
+          AND COALESCE(b.reminder_opt_in, TRUE) = TRUE
           AND (
               (b.service_level IN ('Major', 'Minor') AND COALESCE(b.service_due_date, '') <> '')
               OR COALESCE(b.work_to_be_done, '') <> ''

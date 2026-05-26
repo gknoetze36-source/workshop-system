@@ -67,7 +67,7 @@ def emit_event(franchise_id, event_type, payload=None):
         LEFT JOIN automation_templates at ON at.id = ar.template_id
         WHERE ar.franchise_id=%s
           AND ar.event_type=%s
-          AND COALESCE(ar.active, 1)=1
+          AND COALESCE(ar.active, TRUE)=TRUE
         ORDER BY ar.id
         """,
         (franchise_id, event_type),

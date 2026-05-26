@@ -837,7 +837,7 @@ def manage_franchises():
             flash("Please use a unique franchise name.", "error")
     franchises = visible_franchises(include_inactive=True)
     counts = {item["id"]: franchise_counts(item["id"]) for item in franchises}
-    industries = fetch_all("SELECT * FROM industry_templates WHERE active=1 ORDER BY name")
+    industries = fetch_all("SELECT * FROM industry_templates WHERE active=TRUE ORDER BY name")
     return render_template("manage_franchises.html", franchises=franchises, franchise_counts=counts, industries=industries, monthly_usage=monthly_usage_summary(), daily_usage=daily_usage_summary())
 
 
@@ -1382,7 +1382,7 @@ def twilio_webhook(franchise_slug, branch_slug, token):
             """
             SELECT id
             FROM chatbot_messages
-            WHERE franchise_id=%s AND customer_phone=%s AND privacy_notice_sent=1
+            WHERE franchise_id=%s AND customer_phone=%s AND privacy_notice_sent=TRUE
             ORDER BY created_at DESC
             LIMIT 1
             """,
@@ -1401,7 +1401,7 @@ def twilio_webhook(franchise_slug, branch_slug, token):
         sent, _channel = send_cheapest_message(booking_stub, f"{branch['name']} assistant", outbound_text)
         if sent and not prior_notice:
             execute_db(
-                "UPDATE chatbot_messages SET privacy_notice_sent=1, updated_at=%s WHERE franchise_id=%s AND customer_phone=%s",
+                "UPDATE chatbot_messages SET privacy_notice_sent=TRUE, updated_at=%s WHERE franchise_id=%s AND customer_phone=%s",
                 (utc_now(), branch["franchise_id"], phone or ""),
             )
 
