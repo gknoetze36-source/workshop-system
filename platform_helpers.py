@@ -891,7 +891,7 @@ def upsert_customer(franchise_id, form_data):
                 updated_at=%s
             WHERE id=%s
             """,
-            (first_name, surname, full_name, phone, email, 1 if boolish(form_data.get("whatsapp_opt_in", "true")) else 0, 1, utc_now(), customer["id"]),
+            (first_name, surname, full_name, phone, email, db_bool(form_data.get("whatsapp_opt_in", "true")), db_bool(True), utc_now(), customer["id"]),
         )
         return customer["id"]
     execute_db(
@@ -899,9 +899,9 @@ def upsert_customer(franchise_id, form_data):
         INSERT INTO customers (
             franchise_id, first_name, surname, full_name, phone, email,
             accepts_whatsapp, accepts_sms, created_at, updated_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (franchise_id, first_name, surname, full_name, phone, email, 1 if boolish(form_data.get("whatsapp_opt_in", "true")) else 0, utc_now(), utc_now()),
+        (franchise_id, first_name, surname, full_name, phone, email, db_bool(form_data.get("whatsapp_opt_in", "true")), db_bool(True), utc_now(), utc_now()),
     )
     if phone:
         row = fetch_one("SELECT id FROM customers WHERE franchise_id=%s AND phone=%s ORDER BY id DESC LIMIT 1", (franchise_id, phone))
@@ -924,9 +924,9 @@ def ensure_service(franchise_id, branch_id, service_name):
     execute_db(
         """
         INSERT INTO services (franchise_id, branch_id, name, category, price_amount, active, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, 1, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (franchise_id, branch_id, service_name, (price or {}).get("service_category"), float((price or {}).get("price_amount") or 0), utc_now(), utc_now()),
+        (franchise_id, branch_id, service_name, (price or {}).get("service_category"), float((price or {}).get("price_amount") or 0), db_bool(True), utc_now(), utc_now()),
     )
     row = fetch_one("SELECT id FROM services WHERE franchise_id=%s AND lower(name)=lower(%s) ORDER BY id DESC LIMIT 1", (franchise_id, service_name))
     return row["id"] if row else None
@@ -947,8 +947,8 @@ def insert_booking(branch, form_data, source, status):
     service_due_date = compute_service_due_date(service_level, completed_at)
     booking_reference = generate_booking_reference(scheduled_date)
     now = utc_now()
-    reminder_opt_in = 1 if boolish(form_data.get("reminder_opt_in", "true")) else 0
-    whatsapp_opt_in = 1 if boolish(form_data.get("whatsapp_opt_in", "false")) else 0
+    reminder_opt_in = db_bool(form_data.get("reminder_opt_in", "true"))
+    whatsapp_opt_in = db_bool(form_data.get("whatsapp_opt_in", "false"))
     privacy_consent_at = now if boolish(form_data.get("privacy_consent", "false")) else None
     customer_id = upsert_customer(branch["franchise_id"], form_data)
     service_id = ensure_service(branch["franchise_id"], branch["id"], service)
