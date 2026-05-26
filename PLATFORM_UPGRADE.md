@@ -25,10 +25,18 @@
 ## Demo tenant
 
 - Franchise: `Demo Motor Group`
+- Plan: `premium`
 - Demo branches:
+  - `Demo Reception Branch`
   - `Riverside Demo Branch`
   - `Lakeside Demo Branch`
 - Demo users:
+  - Platform super admin:
+    - username: `superadmin`
+    - password: `SuperAdmin2026!`
+  - Reception:
+    - username: `demo.reception`
+    - password: `DemoReception2026!`
   - Franchise admin:
     - username: `demo.franchise`
     - password: `DemoFranchise2026!`

@@ -1295,9 +1295,9 @@ def _get_or_create_franchise(connection, backend, name, contact_email="", contac
         backend,
         """
         INSERT INTO franchises (name, slug, contact_email, contact_phone, active, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, 1, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
-        (name, slug, contact_email, contact_phone, now, now),
+        (name, slug, contact_email, contact_phone, _db_bool(True, backend), now, now),
     )
     return _run(connection, backend, "SELECT * FROM franchises WHERE slug=%s", (slug,), one=True)
 
@@ -1335,9 +1335,9 @@ def _get_or_create_branch(connection, backend, franchise_id, name, contact_email
             franchise_id, name, slug, contact_email, contact_phone, location,
             public_booking_enabled, active, created_at, updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, 1, 1, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (franchise_id, name, slug, contact_email, contact_phone, location, now, now),
+        (franchise_id, name, slug, contact_email, contact_phone, location, _db_bool(True, backend), _db_bool(True, backend), now, now),
     )
     return _run(
         connection,
@@ -1446,6 +1446,104 @@ def _ensure_super_admin(connection, backend):
         """,
         (username, "", generate_password_hash(password), full_name, _db_bool(True, backend), _db_bool(True, backend), now, now),
     )
+
+
+def _upsert_bootstrap_user(connection, backend, username, password, role, full_name, franchise=None, branch=None):
+    from werkzeug.security import generate_password_hash
+
+    now = utc_now()
+    existing = _run(connection, backend, "SELECT id FROM users WHERE lower(username)=lower(%s)", (username,), one=True)
+    user_values = (
+        "",
+        generate_password_hash(password),
+        full_name,
+        role,
+        branch["name"] if branch else "",
+        franchise["name"] if franchise else "",
+        franchise["id"] if franchise else None,
+        branch["id"] if branch else None,
+        _db_bool(True, backend),
+        _db_bool(False, backend),
+        now,
+    )
+    if existing:
+        _run(
+            connection,
+            backend,
+            """
+            UPDATE users
+            SET password=%s, password_hash=%s, full_name=%s, role=%s, branch=%s, company=%s,
+                franchise_id=%s, branch_id=%s, active=%s, must_reset_password=%s, updated_at=%s
+            WHERE id=%s
+            """,
+            (*user_values, existing["id"]),
+        )
+        return
+
+    _run(
+        connection,
+        backend,
+        """
+        INSERT INTO users (
+            username, password, password_hash, full_name, role, branch, company,
+            franchise_id, branch_id, active, must_reset_password, created_at, updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (username, *user_values[:-1], now, now),
+    )
+
+
+def _ensure_demo_access_accounts(connection, backend):
+    superadmin_username = os.environ.get("DEMO_SUPERADMIN_USERNAME", "superadmin")
+    superadmin_password = os.environ.get("DEMO_SUPERADMIN_PASSWORD", "SuperAdmin2026!")
+    reception_username = os.environ.get("DEMO_RECEPTION_USERNAME", "demo.reception")
+    reception_password = os.environ.get("DEMO_RECEPTION_PASSWORD", "DemoReception2026!")
+
+    franchise = _get_or_create_franchise(connection, backend, "Demo Motor Group", "demo@example.com", "+27000000000")
+    branch = _get_or_create_branch(
+        connection,
+        backend,
+        franchise["id"],
+        "Demo Reception Branch",
+        "reception@example.com",
+        "+27000000001",
+        "Demo City",
+    )
+
+    now = utc_now()
+    _run(
+        connection,
+        backend,
+        """
+        UPDATE franchises
+        SET plan_code='premium',
+            branch_limit=999999,
+            user_limit=999999,
+            automation_enabled=%s,
+            chatbot_enabled=%s,
+            reporting_enabled=%s,
+            custom_integrations_enabled=%s,
+            priority_support_enabled=%s,
+            monthly_message_limit=999999,
+            subscription_status='active',
+            updated_at=%s
+        WHERE id=%s
+        """,
+        (
+            _db_bool(True, backend),
+            _db_bool(True, backend),
+            _db_bool(True, backend),
+            _db_bool(True, backend),
+            _db_bool(True, backend),
+            now,
+            franchise["id"],
+        ),
+    )
+    franchise = _run(connection, backend, "SELECT * FROM franchises WHERE id=%s", (franchise["id"],), one=True)
+
+    _upsert_bootstrap_user(connection, backend, superadmin_username, superadmin_password, "super_admin", "Platform Super Admin")
+    _upsert_bootstrap_user(connection, backend, reception_username, reception_password, "reception", "Demo Reception", franchise, branch)
 
 
 def _harden_default_credentials(connection, backend):
@@ -1637,6 +1735,7 @@ def initialize_database():
             _harden_default_credentials(connection, backend)
             _migrate_legacy_bookings(connection, backend)
             _import_csv_bookings(connection, backend)
+        _ensure_demo_access_accounts(connection, backend)
         return {"backend": backend, "database_path": PRIMARY_SQLITE_PATH if backend == "sqlite" else "postgres"}
     finally:
         connection.close()
