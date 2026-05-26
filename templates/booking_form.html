@@ -6,7 +6,7 @@
     <section class="panel">
         <form method="post" class="grid-form">
             <div class="grid two"><label>First name<input name="first_name" required></label><label>Surname<input name="surname" required></label></div>
-            <div class="grid two"><label>Phone<input name="phone" required></label><label>Email<input name="customer_email"></label></div>
+            <div class="grid two"><label>Phone<input name="phone" type="tel" placeholder="+27..." pattern="^\+[1-9][0-9]{7,14}$" title="Use international format, for example +27821234567" required></label><label>Email<input name="customer_email"></label></div>
             <div class="grid two"><label>Branch<select name="branch_id" {% if lock_branch %}disabled{% endif %}>{% for branch in branch_options %}<option value="{{ branch.id }}">{{ branch.franchise_name }} - {{ branch.name }}</option>{% endfor %}</select>{% if lock_branch and branch_options %}<input type="hidden" name="branch_id" value="{{ branch_options[0].id }}">{% endif %}</label><label>Date<input type="date" name="scheduled_date" value="{{ default_values.scheduled_date }}"></label></div>
             <div class="grid two"><label>Vehicle make<input name="make"></label><label>Vehicle model<input name="model"></label></div>
             <div class="grid two"><label>Service<input name="service" list="service-price-list" required></label><label>Preferred contact<select name="preferred_contact_method">{% for option in contact_options %}<option value="{{ option }}" {% if default_values.preferred_contact_method == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label></div>

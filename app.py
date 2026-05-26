@@ -80,7 +80,7 @@ from platform_messaging import (
 )
 from automation_engine import retry_failed_job
 from services.paystack import valid_webhook_signature, verify_transaction
-from validators.phone_validator import is_valid_phone
+from validators.phone_validator import is_valid_phone, normalize_phone
 from validators.request_validator import require_fields
 
 app = Flask(__name__)
@@ -302,11 +302,14 @@ def booking_webhook(franchise_slug, branch_slug, token):
     if not _validate_required_webhook_token(franchise, token):
         abort(403)
     payload = request.get_json(silent=True) or request.form.to_dict()
+    phone = payload.get("phone") or payload.get("customer_phone") or ""
+    if not is_valid_phone(phone):
+        return {"ok": False, "error": "Phone number must use international format, for example +27821234567."}, 400
     normalized = {
         "first_name": payload.get("first_name") or payload.get("name") or payload.get("customer_name") or "",
         "surname": payload.get("surname") or "",
         "customer_email": payload.get("customer_email") or payload.get("email") or "",
-        "phone": payload.get("phone") or payload.get("customer_phone") or "",
+        "phone": normalize_phone(phone),
         "service": payload.get("service") or payload.get("service_name") or "General",
         "scheduled_date": payload.get("scheduled_date") or payload.get("date") or utc_today(),
         "preferred_contact_method": payload.get("preferred_contact_method") or "WhatsApp",
@@ -561,6 +564,9 @@ def add_booking():
         return inactive_redirect
     if request.method == "POST":
         branch = selected_branch_for_user(current_user(), request.form.get("branch_id"))
+        if not is_valid_phone(request.form.get("phone")):
+            flash("Phone number must start with a country code, for example +27821234567.", "error")
+            return redirect(url_for("add_booking"))
         if branch:
             try:
                 reference = insert_booking(branch, request.form, "Reception", "Confirmed")
@@ -581,6 +587,9 @@ def walkin():
         return inactive_redirect
     if request.method == "POST":
         branch = selected_branch_for_user(current_user(), request.form.get("branch_id"))
+        if not is_valid_phone(request.form.get("phone")):
+            flash("Phone number must start with a country code, for example +27821234567.", "error")
+            return redirect(url_for("walkin"))
         if branch:
             try:
                 reference = insert_booking(branch, request.form, "Walk-in", "In Progress")

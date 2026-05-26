@@ -4,6 +4,7 @@ import os
 from flask import has_request_context, url_for
 
 from database import classify_service_level, execute_db, iso_date, parse_any_date, query_db, transaction, utc_now
+from validators.phone_validator import normalize_phone
 
 ROLE_LABELS = {
     "reception": "Reception",
@@ -862,7 +863,7 @@ def available_roles_for_creator(user):
 
 
 def upsert_customer(franchise_id, form_data):
-    phone = (form_data.get("phone") or "").strip()
+    phone = normalize_phone(form_data.get("phone"))
     email = (form_data.get("customer_email") or form_data.get("email") or "").strip().lower()
     first_name = (form_data.get("first_name") or "").strip()
     surname = (form_data.get("surname") or "").strip()
@@ -935,6 +936,7 @@ def insert_booking(branch, form_data, source, status):
         raise PermissionError("This client account is unpaid or inactive, so new bookings are disabled.")
 
     scheduled_date = iso_date(form_data.get("scheduled_date") or form_data.get("date")) or utc_today()
+    phone = normalize_phone(form_data.get("phone"))
     service = (form_data.get("service") or "").strip()
     service_level = classify_service_level(service)
     completed_at = scheduled_date if status in DONE_STATUSES else ""
@@ -979,7 +981,7 @@ def insert_booking(branch, form_data, source, status):
             (form_data.get("first_name") or "").strip(),
             (form_data.get("surname") or "").strip(),
             (form_data.get("customer_email") or form_data.get("email") or "").strip(),
-            (form_data.get("phone") or "").strip(),
+            phone,
             (form_data.get("preferred_contact_method") or "WhatsApp").strip(),
             (form_data.get("make") or "").strip(),
             (form_data.get("model") or "").strip(),
@@ -1007,7 +1009,6 @@ def insert_booking(branch, form_data, source, status):
             now,
         ),
     )
-    phone = (form_data.get("phone") or "").strip()
     email = (form_data.get("customer_email") or form_data.get("email") or "").strip()
     inquiry = find_active_inquiry(branch["franchise_id"], branch["id"], phone=phone, email=email)
     if inquiry:
