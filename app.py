@@ -12,6 +12,7 @@ from flask import Flask, abort, flash, g, jsonify, redirect, render_template, re
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import execute_db, initialize_database, iso_date, query_db, utc_now
@@ -125,6 +126,33 @@ def current_user():
 
 def local_database_unavailable():
     return DATABASE_INIT_ERROR is not None and not __import__("os").environ.get("DATABASE_URL")
+
+
+def _api_token_serializer():
+    return URLSafeTimedSerializer(app.secret_key, salt="vanta-frontend-api")
+
+
+def _issue_api_token(user):
+    return _api_token_serializer().dumps({"user_id": user["id"]})
+
+
+def _user_from_api_token(token):
+    if not token:
+        return None
+    try:
+        payload = _api_token_serializer().loads(token, max_age=int(os.environ.get("API_TOKEN_MAX_AGE_SECONDS", "43200")))
+    except (BadSignature, SignatureExpired):
+        return None
+    return fetch_one(
+        """
+        SELECT u.*, f.name AS franchise_name, f.slug AS franchise_slug, b.name AS branch_name, b.slug AS branch_slug
+        FROM users u
+        LEFT JOIN franchises f ON f.id = u.franchise_id
+        LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE u.id=%s
+        """,
+        (payload.get("user_id"),),
+    )
 
 
 @app.before_request
@@ -241,12 +269,16 @@ def _frontend_api_authorized():
     if current_user():
         return current_user()
 
+    bearer = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    token_user = _user_from_api_token(bearer)
+    if token_user and boolish(token_user.get("active", 1)):
+        return token_user
+
     expected = os.environ.get("FRONTEND_API_TOKEN", "").strip()
     if expected:
         provided = (
             request.headers.get("X-Frontend-Api-Token")
             or request.headers.get("X-API-Token")
-            or (request.headers.get("Authorization", "").removeprefix("Bearer ").strip())
         )
         if hmac.compare_digest(provided or "", expected):
             return {"role": "super_admin", "franchise_id": None, "branch_id": None}
@@ -263,7 +295,7 @@ def add_api_cors_headers(response):
         origin = os.environ.get("FRONTEND_ORIGIN", "*")
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Frontend-Api-Token, X-API-Token"
-        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
 
@@ -271,6 +303,44 @@ def add_api_cors_headers(response):
 @csrf.exempt
 def api_options(_path):
     return "", 204
+
+
+@app.route("/api/auth/login", methods=["POST"])
+@csrf.exempt
+@limiter.limit("10 per minute")
+def api_auth_login():
+    payload = request.get_json(silent=True) or request.form.to_dict()
+    username = (payload.get("username") or payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    if not username or not password:
+        return jsonify({"ok": False, "error": "username_and_password_required"}), 400
+
+    user = fetch_one("SELECT * FROM users WHERE lower(username)=lower(%s) OR lower(email)=lower(%s)", (username, username))
+    valid = False
+    if user:
+        if user.get("password_hash"):
+            valid = check_password_hash(user["password_hash"], password)
+        elif user.get("password"):
+            valid = password == user["password"]
+            if valid:
+                execute_db("UPDATE users SET password_hash=%s, password=%s, updated_at=%s WHERE id=%s", (generate_password_hash(password), "", utc_now(), user["id"]))
+
+    if not valid or not user or not boolish(user.get("active", 1)):
+        return jsonify({"ok": False, "error": "invalid_credentials"}), 401
+
+    return jsonify({
+        "ok": True,
+        "token": _issue_api_token(user),
+        "user": {
+            "id": user["id"],
+            "username": user.get("username"),
+            "full_name": user.get("full_name"),
+            "email": user.get("email"),
+            "role": user.get("role"),
+            "franchise_id": user.get("franchise_id"),
+            "branch_id": user.get("branch_id"),
+        },
+    })
 
 
 def _format_money(value):
