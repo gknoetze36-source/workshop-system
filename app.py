@@ -49,6 +49,7 @@ from platform_helpers import (
     provision_business,
     role_label,
     selected_branch_for_user,
+    scope_clause,
     refresh_subscription_status,
     subscription_is_active,
     track_message_usage,
@@ -234,6 +235,266 @@ def health():
 def health_db():
     fetch_one("SELECT 1 AS ok")
     return {"status": "ok"}
+
+
+def _frontend_api_authorized():
+    if current_user():
+        return current_user()
+
+    expected = os.environ.get("FRONTEND_API_TOKEN", "").strip()
+    if expected:
+        provided = (
+            request.headers.get("X-Frontend-Api-Token")
+            or request.headers.get("X-API-Token")
+            or (request.headers.get("Authorization", "").removeprefix("Bearer ").strip())
+        )
+        if hmac.compare_digest(provided or "", expected):
+            return {"role": "super_admin", "franchise_id": None, "branch_id": None}
+
+    if os.environ.get("ALLOW_PUBLIC_DASHBOARD_API", "").lower() in {"1", "true", "yes"}:
+        return {"role": "super_admin", "franchise_id": None, "branch_id": None}
+
+    abort(401)
+
+
+@app.after_request
+def add_api_cors_headers(response):
+    if request.path.startswith("/api/"):
+        origin = os.environ.get("FRONTEND_ORIGIN", "*")
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Frontend-Api-Token, X-API-Token"
+        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    return response
+
+
+@app.route("/api/<path:_path>", methods=["OPTIONS"])
+@csrf.exempt
+def api_options(_path):
+    return "", 204
+
+
+def _format_money(value):
+    try:
+        return f"R{float(value or 0):,.0f}"
+    except (TypeError, ValueError):
+        return "R0"
+
+
+def _serialize_workspace(row):
+    return {
+        "id": str(row.get("id")),
+        "name": row.get("name") or "Workspace",
+        "plan": plan_label(row.get("plan_code") or "basic"),
+        "role": "owner",
+    }
+
+
+def _serialize_job(row):
+    title = row.get("service") or row.get("work_to_be_done") or row.get("booking_reference") or "Booking"
+    vehicle = " ".join(part for part in [row.get("make"), row.get("model")] if part).strip()
+    customer = " ".join(part for part in [row.get("first_name"), row.get("surname")] if part).strip()
+    invoice_state = "Paid" if row.get("status") in DONE_STATUSES else "Draft"
+    return {
+        "id": row.get("booking_reference") or str(row.get("id")),
+        "title": title,
+        "customer": customer or row.get("phone") or row.get("customer_email") or "Customer",
+        "vehicle": vehicle or row.get("vehicle_vin") or "-",
+        "plate": row.get("vehicle_vin") or "-",
+        "technician": row.get("assigned_to") or "Unassigned",
+        "status": row.get("status") or "Pending",
+        "dueAt": row.get("scheduled_date") or row.get("date") or "",
+        "value": _format_money(row.get("price") or row.get("price_amount") or 0),
+        "invoiceState": invoice_state,
+    }
+
+
+def _serialize_automation(row):
+    return {
+        "id": str(row.get("id")),
+        "name": row.get("name") or row.get("event_type") or "Automation",
+        "trigger": row.get("event_type") or "Event",
+        "runsToday": int(row.get("runs_today") or row.get("run_count") or 0),
+        "successRate": int(row.get("success_rate") or 0),
+        "status": "Live" if boolish(row.get("active", 0)) else "Draft",
+    }
+
+
+def _dashboard_payload(user):
+    bookings = fetch_visible_bookings(user)
+    today = utc_today()
+    open_bookings = [item for item in bookings if item.get("status") not in DONE_STATUSES]
+    today_bookings = [item for item in bookings if item.get("scheduled_date") == today]
+    completed = [item for item in bookings if item.get("status") in DONE_STATUSES]
+    pending_reminders = fetch_all(
+        "SELECT COUNT(*) AS total FROM reminder_campaigns WHERE status='Pending'"
+    )
+    workspace_rows = visible_franchises(user=user, include_inactive=True)
+    automation_clause, automation_args = scope_clause(user, alias="ar")
+    automation_rows = fetch_all(
+        f"""
+        SELECT ar.*,
+               COALESCE(runs.run_count, 0) AS runs_today,
+               COALESCE(runs.success_rate, 0) AS success_rate
+        FROM automation_rules ar
+        LEFT JOIN (
+            SELECT automation_rule_id,
+                   COUNT(*) AS run_count,
+                   CASE WHEN COUNT(*) = 0 THEN 0
+                        ELSE ROUND(100.0 * SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) / COUNT(*))
+                   END AS success_rate
+            FROM scheduled_jobs
+            WHERE created_at >= %s
+            GROUP BY automation_rule_id
+        ) runs ON runs.automation_rule_id = ar.id
+        WHERE {automation_clause}
+        ORDER BY ar.updated_at DESC
+        LIMIT 8
+        """,
+        tuple([today] + automation_args),
+    )
+
+    status_counts = {label: 0 for label in ["Booked", "Checked in", "Technician", "Quality check", "Ready"]}
+    for item in bookings:
+        status = (item.get("status") or "").lower()
+        if status in {"pending", "confirmed"}:
+            status_counts["Booked"] += 1
+        elif status == "in progress":
+            status_counts["Technician"] += 1
+        elif status in {value.lower() for value in DONE_STATUSES}:
+            status_counts["Ready"] += 1
+
+    return {
+        "workspaces": [_serialize_workspace(row) for row in workspace_rows],
+        "metrics": [
+            {"label": "Open jobs", "value": str(len(open_bookings)), "delta": f"{len(today_bookings)} today", "tone": "blue"},
+            {"label": "Bookings", "value": str(len(bookings)), "delta": "Live", "tone": "cyan"},
+            {"label": "Automation runs", "value": str(sum(int(row.get("runs_today") or 0) for row in automation_rows)), "delta": "Today", "tone": "green"},
+            {"label": "Revenue tracked", "value": _format_money(sum(float(item.get("price") or item.get("price_amount") or 0) for item in bookings)), "delta": f"{len(completed)} completed", "tone": "amber"},
+        ],
+        "jobs": [_serialize_job(row) for row in bookings[:12]],
+        "automations": [_serialize_automation(row) for row in automation_rows],
+        "notifications": [
+            {
+                "id": "reminders-pending",
+                "title": "Pending reminders",
+                "message": f"{int((pending_reminders[0] or {}).get('total') or 0)} reminders waiting to be sent.",
+                "time": "live",
+            }
+        ],
+        "pipeline": [{"label": label, "count": count} for label, count in status_counts.items()],
+    }
+
+
+@app.route("/api/dashboard")
+@csrf.exempt
+def api_dashboard():
+    user = _frontend_api_authorized()
+    return jsonify(_dashboard_payload(user))
+
+
+@app.route("/api/jobs")
+@app.route("/api/bookings")
+@csrf.exempt
+def api_jobs():
+    user = _frontend_api_authorized()
+    return jsonify({"data": [_serialize_job(row) for row in fetch_visible_bookings(user)]})
+
+
+@app.route("/api/customers")
+@csrf.exempt
+def api_customers():
+    user = _frontend_api_authorized()
+    clause, args = user_scope_clause(user, alias="c")
+    rows = fetch_all(
+        f"""
+        SELECT c.*, f.name AS franchise_name
+        FROM customers c
+        LEFT JOIN franchises f ON f.id = c.franchise_id
+        WHERE {clause}
+        ORDER BY c.updated_at DESC, c.created_at DESC
+        LIMIT 100
+        """,
+        tuple(args),
+    )
+    return jsonify({"data": rows})
+
+
+@app.route("/api/vehicles")
+@csrf.exempt
+def api_vehicles():
+    user = _frontend_api_authorized()
+    rows = fetch_visible_bookings(user)
+    vehicles = []
+    seen = set()
+    for row in rows:
+        key = (row.get("make"), row.get("model"), row.get("vehicle_vin"))
+        if key in seen or not any(key):
+            continue
+        seen.add(key)
+        vehicles.append({
+            "make": row.get("make"),
+            "model": row.get("model"),
+            "vin": row.get("vehicle_vin"),
+            "customer": " ".join(part for part in [row.get("first_name"), row.get("surname")] if part).strip(),
+            "lastBooking": row.get("scheduled_date") or row.get("date"),
+        })
+    return jsonify({"data": vehicles})
+
+
+@app.route("/api/automations")
+@csrf.exempt
+def api_automations():
+    user = _frontend_api_authorized()
+    clause, args = scope_clause(user, alias="ar")
+    rows = fetch_all(f"SELECT * FROM automation_rules ar WHERE {clause} ORDER BY updated_at DESC", tuple(args))
+    return jsonify({"data": [_serialize_automation(row) for row in rows]})
+
+
+@app.route("/api/staff")
+@csrf.exempt
+def api_staff():
+    user = _frontend_api_authorized()
+    clause, args = user_scope_clause(user, alias="u")
+    rows = fetch_all(
+        f"""
+        SELECT u.id, u.username, u.full_name, u.email, u.phone, u.role, u.active, f.name AS franchise_name, b.name AS branch_name
+        FROM users u
+        LEFT JOIN franchises f ON f.id = u.franchise_id
+        LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE {clause}
+        ORDER BY f.name, b.name, u.username
+        """,
+        tuple(args),
+    )
+    return jsonify({"data": rows})
+
+
+@app.route("/api/inventory")
+@csrf.exempt
+def api_inventory():
+    user = _frontend_api_authorized()
+    return jsonify({"data": fetch_service_prices(user)})
+
+
+@app.route("/api/reports")
+@csrf.exempt
+def api_reports():
+    user = _frontend_api_authorized()
+    return jsonify({"data": monthly_usage_summary(user)})
+
+
+@app.route("/api/billing")
+@csrf.exempt
+def api_billing():
+    user = _frontend_api_authorized()
+    return jsonify({"data": monthly_usage_summary(user)})
+
+
+@app.route("/api/settings")
+@csrf.exempt
+def api_settings():
+    user = _frontend_api_authorized()
+    return jsonify({"workspaces": [_serialize_workspace(row) for row in visible_franchises(user=user, include_inactive=True)], "branches": visible_branches(user=user, include_inactive=True)})
 
 
 @app.route("/")
