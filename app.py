@@ -343,6 +343,27 @@ def api_auth_login():
     })
 
 
+def _serialize_api_user(user):
+    return {
+        "id": user.get("id"),
+        "username": user.get("username"),
+        "full_name": user.get("full_name"),
+        "email": user.get("email"),
+        "role": user.get("role"),
+        "franchise_id": user.get("franchise_id"),
+        "branch_id": user.get("branch_id"),
+        "franchise_name": user.get("franchise_name"),
+        "branch_name": user.get("branch_name"),
+    }
+
+
+@app.route("/api/me")
+@csrf.exempt
+def api_me():
+    user = _frontend_api_authorized()
+    return jsonify({"user": _serialize_api_user(user)})
+
+
 def _format_money(value):
     try:
         return f"R{float(value or 0):,.0f}"
