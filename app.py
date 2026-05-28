@@ -525,19 +525,22 @@ def api_bookings():
 @csrf.exempt
 def api_customers():
     user = _frontend_api_authorized()
-    clause, args = user_scope_clause(user, alias="c")
-    rows = fetch_all(
-        f"""
-        SELECT c.*, f.name AS franchise_name
-        FROM customers c
-        LEFT JOIN franchises f ON f.id = c.franchise_id
-        WHERE {clause}
-        ORDER BY c.updated_at DESC, c.created_at DESC
-        LIMIT 100
-        """,
-        tuple(args),
-    )
-    return jsonify({"data": rows})
+    customers_by_key = {}
+    for booking in fetch_visible_bookings(user):
+        key = str(booking.get("phone") or booking.get("customer_email") or booking.get("booking_reference") or booking.get("id") or "").strip()
+        if not key or key in customers_by_key:
+            continue
+        customers_by_key[key] = {
+            "id": key,
+            "name": f"{booking.get('first_name', '')} {booking.get('surname', '')}".strip() or "Unknown",
+            "phone": (booking.get("phone") or "").strip(),
+            "email": (booking.get("customer_email") or "").strip(),
+            "branch_name": booking.get("branch_name") or booking.get("branch") or "",
+            "latest_booking": booking.get("booking_reference") or "-",
+            "work_to_be_done": booking.get("work_to_be_done") or "",
+            "internal_notes": booking.get("internal_notes") or "",
+        }
+    return jsonify({"data": list(customers_by_key.values())})
 
 
 @app.route("/api/vehicles")
@@ -1007,6 +1010,8 @@ def customers():
                 b.surname,
                 b.customer_email,
                 b.phone,
+                b.work_to_be_done,
+                b.internal_notes,
                 br.name AS branch_name
             FROM bookings b
             LEFT JOIN branches br ON br.id = b.branch_id
@@ -1031,6 +1036,8 @@ def customers():
                 "email": (booking.get("customer_email") or "").strip(),
                 "branch_name": booking.get("branch_name") or "",
                 "latest_booking": booking.get("booking_reference") or "-",
+                "work_to_be_done": booking.get("work_to_be_done") or "",
+                "internal_notes": booking.get("internal_notes") or "",
             },
         )
     return render_template("customers.html", customers=sorted(customer_map.values(), key=lambda item: item["name"].lower()))
