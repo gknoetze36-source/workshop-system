@@ -483,7 +483,7 @@ def api_bookings():
     if not branch:
         return jsonify({"ok": False, "error": "branch_required"}), 400
     if not is_valid_phone(phone):
-        return jsonify({"ok": False, "error": "phone_must_include_region_code"}), 400
+        return jsonify({"ok": False, "error": "invalid_phone_number"}), 400
     if not service:
         return jsonify({"ok": False, "error": "service_required"}), 400
 
@@ -612,7 +612,7 @@ def _render_public_booking(preselected_branch=None):
         if not boolish(request.form.get("privacy_consent", "")):
             flash("Please confirm the consent and privacy notice before submitting your booking.", "error")
         elif not is_valid_phone(phone):
-            flash("Please enter your phone number in international format, for example +27821234567.", "error")
+            flash("Please enter a valid phone number, for example 0821234567 or +27821234567.", "error")
         elif not service:
             flash("Please choose a service before submitting your booking.", "error")
         elif not branch or not boolish(branch.get("public_booking_enabled", 1)):

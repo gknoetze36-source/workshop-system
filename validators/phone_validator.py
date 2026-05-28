@@ -9,6 +9,12 @@ def normalize_phone(value):
     if text.startswith("whatsapp:"):
         text = text.split(":", 1)[1]
     text = re.sub(r"[\s().-]+", "", text)
+    if text.startswith("00"):
+        text = f"+{text[2:]}"
+    elif text.startswith("0") and len(text) == 10:
+        text = f"+27{text[1:]}"
+    elif text.startswith("27") and len(text) == 11:
+        text = f"+{text}"
     return text
 
 
