@@ -1499,6 +1499,8 @@ def _ensure_demo_access_accounts(connection, backend):
     superadmin_password = os.environ.get("DEMO_SUPERADMIN_PASSWORD", "SuperAdmin2026!")
     reception_username = os.environ.get("DEMO_RECEPTION_USERNAME", "demo.reception")
     reception_password = os.environ.get("DEMO_RECEPTION_PASSWORD", "DemoReception2026!")
+    franchise_username = os.environ.get("DEMO_FRANCHISE_USERNAME", "demo.franchise")
+    franchise_password = os.environ.get("DEMO_FRANCHISE_PASSWORD", "DemoFranchise2026!")
 
     franchise = _get_or_create_franchise(connection, backend, "Demo Motor Group", "demo@example.com", "+27000000000")
     branch = _get_or_create_branch(
@@ -1543,6 +1545,7 @@ def _ensure_demo_access_accounts(connection, backend):
     franchise = _run(connection, backend, "SELECT * FROM franchises WHERE id=%s", (franchise["id"],), one=True)
 
     _upsert_bootstrap_user(connection, backend, superadmin_username, superadmin_password, "super_admin", "Platform Super Admin")
+    _upsert_bootstrap_user(connection, backend, franchise_username, franchise_password, "franchise_admin", "Demo Franchise Admin", franchise)
     _upsert_bootstrap_user(connection, backend, reception_username, reception_password, "reception", "Demo Reception", franchise, branch)
 
 
