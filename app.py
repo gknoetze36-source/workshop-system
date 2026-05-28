@@ -463,11 +463,41 @@ def api_dashboard():
 
 
 @app.route("/api/jobs")
-@app.route("/api/bookings")
 @csrf.exempt
 def api_jobs():
     user = _frontend_api_authorized()
     return jsonify({"data": [_serialize_job(row) for row in fetch_visible_bookings(user)]})
+
+
+@app.route("/api/bookings", methods=["GET", "POST"])
+@csrf.exempt
+def api_bookings():
+    user = _frontend_api_authorized()
+    if request.method == "GET":
+        return jsonify({"data": [_serialize_job(row) for row in fetch_visible_bookings(user)]})
+
+    payload = request.get_json(silent=True) or request.form.to_dict()
+    branch = selected_branch_for_user(user, payload.get("branch_id"))
+    phone = (payload.get("phone") or "").strip()
+    service = (payload.get("service") or "").strip()
+    if not branch:
+        return jsonify({"ok": False, "error": "branch_required"}), 400
+    if not is_valid_phone(phone):
+        return jsonify({"ok": False, "error": "phone_must_include_region_code"}), 400
+    if not service:
+        return jsonify({"ok": False, "error": "service_required"}), 400
+
+    normalized = dict(payload)
+    normalized["phone"] = normalize_phone(phone)
+    normalized["privacy_consent"] = normalized.get("privacy_consent", "true")
+    normalized["reminder_opt_in"] = normalized.get("reminder_opt_in", "true")
+    normalized["whatsapp_opt_in"] = normalized.get("whatsapp_opt_in", "true")
+    try:
+        reference = insert_booking(branch, normalized, normalized.get("source") or "Frontend", normalized.get("status") or "Confirmed")
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 403
+
+    return jsonify({"ok": True, "booking_reference": reference}), 201
 
 
 @app.route("/api/customers")
