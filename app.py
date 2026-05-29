@@ -144,6 +144,8 @@ def _issue_api_token(user):
 def _user_from_api_token(token):
     if not token:
         return None
+    if local_database_unavailable():
+        return None
     try:
         payload = _api_token_serializer().loads(token, max_age=int(os.environ.get("API_TOKEN_MAX_AGE_SECONDS", "43200")))
     except (BadSignature, SignatureExpired):
@@ -164,6 +166,9 @@ def _user_from_api_token(token):
 def load_current_user():
     session.permanent = True
     g.current_user = None
+    if local_database_unavailable():
+        session.clear()
+        return
     if not session.get("user_id"):
         return
     g.current_user = fetch_one(
