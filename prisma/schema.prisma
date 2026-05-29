@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["vanta_core"]
+}
+
+enum subscription_plan {
+  free
+  starter
+  pro
+  enterprise
+
+  @@schema("vanta_core")
+}
+
+enum user_role {
+  owner
+  admin
+  advisor
+  technician
+  reception
+
+  @@schema("vanta_core")
+}
+
+enum booking_status {
+  pending
+  confirmed
+  in_progress
+  completed
+  cancelled
+  no_show
+
+  @@schema("vanta_core")
+}
+
+enum message_direction {
+  inbound
+  outbound
+
+  @@schema("vanta_core")
+}
+
+enum message_type {
+  text
+  image
+  document
+  template
+  interactive
+  system
+
+  @@schema("vanta_core")
+}
+
+enum delivery_status {
+  queued
+  sent
+  delivered
+  read
+  failed
+  received
+
+  @@schema("vanta_core")
+}
+
+enum messaging_provider {
+  meta
+  twilio
+
+  @@schema("vanta_core")
+}
+
+enum messaging_channel {
+  whatsapp
+  sms
+
+  @@schema("vanta_core")
+}
+
+model workshops {
+  id                         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                       String
+  slug                       String             @unique
+  logo_url                   String?
+  phone_number               String?
+  whatsapp_phone_number_id   String?            @unique
+  meta_business_account_id   String?
+  subscription_plan          subscription_plan  @default(starter)
+  is_active                  Boolean            @default(true)
+  created_at                 DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime           @updatedAt @db.Timestamptz(6)
+  users                      users[]
+  customers                  customers[]
+  vehicles                   vehicles[]
+  bookings                   bookings[]
+  whatsapp_numbers           whatsapp_numbers[]
+  messaging_accounts         messaging_accounts[]
+  whatsapp_messages          whatsapp_messages[]
+  audit_logs                 audit_logs[]
+
+  @@schema("vanta_core")
+}
+
+model users {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workshop_id   String       @db.Uuid
+  full_name     String
+  email         String
+  password_hash String
+  role          user_role    @default(reception)
+  is_active     Boolean      @default(true)
+  last_login    DateTime?    @db.Timestamptz(6)
+  created_at    DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime     @updatedAt @db.Timestamptz(6)
+  workshop      workshops    @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+  bookings      bookings[]
+  audit_logs    audit_logs[]
+
+  @@unique([workshop_id, email])
+  @@unique([workshop_id, id])
+  @@index([workshop_id])
+  @@schema("vanta_core")
+}
+
+model customers {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workshop_id       String              @db.Uuid
+  full_name         String
+  phone_number      String
+  email             String?
+  notes             String?
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime            @updatedAt @db.Timestamptz(6)
+  workshop          workshops           @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+  vehicles          vehicles[]
+  bookings          bookings[]
+  whatsapp_messages whatsapp_messages[]
+
+  @@unique([workshop_id, phone_number])
+  @@unique([workshop_id, id])
+  @@index([workshop_id])
+  @@index([phone_number])
+  @@schema("vanta_core")
+}
+
+model vehicles {
+  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workshop_id         String     @db.Uuid
+  customer_id         String     @db.Uuid
+  make                String
+  model               String
+  registration_number String?
+  mileage             Int?
+  created_at          DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime   @updatedAt @db.Timestamptz(6)
+  workshop            workshops  @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+  customer            customers  @relation(fields: [workshop_id, customer_id], references: [workshop_id, id], onDelete: Cascade)
+  bookings            bookings[]
+
+  @@unique([workshop_id, id])
+  @@unique([workshop_id, registration_number])
+  @@index([workshop_id])
+  @@schema("vanta_core")
+}
+
+model bookings {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workshop_id      String         @db.Uuid
+  customer_id      String         @db.Uuid
+  vehicle_id       String?        @db.Uuid
+  booking_date     DateTime       @db.Timestamptz(6)
+  status           booking_status @default(pending)
+  service_type     String
+  assigned_user_id String?        @db.Uuid
+  notes            String?
+  created_at       DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime       @updatedAt @db.Timestamptz(6)
+  workshop         workshops      @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+  customer         customers      @relation(fields: [workshop_id, customer_id], references: [workshop_id, id], onDelete: Cascade)
+  vehicle          vehicles?      @relation(fields: [workshop_id, vehicle_id], references: [workshop_id, id], onDelete: Restrict)
+  assigned_user    users?         @relation(fields: [workshop_id, assigned_user_id], references: [workshop_id, id], onDelete: Restrict)
+
+  @@index([workshop_id])
+  @@index([booking_date])
+  @@index([status])
+  @@schema("vanta_core")
+}
+
+model whatsapp_numbers {
+  id                         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workshop_id                String              @db.Uuid
+  phone_number               String
+  whatsapp_phone_number_id   String              @unique
+  meta_business_account_id   String
+  access_token               String
+  webhook_verify_token       String
+  is_active                  Boolean             @default(true)
+  created_at                 DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime            @updatedAt @db.Timestamptz(6)
+  workshop                   workshops           @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+  whatsapp_messages          whatsapp_messages[]
+
+  @@unique([workshop_id, phone_number])
+  @@unique([workshop_id, id])
+  @@index([workshop_id])
+  @@index([phone_number])
+  @@index([whatsapp_phone_number_id])
+  @@schema("vanta_core")
+}
+
+model messaging_accounts {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workshop_id          String             @db.Uuid
+  provider             messaging_provider
+  channel              messaging_channel
+  account_id           String?
+  sender_id            String
+  access_token         String?
+  auth_secret          String?
+  webhook_verify_token String?
+  is_active            Boolean            @default(true)
+  created_at           DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime           @updatedAt @db.Timestamptz(6)
+  workshop             workshops          @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+
+  @@unique([workshop_id, provider, channel, sender_id])
+  @@index([workshop_id, provider, channel, is_active])
+  @@schema("vanta_core")
+}
+
+model whatsapp_messages {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workshop_id           String            @db.Uuid
+  customer_id           String?           @db.Uuid
+  whatsapp_number_id    String            @db.Uuid
+  direction             message_direction
+  message_type          message_type      @default(text)
+  message_content       String?
+  whatsapp_message_id   String?           @unique
+  delivery_status       delivery_status   @default(queued)
+  created_at            DateTime          @default(now()) @db.Timestamptz(6)
+  workshop              workshops         @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+  customer              customers?        @relation(fields: [workshop_id, customer_id], references: [workshop_id, id], onDelete: Restrict)
+  whatsapp_number       whatsapp_numbers  @relation(fields: [workshop_id, whatsapp_number_id], references: [workshop_id, id], onDelete: Cascade)
+
+  @@index([workshop_id])
+  @@schema("vanta_core")
+}
+
+model audit_logs {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workshop_id String     @db.Uuid
+  user_id     String?    @db.Uuid
+  action      String
+  entity_type String
+  entity_id   String?    @db.Uuid
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  workshop    workshops  @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+  user        users?     @relation(fields: [workshop_id, user_id], references: [workshop_id, id], onDelete: Restrict)
+
+  @@index([workshop_id])
+  @@schema("vanta_core")
+}

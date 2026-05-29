@@ -17,7 +17,7 @@ Collect:
 - Reception phone
 - Preferred plan
 - Public booking enabled or disabled
-- WhatsApp/SMS requirement
+- WhatsApp Cloud API requirement
 - Paystack billing requirement
 
 ## 2. Log In As Super Admin
@@ -157,25 +157,45 @@ Each service should have:
 - Branch or franchise scope
 - Active status
 
-## 8. Configure Messaging
+## 8. Configure Meta WhatsApp Cloud API
 
-Make sure Railway has the Twilio variables:
+Make sure Railway has the Meta variables:
 
 ```txt
-TWILIO_ACCOUNT_SID
-TWILIO_AUTH_TOKEN
-TWILIO_SMS_FROM
-TWILIO_WHATSAPP_FROM
+META_GRAPH_API_VERSION
+META_APP_SECRET
 PUBLIC_BASE_URL
 ```
 
-Then configure the Twilio inbound webhook:
+Create or update provider rows in `messaging_accounts`:
 
 ```txt
-https://your-backend-domain.up.railway.app/webhook/twilio/<franchise_slug>/<branch_slug>/<token>
+workshop_id
+provider=meta|twilio
+channel=whatsapp|sms
+account_id
+sender_id
+access_token
+auth_secret
+webhook_verify_token
 ```
 
-The token must match the franchise `inbound_webhook_token`.
+For Meta WhatsApp, also mirror the phone number ID in `whatsapp_numbers` for webhook lookup.
+
+Then configure the Meta webhook:
+
+```txt
+https://your-backend-domain.up.railway.app/webhooks/meta/whatsapp
+```
+
+The verify token must match the active `whatsapp_numbers.webhook_verify_token`. Existing franchise records map to this tenant through `franchises.workshop_id`.
+
+For Twilio, configure:
+
+```txt
+https://your-backend-domain.up.railway.app/webhooks/twilio/whatsapp/<franchise_slug>/<branch_slug>/<token>
+https://your-backend-domain.up.railway.app/webhooks/twilio/sms/<franchise_slug>/<branch_slug>/<token>
+```
 
 ## 9. Configure Client Payment/Billing
 
@@ -285,11 +305,10 @@ The frontend reads:
 - Public booking is enabled if needed.
 - Reception user can log in.
 - Public booking page works.
-- Twilio sends outbound messages.
-- Twilio inbound webhook works.
+- Meta WhatsApp Cloud API sends outbound messages.
+- Meta WhatsApp Cloud API inbound webhook works.
 - Paystack payment link generation works.
 - Paystack webhook works.
 - Frontend dashboard loads live data.
 - Railway logs show no startup errors.
 - Client has login URL and public booking URL.
-

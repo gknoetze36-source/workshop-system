@@ -57,11 +57,15 @@ temp/
 *.swo
 
 # Build artifacts
+node_modules/
 build/
 dist/
 *.egg-info/
 .coverage
 htmlcov/
+
+# Versioned database schema artifacts
+!database/schema/*.sql
 
 # IDE and OS files
 .idea/

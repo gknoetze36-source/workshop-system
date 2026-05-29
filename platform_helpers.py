@@ -887,21 +887,20 @@ def upsert_customer(franchise_id, form_data):
                 phone=COALESCE(NULLIF(%s, ''), phone),
                 email=COALESCE(NULLIF(%s, ''), email),
                 accepts_whatsapp=%s,
-                accepts_sms=%s,
                 updated_at=%s
             WHERE id=%s
             """,
-            (first_name, surname, full_name, phone, email, db_bool(form_data.get("whatsapp_opt_in", "true")), db_bool(True), utc_now(), customer["id"]),
+            (first_name, surname, full_name, phone, email, db_bool(form_data.get("whatsapp_opt_in", "true")), utc_now(), customer["id"]),
         )
         return customer["id"]
     execute_db(
         """
         INSERT INTO customers (
             franchise_id, first_name, surname, full_name, phone, email,
-            accepts_whatsapp, accepts_sms, created_at, updated_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            accepts_whatsapp, created_at, updated_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (franchise_id, first_name, surname, full_name, phone, email, db_bool(form_data.get("whatsapp_opt_in", "true")), db_bool(True), utc_now(), utc_now()),
+        (franchise_id, first_name, surname, full_name, phone, email, db_bool(form_data.get("whatsapp_opt_in", "true")), utc_now(), utc_now()),
     )
     if phone:
         row = fetch_one("SELECT id FROM customers WHERE franchise_id=%s AND phone=%s ORDER BY id DESC LIMIT 1", (franchise_id, phone))

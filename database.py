@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -235,8 +236,24 @@ def _create_tables(connection, backend):
 
     for query in [
         f"""
+        CREATE TABLE IF NOT EXISTS workshops (
+            id {"UUID PRIMARY KEY" if backend == "postgres" else "TEXT PRIMARY KEY"},
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL,
+            logo_url TEXT,
+            phone_number TEXT,
+            whatsapp_phone_number_id TEXT,
+            meta_business_account_id TEXT,
+            subscription_plan TEXT DEFAULT 'starter',
+            is_active {integer_boolean} DEFAULT TRUE,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
         CREATE TABLE IF NOT EXISTS franchises (
             id {primary_key},
+            workshop_id {"UUID" if backend == "postgres" else "TEXT"},
             name TEXT NOT NULL,
             slug TEXT,
             contact_email TEXT,
@@ -314,7 +331,6 @@ def _create_tables(connection, backend):
             phone TEXT,
             email TEXT,
             accepts_whatsapp {integer_boolean} DEFAULT TRUE,
-            accepts_sms {integer_boolean} DEFAULT TRUE,
             metadata_json TEXT,
             created_at TEXT,
             updated_at TEXT
@@ -416,6 +432,36 @@ def _create_tables(connection, backend):
             external_target TEXT,
             created_at TEXT,
             sent_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS whatsapp_numbers (
+            id {primary_key},
+            workshop_id {"UUID" if backend == "postgres" else "TEXT"},
+            phone_number TEXT NOT NULL,
+            whatsapp_phone_number_id TEXT NOT NULL,
+            meta_business_account_id TEXT,
+            access_token TEXT NOT NULL,
+            webhook_verify_token TEXT NOT NULL,
+            is_active {integer_boolean} DEFAULT TRUE,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS messaging_accounts (
+            id {primary_key},
+            workshop_id {"UUID" if backend == "postgres" else "TEXT"},
+            provider TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            account_id TEXT,
+            sender_id TEXT,
+            access_token TEXT,
+            auth_secret TEXT,
+            webhook_verify_token TEXT,
+            is_active {integer_boolean} DEFAULT TRUE,
+            created_at TEXT,
+            updated_at TEXT
         )
         """,
         f"""
@@ -554,7 +600,7 @@ def _create_tables(connection, backend):
             trigger_timing TEXT,
             default_delay_minutes INTEGER DEFAULT 0,
             default_message TEXT,
-            channel_priority TEXT DEFAULT 'whatsapp,sms',
+            channel_priority TEXT DEFAULT 'whatsapp',
             active {integer_boolean} DEFAULT TRUE,
             created_at TEXT,
             updated_at TEXT
@@ -699,7 +745,21 @@ def _create_tables(connection, backend):
 
 def _ensure_columns(connection, backend):
     desired_columns = {
+        "workshops": {
+            "id": "UUID" if backend == "postgres" else "TEXT",
+            "name": "TEXT",
+            "slug": "TEXT",
+            "logo_url": "TEXT",
+            "phone_number": "TEXT",
+            "whatsapp_phone_number_id": "TEXT",
+            "meta_business_account_id": "TEXT",
+            "subscription_plan": "TEXT DEFAULT 'starter'",
+            "is_active": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
         "franchises": {
+            "workshop_id": "UUID" if backend == "postgres" else "TEXT",
             "slug": "TEXT",
             "contact_email": "TEXT",
             "contact_phone": "TEXT",
@@ -863,8 +923,31 @@ def _ensure_columns(connection, backend):
             "phone": "TEXT",
             "email": "TEXT",
             "accepts_whatsapp": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
-            "accepts_sms": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
             "metadata_json": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "whatsapp_numbers": {
+            "workshop_id": "UUID" if backend == "postgres" else "TEXT",
+            "phone_number": "TEXT",
+            "whatsapp_phone_number_id": "TEXT",
+            "meta_business_account_id": "TEXT",
+            "access_token": "TEXT",
+            "webhook_verify_token": "TEXT",
+            "is_active": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        "messaging_accounts": {
+            "workshop_id": "UUID" if backend == "postgres" else "TEXT",
+            "provider": "TEXT",
+            "channel": "TEXT",
+            "account_id": "TEXT",
+            "sender_id": "TEXT",
+            "access_token": "TEXT",
+            "auth_secret": "TEXT",
+            "webhook_verify_token": "TEXT",
+            "is_active": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
             "created_at": "TEXT",
             "updated_at": "TEXT",
         },
@@ -963,7 +1046,7 @@ def _ensure_columns(connection, backend):
             "trigger_timing": "TEXT",
             "default_delay_minutes": "INTEGER DEFAULT 0",
             "default_message": "TEXT",
-            "channel_priority": "TEXT DEFAULT 'whatsapp,sms'",
+            "channel_priority": "TEXT DEFAULT 'whatsapp'",
             "active": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
             "created_at": "TEXT",
             "updated_at": "TEXT",
@@ -1082,7 +1165,9 @@ def _ensure_columns(connection, backend):
 
 def _ensure_indexes(connection, backend):
     index_queries = [
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_workshops_slug ON workshops(slug)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_franchises_slug ON franchises(slug)",
+        "CREATE INDEX IF NOT EXISTS idx_franchises_workshop ON franchises(workshop_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_franchise_slug ON branches(franchise_id, slug)",
         "CREATE INDEX IF NOT EXISTS idx_branches_franchise ON branches(franchise_id)",
         "CREATE INDEX IF NOT EXISTS idx_users_franchise ON users(franchise_id)",
@@ -1097,6 +1182,9 @@ def _ensure_indexes(connection, backend):
         "CREATE INDEX IF NOT EXISTS idx_communication_logs_scope ON communication_logs(franchise_id, branch_id, channel)",
         "CREATE INDEX IF NOT EXISTS idx_service_prices_scope ON service_prices(franchise_id, branch_id, service_name)",
         "CREATE INDEX IF NOT EXISTS idx_chatbot_messages_scope ON chatbot_messages(franchise_id, branch_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_whatsapp_numbers_phone_id ON whatsapp_numbers(whatsapp_phone_number_id)",
+        "CREATE INDEX IF NOT EXISTS idx_whatsapp_numbers_workshop ON whatsapp_numbers(workshop_id, is_active)",
+        "CREATE INDEX IF NOT EXISTS idx_messaging_accounts_scope ON messaging_accounts(workshop_id, provider, channel, is_active)",
         "CREATE INDEX IF NOT EXISTS idx_booking_inquiries_scope ON booking_inquiries(franchise_id, branch_id, user_state, next_followup_at)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_booking_inquiries_contact ON booking_inquiries(franchise_id, branch_id, customer_phone, source_channel)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_inquiry_followup_events_unique ON inquiry_followup_events(inquiry_id, followup_stage)",
@@ -1234,7 +1322,7 @@ def _seed_saas_templates(connection, backend):
             INSERT INTO automation_templates (
                 industry, name, event_type, trigger_timing, default_delay_minutes, default_message,
                 channel_priority, active, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, 'whatsapp,sms', %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, 'whatsapp', %s, %s, %s)
             """,
             (industry, name, event_type, trigger_timing, delay_minutes, message, _db_bool(True, backend), now, now),
         )
@@ -1277,9 +1365,136 @@ def _ensure_unique_username_index(connection, backend):
     _run(connection, backend, "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
 
 
+def _ensure_workshop_mappings(connection, backend):
+    franchises = _run(connection, backend, "SELECT * FROM franchises ORDER BY id") or []
+    for franchise in franchises:
+        slug = franchise.get("slug") or slugify(franchise.get("name"))
+        workshop_id = franchise.get("workshop_id")
+        existing = _run(connection, backend, "SELECT * FROM workshops WHERE id=%s", (workshop_id,), one=True) if workshop_id else None
+        if not existing:
+            existing = _run(connection, backend, "SELECT * FROM workshops WHERE slug=%s", (slug,), one=True)
+            workshop_id = existing["id"] if existing else str(uuid.uuid4())
+        now = utc_now()
+        if not existing:
+            _run(
+                connection,
+                backend,
+                """
+                INSERT INTO workshops (
+                    id, name, slug, phone_number, subscription_plan, is_active, created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    workshop_id,
+                    franchise.get("name") or "Workshop",
+                    slug,
+                    franchise.get("contact_phone") or "",
+                    franchise.get("plan_code") or "starter",
+                    _db_bool(franchise.get("active", True), backend),
+                    now,
+                    now,
+                ),
+            )
+        if franchise.get("workshop_id") != workshop_id:
+            _run(connection, backend, "UPDATE franchises SET workshop_id=%s WHERE id=%s", (workshop_id, franchise["id"]))
+
+        whatsapp_columns = _get_columns(connection, backend, "whatsapp_numbers")
+        if "franchise_id" in whatsapp_columns:
+            _run(
+                connection,
+                backend,
+                """
+                UPDATE whatsapp_numbers
+                SET workshop_id=%s
+                WHERE franchise_id=%s
+                  AND (workshop_id IS NULL OR workshop_id='')
+                """,
+                (workshop_id, franchise["id"]),
+            )
+        if "active" in whatsapp_columns and "is_active" in whatsapp_columns:
+            _run(
+                connection,
+                backend,
+                """
+                UPDATE whatsapp_numbers
+                SET is_active=active
+                WHERE is_active IS NULL
+                """,
+            )
+
+
+def _sync_meta_whatsapp_accounts(connection, backend):
+    rows = _run(
+        connection,
+        backend,
+        """
+        SELECT *
+        FROM whatsapp_numbers
+        WHERE workshop_id IS NOT NULL
+          AND COALESCE(whatsapp_phone_number_id, '') <> ''
+          AND COALESCE(access_token, '') <> ''
+        """,
+    ) or []
+    now = utc_now()
+    for row in rows:
+        existing = _run(
+            connection,
+            backend,
+            """
+            SELECT id
+            FROM messaging_accounts
+            WHERE workshop_id=%s AND provider='meta' AND channel='whatsapp' AND sender_id=%s
+            LIMIT 1
+            """,
+            (row["workshop_id"], row["whatsapp_phone_number_id"]),
+            one=True,
+        )
+        args = (
+            row.get("meta_business_account_id") or "",
+            row.get("access_token") or "",
+            row.get("webhook_verify_token") or "",
+            _db_bool(row.get("is_active", True), backend),
+            now,
+        )
+        if existing:
+            _run(
+                connection,
+                backend,
+                """
+                UPDATE messaging_accounts
+                SET account_id=%s, access_token=%s, webhook_verify_token=%s, is_active=%s, updated_at=%s
+                WHERE id=%s
+                """,
+                (*args, existing["id"]),
+            )
+        else:
+            _run(
+                connection,
+                backend,
+                """
+                INSERT INTO messaging_accounts (
+                    workshop_id, provider, channel, account_id, sender_id, access_token,
+                    webhook_verify_token, is_active, created_at, updated_at
+                ) VALUES (%s, 'meta', 'whatsapp', %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    row["workshop_id"],
+                    row.get("meta_business_account_id") or "",
+                    row["whatsapp_phone_number_id"],
+                    row.get("access_token") or "",
+                    row.get("webhook_verify_token") or "",
+                    _db_bool(row.get("is_active", True), backend),
+                    now,
+                    now,
+                ),
+            )
+
+
 def _get_or_create_franchise(connection, backend, name, contact_email="", contact_phone=""):
     existing = _run(connection, backend, "SELECT * FROM franchises WHERE lower(name)=lower(%s)", (name,), one=True)
     if existing:
+        _ensure_workshop_mappings(connection, backend)
+        existing = _run(connection, backend, "SELECT * FROM franchises WHERE id=%s", (existing["id"],), one=True)
         return existing
 
     slug_base = slugify(name)
@@ -1290,14 +1505,24 @@ def _get_or_create_franchise(connection, backend, name, contact_email="", contac
         suffix += 1
 
     now = utc_now()
+    workshop_id = str(uuid.uuid4())
     _run(
         connection,
         backend,
         """
-        INSERT INTO franchises (name, slug, contact_email, contact_phone, active, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO workshops (id, name, slug, phone_number, subscription_plan, is_active, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (name, slug, contact_email, contact_phone, _db_bool(True, backend), now, now),
+        (workshop_id, name, slug, contact_phone, "starter", _db_bool(True, backend), now, now),
+    )
+    _run(
+        connection,
+        backend,
+        """
+        INSERT INTO franchises (workshop_id, name, slug, contact_email, contact_phone, active, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (workshop_id, name, slug, contact_email, contact_phone, _db_bool(True, backend), now, now),
     )
     return _run(connection, backend, "SELECT * FROM franchises WHERE slug=%s", (slug,), one=True)
 
@@ -1728,6 +1953,8 @@ def initialize_database():
             run_alembic_migrations()
         _ensure_unique_username_index(connection, backend)
         _ensure_indexes(connection, backend)
+        _ensure_workshop_mappings(connection, backend)
+        _sync_meta_whatsapp_accounts(connection, backend)
         _seed_plan_defaults(connection, backend)
         _seed_saas_templates(connection, backend)
         _ensure_super_admin(connection, backend)

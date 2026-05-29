@@ -58,40 +58,141 @@ def manual_channel_link(channel, recipient, subject, body):
     return f"https://wa.me/{normalize_phone(recipient)}?text={quote(body)}"
 
 
-def twilio_configured(channel):
-    import os
+def active_messaging_account(context=None, channel="whatsapp", provider=None):
+    context = context or {}
+    where = ["ma.is_active=TRUE", "ma.channel=%s"]
+    args = [channel]
+    if provider:
+        where.append("ma.provider=%s")
+        args.append(provider)
+    if context.get("workshop_id"):
+        where.append("ma.workshop_id=%s")
+        args.append(context.get("workshop_id"))
+    if context.get("franchise_id"):
+        where.append("f.id=%s")
+        args.append(context.get("franchise_id"))
+    return fetch_one(
+        f"""
+        SELECT ma.*
+        FROM messaging_accounts ma
+        LEFT JOIN franchises f ON f.workshop_id = ma.workshop_id
+        WHERE {' AND '.join(where)}
+        ORDER BY CASE ma.provider WHEN 'meta' THEN 1 WHEN 'twilio' THEN 2 ELSE 9 END, ma.id DESC
+        LIMIT 1
+        """,
+        tuple(args),
+    )
 
-    if not all(os.environ.get(key) for key in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN")):
+
+def active_whatsapp_number(context=None, phone_number_id=None, verify_token=None):
+    context = context or {}
+    if verify_token is not None and not str(verify_token).strip():
+        return None
+    if phone_number_id is not None and not str(phone_number_id).strip():
+        return None
+
+    where = ["wn.is_active=TRUE"]
+    args = []
+    if phone_number_id:
+        where.append("wn.whatsapp_phone_number_id=%s")
+        args.append(phone_number_id)
+    if verify_token:
+        where.append("wn.webhook_verify_token=%s")
+        args.append(verify_token)
+    if context.get("workshop_id"):
+        where.append("wn.workshop_id=%s")
+        args.append(context.get("workshop_id"))
+    if context.get("franchise_id"):
+        where.append("f.id=%s")
+        args.append(context.get("franchise_id"))
+    return fetch_one(
+        f"""
+        SELECT wn.*
+        FROM whatsapp_numbers wn
+        LEFT JOIN franchises f ON f.workshop_id = wn.workshop_id
+        WHERE {' AND '.join(where)}
+        ORDER BY wn.id DESC
+        LIMIT 1
+        """,
+        tuple(args),
+    )
+
+
+def meta_whatsapp_configured(channel, context=None):
+    if channel not in {"whatsapp", "sms"}:
         return False
-    if channel == "sms":
-        return bool(os.environ.get("TWILIO_SMS_FROM"))
-    if channel == "whatsapp":
-        return bool(os.environ.get("TWILIO_WHATSAPP_FROM"))
-    return False
+    return bool(active_messaging_account(context, channel=channel) or (channel == "whatsapp" and active_whatsapp_number(context)))
 
 
-def send_twilio_message(channel, recipient, body):
+def send_twilio_message(channel, recipient, body, account):
     import os
     import requests
 
-    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-    from_number = os.environ.get("TWILIO_SMS_FROM" if channel == "sms" else "TWILIO_WHATSAPP_FROM")
+    if channel not in {"whatsapp", "sms"}:
+        raise ValueError("Twilio only supports sms and whatsapp channels here")
+
+    account_sid = account.get("account_id")
+    auth_token = account.get("auth_secret")
+    from_number = account.get("sender_id")
+    if not all([account_sid, auth_token, from_number]):
+        raise RuntimeError("Twilio messaging account is missing account_id, sender_id, or auth_secret.")
+
     target = normalize_phone(recipient)
+    to_number = f"+{target}" if not str(target).startswith("+") else target
     if channel == "whatsapp":
         from_number = from_number if str(from_number).startswith("whatsapp:") else f"whatsapp:{from_number}"
-        target = f"whatsapp:+{target}" if not str(target).startswith("whatsapp:") else target
-    else:
-        target = f"+{target}" if not str(target).startswith("+") else target
+        to_number = f"whatsapp:{to_number}" if not str(to_number).startswith("whatsapp:") else to_number
 
     response = requests.post(
         f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json",
         auth=(account_sid, auth_token),
-        data={"From": from_number, "To": target, "Body": body},
+        data={"From": from_number, "To": to_number, "Body": body},
         timeout=20,
     )
     response.raise_for_status()
     return response.json()
+
+
+def send_meta_whatsapp_message(channel, recipient, body, context=None, account=None):
+    import os
+    import requests
+
+    if channel != "whatsapp":
+        raise ValueError("Meta WhatsApp Cloud API only supports the whatsapp channel")
+
+    account = account or active_messaging_account(context, channel="whatsapp", provider="meta")
+    whatsapp_number = None if account else active_whatsapp_number(context)
+    if not account and not whatsapp_number:
+        raise RuntimeError("No active Meta WhatsApp number is configured for this workshop.")
+    phone_number_id = (account or {}).get("sender_id") or whatsapp_number["whatsapp_phone_number_id"]
+    access_token = (account or {}).get("access_token") or whatsapp_number["access_token"]
+    graph_version = os.environ.get("META_GRAPH_API_VERSION", "v20.0")
+    target = normalize_phone(recipient)
+
+    response = requests.post(
+        f"https://graph.facebook.com/{graph_version}/{phone_number_id}/messages",
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+        json={
+            "messaging_product": "whatsapp",
+            "to": target,
+            "type": "text",
+            "text": {"preview_url": False, "body": body},
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def send_provider_message(channel, recipient, body, context=None):
+    account = active_messaging_account(context, channel=channel)
+    if account and account.get("provider") == "meta":
+        return send_meta_whatsapp_message(channel, recipient, body, context, account=account), account["provider"]
+    if account and account.get("provider") == "twilio":
+        return send_twilio_message(channel, recipient, body, account), account["provider"]
+    if channel == "whatsapp" and active_whatsapp_number(context):
+        return send_meta_whatsapp_message(channel, recipient, body, context), "meta"
+    raise RuntimeError(f"No active messaging account is configured for {channel}.")
 
 
 def build_booking_message(booking, reminder=None):
@@ -385,17 +486,10 @@ def stop_inquiry_for_reply(branch, phone="", email="", message="", customer_name
 
 
 def preferred_channels(booking):
+    if not booking.get("phone"):
+        return []
     method = (booking.get("preferred_contact_method") or "").lower()
-    available = []
-    if booking.get("phone"):
-        available.extend(["whatsapp", "sms"])
-
-    if "sms" in method or "message" in method or "text" in method:
-        ordered = ["sms", "whatsapp"]
-    else:
-        ordered = ["whatsapp", "sms"]
-
-    return [channel for channel in ordered if channel in available]
+    return ["sms", "whatsapp"] if "sms" in method or "text" in method else ["whatsapp", "sms"]
 
 
 def lowest_cost_channels(booking):
@@ -650,12 +744,12 @@ def auto_send_reminder(reminder, actor_user=None):
         return False, "Outbound messaging is disabled for this client account."
     for channel in lowest_cost_channels(booking):
         try:
-            if channel in {"sms", "whatsapp"} and twilio_configured(channel) and booking.get("phone"):
-                send_twilio_message(channel, booking["phone"], body)
+            if meta_whatsapp_configured(channel, booking) and booking.get("phone"):
+                _response, provider = send_provider_message(channel, booking["phone"], body, booking)
                 log_communication(booking, reminder, channel, booking["phone"], subject, body, "sent", actor_user["id"] if actor_user else None)
                 track_message_usage(booking.get("franchise_id"))
                 update_reminder_status(reminder["id"], "Sent", channel, count_as_send=True)
-                return True, f"{channel.title()} message sent."
+                return True, f"{channel.title()} message sent by {provider}."
         except Exception as exc:
             log_communication(
                 booking,
@@ -678,16 +772,13 @@ def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=N
     recipient_phone = booking.get("phone")
     for channel in ["whatsapp", "sms"]:
         try:
-            if channel == "whatsapp" and recipient_phone and boolish(booking.get("whatsapp_opt_in", 0)) and twilio_configured("whatsapp"):
-                send_twilio_message("whatsapp", recipient_phone, body)
-                log_communication(booking, reminder, "whatsapp", recipient_phone, subject, body, "sent", actor_user_id)
+            if channel == "whatsapp" and not boolish(booking.get("whatsapp_opt_in", 0)):
+                continue
+            if recipient_phone and meta_whatsapp_configured(channel, booking):
+                _response, provider = send_provider_message(channel, recipient_phone, body, booking)
+                log_communication(booking, reminder, channel, recipient_phone, subject, body, f"sent:{provider}", actor_user_id)
                 track_message_usage(booking.get("franchise_id"))
-                return True, "whatsapp"
-            if channel == "sms" and recipient_phone and twilio_configured("sms"):
-                send_twilio_message("sms", recipient_phone, body)
-                log_communication(booking, reminder, "sms", recipient_phone, subject, body, "sent", actor_user_id)
-                track_message_usage(booking.get("franchise_id"))
-                return True, "sms"
+                return True, channel
         except Exception as exc:
             log_communication(booking, reminder, channel, recipient_phone, subject, body, f"failed: {exc}", actor_user_id)
             continue

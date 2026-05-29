@@ -10,8 +10,8 @@
   - `super_admin`
 - Added management pages for franchises, branches, and users.
 - Added reports, customer history, and reminder management screens.
-- Added reminder messaging support for Twilio SMS and WhatsApp delivery.
-- Updated dependencies to include `requests` for Twilio delivery.
+- Added reminder messaging support for Meta WhatsApp Cloud API and Twilio delivery.
+- Updated dependencies to include `requests` for outbound provider delivery.
 
 ## Current local bootstrap
 
@@ -76,25 +76,24 @@
 
 ## Messaging variables
 
-- Twilio:
-  - `TWILIO_ACCOUNT_SID`
-  - `TWILIO_AUTH_TOKEN`
-  - `TWILIO_SMS_FROM`
-  - `TWILIO_WHATSAPP_FROM`
+- Meta WhatsApp Cloud API:
+  - `META_GRAPH_API_VERSION`
+  - `META_APP_SECRET`
+- Twilio credentials are stored per workshop in `messaging_accounts`, not global env vars.
 - Optional AI fallback:
   - `OPENAI_API_KEY`
 
 ## Client onboarding model
 
 - SMTP/email delivery is no longer part of the platform runtime.
-- Super admin manages client messaging setup through Twilio.
+- Super admin manages client messaging setup through Meta WhatsApp Cloud API and Twilio.
 - Recommended live setup:
-  - register each client using their own work phone number as a Twilio WhatsApp sender
-  - use SMS through Twilio only when needed as fallback
+  - use Meta WhatsApp Cloud API for WhatsApp where available
+  - use Twilio for SMS and optional WhatsApp fallback
 - Important:
-  - the app does not create Twilio accounts automatically
-  - the super admin still needs to complete Twilio and Meta onboarding for each client number
-  - non-Twilio work numbers used for WhatsApp must be able to receive SMS or voice verification during Twilio setup
+  - the app does not create Meta Business accounts automatically
+  - the super admin still needs to complete Meta onboarding for each client number
+  - each production number must have a Meta phone number ID, business account ID, and permanent access token
 
 ## Verified
 

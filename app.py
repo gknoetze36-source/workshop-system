@@ -1,12 +1,12 @@
 from functools import wraps
 from datetime import datetime, timedelta
-import base64
 import hashlib
 import hmac
 import json
 import logging
 import os
 import re
+import base64
 
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
@@ -75,9 +75,11 @@ from platform_messaging import (
     send_missed_booking_followups,
     send_cheapest_message,
     stop_inquiry_for_reply,
-    send_twilio_message,
+    active_whatsapp_number,
+    active_messaging_account,
+    send_provider_message,
     ensure_inquiry,
-    twilio_configured,
+    meta_whatsapp_configured,
     update_reminder_status,
 )
 from automation_engine import retry_failed_job
@@ -226,8 +228,16 @@ def _validate_required_webhook_token(franchise, token):
     return bool(expected) and hmac.compare_digest(str(expected), str(token or ""))
 
 
-def _twilio_signature_valid():
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+def _meta_signature_valid():
+    app_secret = os.environ.get("META_APP_SECRET")
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    if not app_secret or not signature.startswith("sha256="):
+        return False
+    digest = hmac.new(app_secret.encode("utf-8"), request.get_data() or b"", hashlib.sha256).hexdigest()
+    return hmac.compare_digest(f"sha256={digest}", signature)
+
+
+def _twilio_signature_valid(auth_token):
     signature = request.headers.get("X-Twilio-Signature", "")
     if not auth_token or not signature:
         return False
@@ -236,7 +246,7 @@ def _twilio_signature_valid():
     base = f"{public_base_url}{request.path}{query}" if public_base_url else request.url
     for key, value in sorted(request.form.items()):
         base += key + value
-    digest = hmac.new(auth_token.encode("utf-8"), base.encode("utf-8"), hashlib.sha1).digest()
+    digest = hmac.new(str(auth_token).encode("utf-8"), base.encode("utf-8"), hashlib.sha1).digest()
     expected = base64.b64encode(digest).decode("utf-8")
     return hmac.compare_digest(expected, signature)
 
@@ -652,7 +662,7 @@ def _render_public_booking(preselected_branch=None):
             if sent:
                 flash(f"Booking confirmation sent by {channel}.", "success")
             else:
-                flash("Booking was saved, but no direct confirmation message could be sent. Check WhatsApp opt-in and Twilio setup.", "info")
+                flash("Booking was saved, but no direct confirmation message could be sent. Check WhatsApp opt-in and Meta setup.", "info")
             return redirect(url_for("booking_success", reference=reference))
 
     return render_template(
@@ -1141,7 +1151,7 @@ def run_reminders():
 @login_required
 def send_reminder(reminder_id, channel):
     reminder = fetch_reminder(reminder_id)
-    if channel not in {"sms", "whatsapp"} or not reminder or not reminder_in_scope(reminder, current_user()):
+    if channel not in {"whatsapp", "sms"} or not reminder or not reminder_in_scope(reminder, current_user()):
         abort(404)
     booking = fetch_one("SELECT b.*, f.name AS franchise_name, f.slug AS franchise_slug, br.name AS branch_name, br.slug AS branch_slug, br.contact_email AS branch_contact_email, br.contact_phone AS branch_contact_phone FROM bookings b LEFT JOIN franchises f ON f.id = b.franchise_id LEFT JOIN branches br ON br.id = b.branch_id WHERE b.id=%s", (reminder["booking_id"],))
     subject, body = build_booking_message(booking, reminder)
@@ -1154,9 +1164,9 @@ def send_reminder(reminder_id, channel):
         flash("Outbound messaging is disabled because this client account is unpaid or inactive.", "error")
         return redirect(url_for("reminders"))
     try:
-        if channel in {"sms", "whatsapp"} and twilio_configured(channel):
-            send_twilio_message(channel, recipient, body)
-            log_communication(booking, reminder, channel, recipient, subject, body, "sent", current_user()["id"])
+        if meta_whatsapp_configured(channel, booking):
+            _response, provider = send_provider_message(channel, recipient, body, booking)
+            log_communication(booking, reminder, channel, recipient, subject, body, f"sent:{provider}", current_user()["id"])
             track_message_usage(booking.get("franchise_id"))
             update_reminder_status(reminder_id, "Sent", channel, count_as_send=True)
             flash(f"{channel.title()} message sent successfully.", "success")
@@ -1721,27 +1731,12 @@ def server_error(error):
 
 from assistant_engine import assistant_reply
 from platform_helpers import branch_by_id
-from platform_messaging import send_twilio_message
 
-@app.route("/webhook/twilio/<franchise_slug>/<branch_slug>/<token>", methods=["POST"])
-@csrf.exempt
-@limiter.limit("60 per minute")
-def twilio_webhook(franchise_slug, branch_slug, token):
-    phone = request.form.get("From")
-    message = request.form.get("Body")
-    if not _twilio_signature_valid():
-        logger.warning("twilio_webhook_invalid_signature")
-        abort(403)
-    branch = branch_for_public_booking(franchise_slug, branch_slug)
-    if not branch:
-        abort(404)
-    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],))
-    if not _validate_required_webhook_token(franchise, token):
-        abort(403)
 
+def _handle_inbound_customer_message(branch, phone, message, channel_label="WhatsApp", status_label="Received"):
     execute_db(
-        "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, status, processed, privacy_notice_sent, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, 'Received', 0, 0, %s, %s)",
-        (branch["franchise_id"], branch["id"], "", phone or "", "", "WhatsApp", message or "", utc_now(), utc_now()),
+        "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, status, processed, privacy_notice_sent, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, %s, 0, 0, %s, %s)",
+        (branch["franchise_id"], branch["id"], "", phone or "", "", channel_label, message or "", status_label, utc_now(), utc_now()),
     )
 
     reply, should_count, metadata = assistant_reply(phone, message, branch)
@@ -1751,7 +1746,7 @@ def twilio_webhook(franchise_slug, branch_slug, token):
         email="",
         message=message or "",
         customer_name="",
-        channel="WhatsApp",
+        channel=channel_label,
     )
     if inquiry and metadata.get("service_type") and not inquiry.get("service_type"):
         ensure_inquiry(
@@ -1796,6 +1791,109 @@ def twilio_webhook(franchise_slug, branch_slug, token):
 
     if should_count:
         _record_chatbot_usage(branch["franchise_id"])
+
+
+@app.route("/webhooks/twilio/<channel>/<franchise_slug>/<branch_slug>/<token>", methods=["POST"])
+@csrf.exempt
+@limiter.limit("60 per minute")
+def twilio_webhook(channel, franchise_slug, branch_slug, token):
+    if channel not in {"whatsapp", "sms"}:
+        abort(404)
+    branch = branch_for_public_booking(franchise_slug, branch_slug)
+    if not branch:
+        abort(404)
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],))
+    if not _validate_required_webhook_token(franchise, token):
+        abort(403)
+    account = active_messaging_account(franchise, channel=channel, provider="twilio")
+    if not account or not _twilio_signature_valid(account.get("auth_secret")):
+        logger.warning("twilio_webhook_invalid_signature")
+        abort(403)
+    phone = request.form.get("From") or ""
+    if phone.startswith("whatsapp:"):
+        phone = phone.removeprefix("whatsapp:")
+    message = request.form.get("Body") or ""
+    if not phone or not message:
+        return "OK"
+    _handle_inbound_customer_message(branch, phone, message, "SMS" if channel == "sms" else "WhatsApp")
+    return "OK"
+
+
+@app.route("/webhooks/meta/whatsapp", methods=["GET", "POST"])
+@csrf.exempt
+@limiter.limit("60 per minute")
+def meta_whatsapp_webhook():
+    if request.method == "GET":
+        verify_token = request.args.get("hub.verify_token", "")
+        if verify_token and request.args.get("hub.mode") == "subscribe" and active_whatsapp_number(verify_token=verify_token):
+            return request.args.get("hub.challenge", "")
+        abort(403)
+
+    if not _meta_signature_valid():
+        logger.warning("meta_whatsapp_webhook_invalid_signature")
+        abort(403)
+
+    payload = request.get_json(silent=True) or {}
+    value = (((payload.get("entry") or [{}])[0].get("changes") or [{}])[0].get("value") or {})
+    message_payload = (value.get("messages") or [{}])[0]
+    status_payload = (value.get("statuses") or [{}])[0]
+    metadata = value.get("metadata") or {}
+    phone = message_payload.get("from") or status_payload.get("recipient_id") or ""
+    message_type = message_payload.get("type") or ("status" if status_payload else "unknown")
+    message = (
+        ((message_payload.get("text") or {}).get("body") or "")
+        or ((message_payload.get("button") or {}).get("text") or "")
+        or ((message_payload.get("interactive") or {}).get("type") or "")
+        or status_payload.get("status")
+        or f"[{message_type}]"
+    ).strip()
+    phone_number_id = metadata.get("phone_number_id") or ""
+    if not phone or not message:
+        return jsonify({"ok": True})
+
+    whatsapp_number = active_whatsapp_number(phone_number_id=phone_number_id)
+    if not whatsapp_number:
+        logger.warning("meta_whatsapp_webhook_unknown_number")
+        return jsonify({"ok": True})
+
+    branch = fetch_one(
+        """
+        SELECT b.*, f.slug AS franchise_slug
+        FROM branches b
+        LEFT JOIN franchises f ON f.id = b.franchise_id
+        WHERE f.workshop_id=%s
+        ORDER BY b.id
+        LIMIT 1
+        """,
+        (whatsapp_number["workshop_id"],),
+    )
+    if not branch:
+        logger.warning("meta_whatsapp_webhook_unknown_number")
+        return jsonify({"ok": True})
+
+    if status_payload and status_payload.get("id"):
+        execute_db(
+            """
+            INSERT INTO communication_logs (
+                franchise_id, branch_id, channel, recipient, subject, body, status, external_target, created_at, sent_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                branch["franchise_id"],
+                branch["id"],
+                "whatsapp",
+                phone or "",
+                "Meta WhatsApp delivery status",
+                message or "",
+                status_payload.get("status") or "status",
+                status_payload.get("id") or "",
+                utc_now(),
+                utc_now(),
+            ),
+        )
+        return jsonify({"ok": True})
+    _handle_inbound_customer_message(branch, phone, message)
 
     return "OK"
 def is_date_available(branch_id, date):

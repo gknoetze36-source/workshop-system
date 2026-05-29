@@ -49,14 +49,14 @@ AUTOMATION_WORKER_BATCH_SIZE=50
 PGCONNECT_TIMEOUT=5
 ```
 
-Set where messaging is needed:
+Set global provider variables:
 
 ```txt
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_SMS_FROM=
-TWILIO_WHATSAPP_FROM=
+META_GRAPH_API_VERSION=v20.0
+META_APP_SECRET=
 ```
+
+Each workshop's Meta and Twilio credentials are stored in `messaging_accounts`; Meta WhatsApp webhook lookup is mirrored in `whatsapp_numbers`.
 
 Set where Paystack billing is needed:
 
@@ -111,10 +111,13 @@ External booking webhook:
 POST /webhook/booking/<franchise_slug>/<branch_slug>/<token>
 ```
 
-Twilio webhook:
+Meta WhatsApp webhook:
 
 ```txt
-POST /webhook/twilio/<franchise_slug>/<branch_slug>/<token>
+GET /webhooks/meta/whatsapp
+POST /webhooks/meta/whatsapp
+POST /webhooks/twilio/whatsapp/<franchise_slug>/<branch_slug>/<token>
+POST /webhooks/twilio/sms/<franchise_slug>/<branch_slug>/<token>
 ```
 
 Paystack webhook:
