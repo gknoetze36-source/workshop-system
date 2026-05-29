@@ -1,6 +1,6 @@
 from automation_engine import process_due_jobs
 from database import initialize_database
-from platform_helpers import close_billing_period, expire_due_subscriptions, fetch_all
+from platform_helpers import close_billing_period, expire_due_subscriptions, fetch_all, month_end
 from platform_messaging import (
     auto_send_reminder,
     fetch_reminders_for_user,
@@ -9,6 +9,7 @@ from platform_messaging import (
     send_cheapest_message,
     send_inquiry_followups,
     send_missed_booking_followups,
+    sast_now,
     sast_today,
 )
 import sys
@@ -34,6 +35,11 @@ def send_same_day_reminders():
 # ---------------- DECLINED WORK ---------------- #
 
 def send_declined_work_reminders():
+    today = sast_now()
+    if today.date() != month_end(today).date():
+        print("Declined reminders skipped: not month-end")
+        return
+
     bookings = fetch_all(
         """
         SELECT

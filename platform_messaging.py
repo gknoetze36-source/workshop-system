@@ -284,6 +284,7 @@ def send_booking_confirmation(reference):
 def send_booking_reminders(days_ahead=1, label=None):
     target_date = (sast_now() + timedelta(days=int(days_ahead or 0))).strftime("%Y-%m-%d")
     label = label or ("Today" if int(days_ahead or 0) == 0 else "Tomorrow")
+    reminder_kind = "booking_same_day" if int(days_ahead or 0) == 0 else "booking_day_before"
     bookings = fetch_all(
         """
         SELECT
@@ -310,10 +311,58 @@ def send_booking_reminders(days_ahead=1, label=None):
     sent = 0
     for booking in bookings:
         subject, body = build_appointment_reminder_message(booking, label)
-        success, _channel = send_cheapest_message(booking, subject, body)
+        reminder = ensure_reminder_campaign(booking, reminder_kind, target_date, subject, body)
+        if reminder.get("status") == "Sent":
+            continue
+        success, channel = send_cheapest_message(booking, subject, body, reminder=reminder)
         if success:
+            update_reminder_status(reminder["id"], "Sent", channel, count_as_send=True)
             sent += 1
     return sent
+
+
+def ensure_reminder_campaign(booking, reminder_kind, scheduled_for, subject, body, campaign_round=1):
+    reminder = fetch_one(
+        """
+        SELECT *
+        FROM reminder_campaigns
+        WHERE booking_id=%s AND reminder_kind=%s AND campaign_round=%s
+        """,
+        (booking["id"], reminder_kind, campaign_round),
+    )
+    if reminder:
+        return reminder
+    execute_db(
+        """
+        INSERT INTO reminder_campaigns (
+            booking_id, franchise_id, branch_id, reminder_kind, due_date,
+            campaign_round, scheduled_for, status, message_subject,
+            message_body, send_count, created_at, updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'Pending', %s, %s, 0, %s, %s)
+        """,
+        (
+            booking["id"],
+            booking["franchise_id"],
+            booking["branch_id"],
+            reminder_kind,
+            booking.get("scheduled_date") or scheduled_for,
+            campaign_round,
+            scheduled_for,
+            subject,
+            body,
+            utc_now(),
+            utc_now(),
+        ),
+    )
+    return fetch_one(
+        """
+        SELECT *
+        FROM reminder_campaigns
+        WHERE booking_id=%s AND reminder_kind=%s AND campaign_round=%s
+        """,
+        (booking["id"], reminder_kind, campaign_round),
+    )
 
 
 def _iso_now(as_of=None):
@@ -562,6 +611,7 @@ def lowest_cost_channels(booking):
 
 
 def log_communication(booking, reminder, channel, recipient, subject, body, status, user_id=None, external_target=""):
+    sent = str(status or "").startswith("sent")
     execute_db(
         """
         INSERT INTO communication_logs (
@@ -583,7 +633,7 @@ def log_communication(booking, reminder, channel, recipient, subject, body, stat
             status,
             external_target,
             utc_now(),
-            utc_now() if status == "sent" else None,
+            utc_now() if sent else None,
         ),
     )
 
