@@ -9,7 +9,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlsplit, urlunsplit
 
 BASE_DIR = Path(__file__).resolve().parent
 PRIMARY_SQLITE_PATH = os.environ.get("SQLITE_PATH") or str(BASE_DIR / "database.db")
@@ -34,6 +34,25 @@ _POOL_LOCK = threading.Lock()
 _LOCAL = threading.local()
 
 
+def _database_url():
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        return database_url
+
+    parsed = urlsplit(database_url)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        return database_url
+
+    path = parsed.path or ""
+    for marker in ("postgresql://", "postgres://"):
+        marker_index = path.find(marker)
+        if marker_index > 0:
+            fixed_path = path[:marker_index].rstrip("/")
+            logger.warning("database_url_had_concatenated_postgres_url; using database path before duplicate scheme")
+            return urlunsplit((parsed.scheme, parsed.netloc, fixed_path or "/railway", parsed.query, parsed.fragment))
+    return database_url
+
+
 class _PooledConnection:
     def __init__(self, pool, connection):
         self._pool = pool
@@ -56,7 +75,7 @@ def _postgres_pool():
             if _POOL is None:
                 from psycopg2.pool import ThreadedConnectionPool
 
-                database_url = os.environ.get("DATABASE_URL")
+                database_url = _database_url()
                 minconn = int(os.environ.get("PGPOOL_MINCONN", "1"))
                 maxconn = int(os.environ.get("PGPOOL_MAXCONN", "5"))
                 timeout = int(os.environ.get("PGCONNECT_TIMEOUT", "5"))
