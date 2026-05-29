@@ -629,6 +629,7 @@ def _create_tables(connection, backend):
         CREATE TABLE IF NOT EXISTS automation_rules (
             id {primary_key},
             franchise_id INTEGER,
+            branch_id INTEGER,
             template_id INTEGER,
             name TEXT NOT NULL,
             event_type TEXT NOT NULL,
@@ -1072,6 +1073,7 @@ def _ensure_columns(connection, backend):
         },
         "automation_rules": {
             "franchise_id": "INTEGER",
+            "branch_id": "INTEGER",
             "template_id": "INTEGER",
             "name": "TEXT",
             "event_type": "TEXT",
@@ -1213,6 +1215,7 @@ def _ensure_indexes(connection, backend):
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_industry_templates_industry ON industry_templates(industry)",
         "CREATE INDEX IF NOT EXISTS idx_automation_templates_industry ON automation_templates(industry, event_type)",
         "CREATE INDEX IF NOT EXISTS idx_automation_rules_scope ON automation_rules(franchise_id, event_type, active)",
+        "CREATE INDEX IF NOT EXISTS idx_automation_rules_branch_scope ON automation_rules(franchise_id, branch_id, event_type, active)",
         "CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_due ON scheduled_jobs(status, scheduled_for)",
         "CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_scope ON scheduled_jobs(franchise_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_automation_logs_scope ON automation_logs(franchise_id, created_at)",
