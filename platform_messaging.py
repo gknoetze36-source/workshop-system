@@ -17,7 +17,6 @@ from platform_helpers import (
     role_label,
     scope_clause,
     track_message_usage,
-    utc_today,
 )
 
 
@@ -37,6 +36,15 @@ FOLLOWUP_DELAYS_MINUTES = {
     2: 90,
     4: 60 * 24 * 2,
 }
+SAST_OFFSET_HOURS = 2
+
+
+def sast_now():
+    return datetime.utcnow() + timedelta(hours=SAST_OFFSET_HOURS)
+
+
+def sast_today():
+    return sast_now().strftime("%Y-%m-%d")
 
 
 DECLINE_PATTERNS = (
@@ -274,7 +282,7 @@ def send_booking_confirmation(reference):
 
 
 def send_booking_reminders(days_ahead=1, label=None):
-    target_date = (datetime.utcnow() + timedelta(days=int(days_ahead or 0))).strftime("%Y-%m-%d")
+    target_date = (sast_now() + timedelta(days=int(days_ahead or 0))).strftime("%Y-%m-%d")
     label = label or ("Today" if int(days_ahead or 0) == 0 else "Tomorrow")
     bookings = fetch_all(
         """
@@ -293,6 +301,8 @@ def send_booking_reminders(days_ahead=1, label=None):
           AND b.status IN ('Pending', 'Confirmed', 'In Progress')
           AND COALESCE(b.reminder_opt_in, TRUE)=TRUE
           AND COALESCE(b.phone, '') <> ''
+          AND COALESCE(f.active, TRUE)=TRUE
+          AND COALESCE(br.active, TRUE)=TRUE
         ORDER BY b.scheduled_date ASC, b.id ASC
         """,
         (target_date,),
@@ -673,7 +683,7 @@ def reminder_in_scope(reminder, user):
 
 
 def generate_due_reminders(user_scope=None, as_of=None, force=False):
-    as_of = as_of or datetime.utcnow()
+    as_of = as_of or sast_now()
     clause = "1=1"
     args = []
     if user_scope:
@@ -860,7 +870,7 @@ def can_send_outbound(booking, subject, body):
 
 
 def send_missed_booking_followups():
-    today = utc_today()
+    today = sast_today()
     bookings = fetch_all(
         """
         SELECT
@@ -876,8 +886,11 @@ def send_missed_booking_followups():
         LEFT JOIN branches br ON br.id = b.branch_id
         WHERE b.scheduled_date < %s
           AND b.status IN ('Pending', 'Confirmed', 'In Progress')
+          AND COALESCE(b.reminder_opt_in, TRUE) = TRUE
           AND COALESCE(b.phone, '') <> ''
           AND COALESCE(b.missed_followup_count, 0) < 2
+          AND COALESCE(f.active, TRUE) = TRUE
+          AND COALESCE(br.active, TRUE) = TRUE
         ORDER BY b.scheduled_date ASC
         """,
         (today,),

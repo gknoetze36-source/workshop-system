@@ -1,4 +1,3 @@
-from datetime import datetime
 from automation_engine import process_due_jobs
 from database import initialize_database
 from platform_helpers import close_billing_period, expire_due_subscriptions, fetch_all
@@ -10,6 +9,7 @@ from platform_messaging import (
     send_cheapest_message,
     send_inquiry_followups,
     send_missed_booking_followups,
+    sast_today,
 )
 import sys
 
@@ -34,16 +34,36 @@ def send_same_day_reminders():
 # ---------------- DECLINED WORK ---------------- #
 
 def send_declined_work_reminders():
-    bookings = fetch_all("""
-        SELECT id, franchise_id, branch_id, first_name, customer_email, phone 
-        FROM bookings 
-        WHERE quote_declined = 'Yes'
-    """)
+    bookings = fetch_all(
+        """
+        SELECT
+            b.*,
+            f.name AS franchise_name,
+            f.slug AS franchise_slug,
+            br.name AS branch_name,
+            br.slug AS branch_slug,
+            br.contact_email AS branch_contact_email,
+            br.contact_phone AS branch_contact_phone
+        FROM bookings b
+        LEFT JOIN franchises f ON f.id = b.franchise_id
+        LEFT JOIN branches br ON br.id = b.branch_id
+        WHERE b.quote_declined = 'Yes'
+          AND b.status NOT IN ('Done', 'Collected', 'Declined')
+          AND COALESCE(b.reminder_opt_in, TRUE) = TRUE
+          AND COALESCE(b.phone, '') <> ''
+          AND COALESCE(f.active, TRUE) = TRUE
+          AND COALESCE(br.active, TRUE) = TRUE
+        ORDER BY b.scheduled_date ASC, b.id ASC
+        """
+    )
 
+    sent = 0
     for b in bookings:
-        send_cheapest_message(b, "Pending work reminder", "Reminder: You still have pending work. Book this month?")
+        success, _channel = send_cheapest_message(b, "Pending work reminder", "Reminder: You still have pending work. Book this month?")
+        if success:
+            sent += 1
 
-    print("Declined reminders sent")
+    print(f"Declined reminders sent: {sent}")
 
 
 # ---------------- YEARLY ---------------- #
@@ -52,7 +72,7 @@ def yearly_reminders():
     created = generate_due_reminders()
     sent = 0
     for reminder in fetch_reminders_for_user({"role": "super_admin"}):
-        if reminder.get("status") == "Pending" and str(reminder.get("scheduled_for") or "") <= datetime.utcnow().strftime("%Y-%m-%d"):
+        if reminder.get("status") == "Pending" and str(reminder.get("scheduled_for") or "") <= sast_today():
             success, _ = auto_send_reminder(reminder)
             if success:
                 sent += 1
