@@ -228,11 +228,25 @@ def build_booking_confirmation_message(booking):
     service = booking.get("service") or "your booking"
     scheduled = human_date(booking.get("scheduled_date") or booking.get("date"))
     reference = booking.get("booking_reference") or "pending"
-    subject = f"{branch_name}: booking received"
+    subject = f"{branch_name}: booking confirmed"
     body = (
-        f"Hi {customer_name}, your booking request for {service} at {branch_name} "
-        f"has been received for {scheduled}. Your reference is {reference}. "
+        f"Hi {customer_name}, your booking for {service} at {branch_name} "
+        f"is confirmed for {scheduled}. Your reference is {reference}. "
         "The workshop will confirm the final time if needed."
+    )
+    return subject, body
+
+
+def build_appointment_reminder_message(booking, label):
+    branch_name = booking.get("branch_name") or booking.get("branch") or "your workshop"
+    customer_name = booking.get("first_name") or "Customer"
+    service = booking.get("service") or "your booking"
+    scheduled = human_date(booking.get("scheduled_date") or booking.get("date"))
+    reference = booking.get("booking_reference") or str(booking.get("id") or "")
+    subject = f"{branch_name}: {label} booking reminder"
+    body = (
+        f"Hi {customer_name}, reminder from {branch_name}: your {service} booking is {label.lower()} "
+        f"({scheduled}). Reference: {reference}. Reply here if you need to change it."
     )
     return subject, body
 
@@ -257,6 +271,39 @@ def send_booking_confirmation(reference):
         return False, "booking not found"
     subject, body = build_booking_confirmation_message(booking)
     return send_cheapest_message(booking, subject, body)
+
+
+def send_booking_reminders(days_ahead=1, label=None):
+    target_date = (datetime.utcnow() + timedelta(days=int(days_ahead or 0))).strftime("%Y-%m-%d")
+    label = label or ("Today" if int(days_ahead or 0) == 0 else "Tomorrow")
+    bookings = fetch_all(
+        """
+        SELECT
+            b.*,
+            f.name AS franchise_name,
+            f.slug AS franchise_slug,
+            br.name AS branch_name,
+            br.slug AS branch_slug,
+            br.contact_email AS branch_contact_email,
+            br.contact_phone AS branch_contact_phone
+        FROM bookings b
+        LEFT JOIN franchises f ON f.id = b.franchise_id
+        LEFT JOIN branches br ON br.id = b.branch_id
+        WHERE b.scheduled_date=%s
+          AND b.status IN ('Pending', 'Confirmed', 'In Progress')
+          AND COALESCE(b.reminder_opt_in, TRUE)=TRUE
+          AND COALESCE(b.phone, '') <> ''
+        ORDER BY b.scheduled_date ASC, b.id ASC
+        """,
+        (target_date,),
+    )
+    sent = 0
+    for booking in bookings:
+        subject, body = build_appointment_reminder_message(booking, label)
+        success, _channel = send_cheapest_message(booking, subject, body)
+        if success:
+            sent += 1
+    return sent
 
 
 def _iso_now(as_of=None):
@@ -660,17 +707,16 @@ def generate_due_reminders(user_scope=None, as_of=None, force=False):
     created = 0
     for booking in bookings:
         due_date = parse_date(booking.get("service_due_date"))
-        if not due_date:
-            continue
+        scheduled_date = parse_date(booking.get("scheduled_date"))
 
         reminder_types = []
         if booking.get("service_level") in {"Major", "Minor"} and due_date:
-            reminder_types.append((f"{booking['service_level'].lower()}_service", [month_end(due_date), month_end(month_end(due_date) + timedelta(days=1))]))
+            reminder_types.append((f"{booking['service_level'].lower()}_service", due_date, [month_end(due_date), month_end(month_end(due_date) + timedelta(days=1))]))
         if booking.get("work_to_be_done"):
-            work_due = due_date or parse_date(booking.get("scheduled_date")) or as_of
-            reminder_types.append(("work_to_be_done", [month_end(work_due), month_end(month_end(work_due) + timedelta(days=1))]))
+            work_due = due_date or scheduled_date or as_of
+            reminder_types.append(("work_to_be_done", work_due, [month_end(work_due), month_end(month_end(work_due) + timedelta(days=1))]))
 
-        for reminder_kind, campaign_dates in reminder_types:
+        for reminder_kind, due_for_message, campaign_dates in reminder_types:
             for round_number, campaign_date in enumerate(campaign_dates, start=1):
                 if not campaign_date:
                     continue
@@ -689,7 +735,8 @@ def generate_due_reminders(user_scope=None, as_of=None, force=False):
                 if existing:
                     continue
 
-                subject, body = build_booking_message(booking, {"due_date": booking.get("service_due_date") or booking.get("scheduled_date")})
+                due_value = due_for_message.strftime("%Y-%m-%d") if hasattr(due_for_message, "strftime") else (booking.get("service_due_date") or booking.get("scheduled_date"))
+                subject, body = build_booking_message(booking, {"due_date": due_value})
                 execute_db(
                     """
                     INSERT INTO reminder_campaigns (
@@ -704,7 +751,7 @@ def generate_due_reminders(user_scope=None, as_of=None, force=False):
                         booking["franchise_id"],
                         booking["branch_id"],
                         reminder_kind,
-                        booking.get("service_due_date") or booking.get("scheduled_date"),
+                        due_value,
                         round_number,
                         campaign_date.strftime("%Y-%m-%d"),
                         subject,

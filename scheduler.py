@@ -1,7 +1,7 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from cron_jobs import send_day_before_reminders, send_declined_work_reminders, send_inquiry_followup_jobs, send_missed_booking_jobs, yearly_reminders
+from cron_jobs import send_day_before_reminders, send_declined_work_reminders, send_inquiry_followup_jobs, send_missed_booking_jobs, send_same_day_reminders, yearly_reminders
 from database import initialize_database
 
 
@@ -23,6 +23,7 @@ def run_scheduler():
 
         # Run every day at 08:00
         if now.hour == 8 and last_daily != minute_bucket[:10]:
+            send_same_day_reminders()
             send_day_before_reminders()
             last_daily = minute_bucket[:10]
 
