@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import traceback
 import base64
 
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
@@ -101,6 +102,8 @@ app.config.update(
 class JsonFormatter(logging.Formatter):
     def format(self, record):
         payload = {"level": record.levelname, "logger": record.name, "message": record.getMessage(), "time": self.formatTime(record)}
+        if record.exc_info:
+            payload["exception"] = "".join(traceback.format_exception(*record.exc_info)).strip()
         return json.dumps(payload, separators=(",", ":"))
 
 
