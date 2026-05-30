@@ -5,8 +5,8 @@
 ```txt
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 DIRECT_URL=${{Postgres.DATABASE_URL}}
-JWT_SECRET=<strong-random-secret>
-SESSION_SECRET=<strong-random-secret>
+SECRET_KEY=<strong-random-secret>
+SESSION_SECRET=<optional-fallback-secret>
 PUBLIC_BASE_URL=https://your-backend-domain.up.railway.app
 FRONTEND_ORIGIN=https://your-vercel-domain.vercel.app
 META_GRAPH_API_VERSION=v20.0

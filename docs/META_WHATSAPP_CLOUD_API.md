@@ -5,8 +5,8 @@
 ```txt
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 DIRECT_URL=${{Postgres.DATABASE_URL}}
-JWT_SECRET=<strong-random-secret>
-SESSION_SECRET=<strong-random-secret>
+SECRET_KEY=<strong-random-secret>
+SESSION_SECRET=<optional-fallback-secret>
 PUBLIC_BASE_URL=https://api.vanta.example
 FRONTEND_ORIGIN=https://app.vanta.example
 META_GRAPH_API_VERSION=v20.0

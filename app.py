@@ -89,9 +89,9 @@ from validators.phone_validator import is_valid_phone, normalize_phone
 from validators.request_validator import require_fields
 
 app = Flask(__name__)
-SECRET_KEY = os.environ.get("SECRET_KEY")
+SECRET_KEY = os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET")
 if not SECRET_KEY:
-    raise RuntimeError("SECRET_KEY is required")
+    raise RuntimeError("SECRET_KEY or SESSION_SECRET is required")
 app.secret_key = SECRET_KEY
 app.config.update(
     SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "true").lower() in {"1", "true", "yes"},
