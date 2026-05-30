@@ -33,6 +33,7 @@ from platform_helpers import (
     close_billing_period,
     create_payment_link,
     daily_usage_summary,
+    db_bool,
     expire_due_subscriptions,
     fetch_all,
     fetch_booking_for_user,
@@ -811,8 +812,8 @@ def change_password():
             error = "Choose a different password from the current one."
         else:
             execute_db(
-                "UPDATE users SET password=%s, password_hash=%s, must_reset_password=0, updated_at=%s WHERE id=%s",
-                ("", generate_password_hash(new_password), utc_now(), user["id"]),
+                "UPDATE users SET password=%s, password_hash=%s, must_reset_password=%s, updated_at=%s WHERE id=%s",
+                ("", generate_password_hash(new_password), db_bool(False), utc_now(), user["id"]),
             )
             execute_db(
                 "INSERT INTO credential_audit (user_id, username, franchise_id, actor_user_id, event_type, note, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
@@ -952,7 +953,7 @@ def update_booking(reference):
             service_level, (request.form.get("current_mileage") or "").strip(), scheduled_date, scheduled_date, status,
             service_due_date, (request.form.get("work_to_be_done") or "").strip(), (request.form.get("public_notes") or "").strip(),
             (request.form.get("internal_notes") or "").strip(), (request.form.get("quote_declined") or "No").strip(),
-            1 if boolish(request.form.get("reminder_opt_in", "true")) else 0, completed_at or None, utc_now(), booking["id"],
+            db_bool(request.form.get("reminder_opt_in", "true")), completed_at or None, utc_now(), booking["id"],
         ),
     )
     flash(f"Booking {reference} saved.", "success")
@@ -1207,7 +1208,7 @@ def manage_franchises():
                     automation_enabled, chatbot_enabled, reporting_enabled, custom_integrations_enabled,
                     priority_support_enabled, monthly_base_price, monthly_message_limit, overage_price_per_message,
                     billing_day, public_base_url, inbound_webhook_token, active, created_at, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'month_end', %s, %s, 1, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, 'active', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'month_end', %s, %s, %s, %s, %s)
                 """,
                 (
                     name,
@@ -1222,16 +1223,17 @@ def manage_franchises():
                     plan_code,
                     plan["branch_limit"],
                     plan["user_limit"],
-                    plan["automation_enabled"],
-                    plan["chatbot_enabled"],
-                    plan["reporting_enabled"],
-                    plan["custom_integrations_enabled"],
-                    plan["priority_support_enabled"],
+                    db_bool(plan["automation_enabled"]),
+                    db_bool(plan["chatbot_enabled"]),
+                    db_bool(plan["reporting_enabled"]),
+                    db_bool(plan["custom_integrations_enabled"]),
+                    db_bool(plan["priority_support_enabled"]),
                     float(request.form.get("monthly_base_price") or 0),
                     int(request.form.get("monthly_message_limit") or 2000),
                     float(request.form.get("overage_price_per_message") or 0.5),
                     (request.form.get("public_base_url") or "").strip(),
                     (request.form.get("inbound_webhook_token") or "").strip(),
+                    db_bool(True),
                     utc_now(),
                     utc_now(),
                 ),
@@ -1279,17 +1281,17 @@ def update_franchise(franchise_id):
             plan_code,
             plan["branch_limit"] if plan_code != "premium" else 999999,
             plan["user_limit"] if plan_code != "premium" else 999999,
-            plan["automation_enabled"],
-            plan["chatbot_enabled"],
-            plan["reporting_enabled"],
-            plan["custom_integrations_enabled"],
-            plan["priority_support_enabled"],
+            db_bool(plan["automation_enabled"]),
+            db_bool(plan["chatbot_enabled"]),
+            db_bool(plan["reporting_enabled"]),
+            db_bool(plan["custom_integrations_enabled"]),
+            db_bool(plan["priority_support_enabled"]),
             float(request.form.get("monthly_base_price") or 0),
             int(request.form.get("monthly_message_limit") or 2000),
             float(request.form.get("overage_price_per_message") or 0.5),
             (request.form.get("public_base_url") or "").strip(),
             (request.form.get("inbound_webhook_token") or "").strip(),
-            1 if boolish(request.form.get("active", "true")) else 0,
+            db_bool(request.form.get("active", "true")),
             utc_now(),
             franchise_id,
         ),
@@ -1339,7 +1341,7 @@ def manage_branches():
         if franchise and not can_add_branch(franchise):
             flash(f"{franchise['name']} has reached its branch limit for the {plan_label(franchise.get('plan_code'))} plan.", "error")
         elif franchise and name and not fetch_one("SELECT id FROM branches WHERE franchise_id=%s AND lower(name)=lower(%s)", (franchise["id"], name)):
-            execute_db("INSERT INTO branches (franchise_id, name, slug, code, location, contact_email, contact_phone, public_booking_enabled, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s)", (franchise["id"], name, __import__('database').slugify(name), (request.form.get("code") or "").strip(), (request.form.get("location") or "").strip(), (request.form.get("contact_email") or "").strip(), (request.form.get("contact_phone") or "").strip(), 1 if boolish(request.form.get("public_booking_enabled", "true")) else 0, utc_now(), utc_now()))
+            execute_db("INSERT INTO branches (franchise_id, name, slug, code, location, contact_email, contact_phone, public_booking_enabled, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (franchise["id"], name, __import__('database').slugify(name), (request.form.get("code") or "").strip(), (request.form.get("location") or "").strip(), (request.form.get("contact_email") or "").strip(), (request.form.get("contact_phone") or "").strip(), db_bool(request.form.get("public_booking_enabled", "true")), db_bool(True), utc_now(), utc_now()))
             flash(f"Branch {name} created.", "success")
         else:
             flash("Please provide a unique branch name for that franchise.", "error")
@@ -1402,7 +1404,7 @@ def manage_users():
                 flash("Reception users must be linked to a visible branch.", "error")
             else:
                 company_name = branch["franchise_name"] if branch else (franchise or {}).get("name", "")
-                execute_db("INSERT INTO users (username, password, password_hash, full_name, email, phone, branch, company, role, franchise_id, branch_id, active, must_reset_password, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, 0, %s, %s)", (username, "", generate_password_hash(password), (request.form.get("full_name") or username.title()).strip(), (request.form.get("email") or "").strip(), (request.form.get("phone") or "").strip(), branch["name"] if branch else "", company_name, role, branch["franchise_id"] if branch else (None if role == "super_admin" else franchise_id), branch["id"] if branch else None, utc_now(), utc_now()))
+                execute_db("INSERT INTO users (username, password, password_hash, full_name, email, phone, branch, company, role, franchise_id, branch_id, active, must_reset_password, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (username, "", generate_password_hash(password), (request.form.get("full_name") or username.title()).strip(), (request.form.get("email") or "").strip(), (request.form.get("phone") or "").strip(), branch["name"] if branch else "", company_name, role, branch["franchise_id"] if branch else (None if role == "super_admin" else franchise_id), branch["id"] if branch else None, db_bool(True), db_bool(False), utc_now(), utc_now()))
                 flash(f"User {username} created.", "success")
         else:
             flash("Please provide a unique username, a password, and a valid role.", "error")
@@ -1477,7 +1479,7 @@ def toggle_user(user_id):
         abort(404)
     if current_user()["role"] != "super_admin" and candidate.get("franchise_id") != current_user().get("franchise_id"):
         abort(403)
-    execute_db("UPDATE users SET active=%s, updated_at=%s WHERE id=%s", (0 if boolish(candidate.get("active", 1)) else 1, utc_now(), user_id))
+    execute_db("UPDATE users SET active=%s, updated_at=%s WHERE id=%s", (db_bool(not boolish(candidate.get("active", 1))), utc_now(), user_id))
     flash(f"Updated {candidate['username']}.", "success")
     return redirect(url_for("manage_users"))
 
@@ -1495,7 +1497,7 @@ def reset_user_password(user_id):
     if not password:
         flash("Password cannot be empty.", "error")
     else:
-        execute_db("UPDATE users SET password_hash=%s, password=%s, must_reset_password=%s, updated_at=%s WHERE id=%s", (generate_password_hash(password), "", 1 if boolish(request.form.get("must_reset_password")) else 0, utc_now(), user_id))
+        execute_db("UPDATE users SET password_hash=%s, password=%s, must_reset_password=%s, updated_at=%s WHERE id=%s", (generate_password_hash(password), "", db_bool(request.form.get("must_reset_password")), utc_now(), user_id))
         execute_db(
             "INSERT INTO credential_audit (user_id, username, franchise_id, actor_user_id, event_type, note, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (candidate["id"], candidate["username"], candidate.get("franchise_id"), current_user()["id"], "password_reset", "Superadmin/admin reset password.", utc_now()),
@@ -1518,8 +1520,8 @@ def reset_all_passwords():
     users = fetch_all("SELECT * FROM users WHERE role <> 'super_admin' OR username <> %s", (current_user()["username"],))
     for user in users:
         execute_db(
-            "UPDATE users SET password_hash=%s, password=%s, must_reset_password=1, updated_at=%s WHERE id=%s",
-            (generate_password_hash("login1234"), "", utc_now(), user["id"]),
+            "UPDATE users SET password_hash=%s, password=%s, must_reset_password=%s, updated_at=%s WHERE id=%s",
+            (generate_password_hash("login1234"), "", db_bool(True), utc_now(), user["id"]),
         )
         execute_db(
             "INSERT INTO credential_audit (user_id, username, franchise_id, actor_user_id, event_type, note, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
@@ -1544,13 +1546,14 @@ def manage_prices():
         if branch:
             franchise_id = branch["franchise_id"]
         execute_db(
-            "INSERT INTO service_prices (franchise_id, branch_id, service_name, service_category, price_amount, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, 1, %s, %s)",
+            "INSERT INTO service_prices (franchise_id, branch_id, service_name, service_category, price_amount, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 franchise_id,
                 branch["id"] if branch else None,
                 (request.form.get("service_name") or "").strip(),
                 (request.form.get("service_category") or "").strip(),
                 float(request.form.get("price_amount") or 0),
+                db_bool(True),
                 utc_now(),
                 utc_now(),
             ),
@@ -1580,7 +1583,7 @@ def chatbot_inbox():
             price_match = find_service_price(franchise["id"], branch["id"], service_name)
             matched_price = (price_match or {}).get("price_amount")
         execute_db(
-            "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, suggested_service, matched_price, status, processed, privacy_notice_sent, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, %s, %s, 'Saved', 0, 1, %s, %s)",
+            "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, suggested_service, matched_price, status, processed, privacy_notice_sent, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, %s, %s, 'Saved', %s, %s, %s, %s)",
             (
                 franchise_id,
                 branch["id"] if branch else None,
@@ -1591,6 +1594,8 @@ def chatbot_inbox():
                 (request.form.get("message_text") or "").strip(),
                 service_name,
                 matched_price,
+                db_bool(False),
+                db_bool(True),
                 utc_now(),
                 utc_now(),
             ),
@@ -1743,8 +1748,8 @@ from platform_helpers import branch_by_id
 
 def _handle_inbound_customer_message(branch, phone, message, channel_label="WhatsApp", status_label="Received"):
     execute_db(
-        "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, status, processed, privacy_notice_sent, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, %s, 0, 0, %s, %s)",
-        (branch["franchise_id"], branch["id"], "", phone or "", "", channel_label, message or "", status_label, utc_now(), utc_now()),
+        "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, status, processed, privacy_notice_sent, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, %s, %s, %s, %s, %s)",
+        (branch["franchise_id"], branch["id"], "", phone or "", "", channel_label, message or "", status_label, db_bool(False), db_bool(False), utc_now(), utc_now()),
     )
 
     reply, should_count, metadata = assistant_reply(phone, message, branch)

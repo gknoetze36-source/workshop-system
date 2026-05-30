@@ -1628,7 +1628,7 @@ def _migrate_legacy_users(connection, backend):
         else:
             password_hash = user.get("password_hash") or ""
 
-        must_reset_password = 1 if legacy_password in {"1234", "admin", "password", "123456"} else int(user.get("must_reset_password") or 0)
+        must_reset_password = legacy_password in {"1234", "admin", "password", "123456"} or bool(user.get("must_reset_password"))
 
         full_name = user.get("full_name") or username.replace(".", " ").replace("_", " ").title()
         _run(
@@ -1642,7 +1642,7 @@ def _migrate_legacy_users(connection, backend):
                 role=%s,
                 franchise_id=%s,
                 branch_id=%s,
-                active=COALESCE(active, 1),
+                active=COALESCE(active, %s),
                 must_reset_password=%s,
                 created_at=COALESCE(created_at, %s),
                 updated_at=%s
@@ -1655,7 +1655,8 @@ def _migrate_legacy_users(connection, backend):
                 role,
                 franchise_record["id"],
                 branch_record["id"] if branch_record else None,
-                must_reset_password,
+                _db_bool(True, backend),
+                _db_bool(must_reset_password, backend),
                 now,
                 now,
                 user["id"],
@@ -1805,7 +1806,7 @@ def _harden_default_credentials(connection, backend):
     for user in users:
         plaintext = (user.get("password") or "").strip()
         password_hash = user.get("password_hash") or ""
-        must_reset = int(user.get("must_reset_password") or 0)
+        must_reset = bool(user.get("must_reset_password"))
 
         matched_weak = plaintext in weak_passwords
 
@@ -1814,13 +1815,13 @@ def _harden_default_credentials(connection, backend):
             plaintext = ""
 
         if matched_weak:
-            must_reset = 1
+            must_reset = True
 
         _run(
             connection,
             backend,
             "UPDATE users SET password=%s, password_hash=%s, must_reset_password=%s, updated_at=%s WHERE id=%s",
-            (plaintext, password_hash, must_reset, now, user["id"]),
+            (plaintext, password_hash, _db_bool(must_reset, backend), now, user["id"]),
         )
 
 
