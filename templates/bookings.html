@@ -26,7 +26,7 @@
             <td>{{ booking.service }}</td>
             <td>{{ human_date(booking.scheduled_date) }}</td>
             <td><span class="status">{{ booking.status }}</span></td>
-            <td><form method="post" action="{{ url_for('quick_update_booking', reference=booking.booking_reference) }}" class="actions"><select name="status">{% for option in status_options %}<option value="{{ option }}" {% if booking.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select><select name="quote_declined"><option value="No" {% if booking.quote_declined != 'Yes' %}selected{% endif %}>Approved</option><option value="Yes" {% if booking.quote_declined == 'Yes' %}selected{% endif %}>Declined</option></select><button type="submit" class="alt">Save</button></form></td>
+            <td><form method="post" action="{{ url_for('quick_update_booking', reference=booking.booking_reference) }}" class="actions"><select name="status">{% for option in quick_update_status_options %}<option value="{{ option }}" {% if booking.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select><select name="quote_declined"><option value="No" {% if booking.quote_declined != 'Yes' %}selected{% endif %}>Approved</option><option value="Yes" {% if booking.quote_declined == 'Yes' %}selected{% endif %}>Declined</option></select><button type="submit" class="alt">Save</button></form></td>
         </tr>
         {% else %}<tr><td colspan="7">No bookings matched your filters.</td></tr>{% endfor %}
     </table></div>

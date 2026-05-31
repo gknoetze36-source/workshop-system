@@ -30,7 +30,8 @@ DEFAULT_SERVICES_BY_INDUSTRY = {
     "repair": ["Repair Booking", "Quote", "Collection"],
 }
 
-STATUS_OPTIONS = ["Pending", "Confirmed", "In Progress", "Done", "Collected", "Declined"]
+STATUS_OPTIONS = ["Pending", "Confirmed", "Vehicle In", "Done", "Collected", "Declined"]
+QUICK_UPDATE_STATUS_OPTIONS = ["Vehicle In", "Done"]
 CONTACT_OPTIONS = ["WhatsApp", "SMS", "Email", "Phone Call"]
 DONE_STATUSES = {"Done", "Collected"}
 INQUIRY_STATES = ["NEW_INQUIRY", "ENGAGED", "BOOKING_PENDING", "BOOKED", "LOST"]

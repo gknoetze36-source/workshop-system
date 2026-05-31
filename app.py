@@ -19,6 +19,7 @@ from platform_helpers import (
     CONTACT_OPTIONS,
     DONE_STATUSES,
     PLAN_DEFINITIONS,
+    QUICK_UPDATE_STATUS_OPTIONS,
     ROLE_LABELS,
     STATUS_OPTIONS,
     available_roles_for_creator,
@@ -196,6 +197,7 @@ def inject_globals():
         "human_date": human_date,
         "plan_definitions": PLAN_DEFINITIONS,
         "status_options": STATUS_OPTIONS,
+        "quick_update_status_options": QUICK_UPDATE_STATUS_OPTIONS,
         "contact_options": CONTACT_OPTIONS,
         "today_iso": utc_today(),
     }
@@ -829,7 +831,7 @@ def dashboard():
         metrics={
             "total": len(bookings),
             "today": len([item for item in bookings if item.get("scheduled_date") == today]),
-            "pending": len([item for item in bookings if item.get("status") in {"Pending", "Confirmed", "In Progress"}]),
+            "pending": len([item for item in bookings if item.get("status") in {"Pending", "Confirmed", "In Progress", "Vehicle In"}]),
             "completed": len([item for item in bookings if item.get("status") in DONE_STATUSES]),
             "reminders": len([item for item in reminders if item.get("status") == "Pending"]),
         },
@@ -882,6 +884,8 @@ def quick_update_booking(reference):
     if not booking:
         abort(404)
     status = request.form.get("status") or booking.get("status")
+    if status not in QUICK_UPDATE_STATUS_OPTIONS:
+        abort(400)
     quote_declined = request.form.get("quote_declined") or booking.get("quote_declined") or "No"
     completed_at = booking.get("completed_at") if status in DONE_STATUSES else ""
     completed_at = completed_at or (utc_today() if status in DONE_STATUSES else "")
@@ -967,7 +971,7 @@ def walkin():
             return redirect(url_for("walkin"))
         if branch:
             try:
-                reference = insert_booking(branch, request.form, "Walk-in", "In Progress")
+                reference = insert_booking(branch, request.form, "Walk-in", "Vehicle In")
             except PermissionError as exc:
                 flash(str(exc), "error")
                 return redirect(url_for("walkin"))
