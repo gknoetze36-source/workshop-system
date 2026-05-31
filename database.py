@@ -262,7 +262,6 @@ def _create_tables(connection, backend):
             logo_url TEXT,
             phone_number TEXT,
             whatsapp_phone_number_id TEXT,
-            meta_business_account_id TEXT,
             subscription_plan TEXT DEFAULT 'starter',
             is_active {integer_boolean} DEFAULT TRUE,
             created_at TEXT,
@@ -459,7 +458,6 @@ def _create_tables(connection, backend):
             workshop_id {"UUID" if backend == "postgres" else "TEXT"},
             phone_number TEXT NOT NULL,
             whatsapp_phone_number_id TEXT NOT NULL,
-            meta_business_account_id TEXT,
             access_token TEXT NOT NULL,
             webhook_verify_token TEXT NOT NULL,
             is_active {integer_boolean} DEFAULT TRUE,
@@ -772,7 +770,6 @@ def _ensure_columns(connection, backend):
             "logo_url": "TEXT",
             "phone_number": "TEXT",
             "whatsapp_phone_number_id": "TEXT",
-            "meta_business_account_id": "TEXT",
             "subscription_plan": "TEXT DEFAULT 'starter'",
             "is_active": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
             "created_at": "TEXT",
@@ -951,7 +948,6 @@ def _ensure_columns(connection, backend):
             "workshop_id": "UUID" if backend == "postgres" else "TEXT",
             "phone_number": "TEXT",
             "whatsapp_phone_number_id": "TEXT",
-            "meta_business_account_id": "TEXT",
             "access_token": "TEXT",
             "webhook_verify_token": "TEXT",
             "is_active": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
@@ -1445,73 +1441,6 @@ def _ensure_workshop_mappings(connection, backend):
             )
 
 
-def _sync_meta_whatsapp_accounts(connection, backend):
-    rows = _run(
-        connection,
-        backend,
-        """
-        SELECT *
-        FROM whatsapp_numbers
-        WHERE workshop_id IS NOT NULL
-          AND COALESCE(whatsapp_phone_number_id, '') <> ''
-          AND COALESCE(access_token, '') <> ''
-        """,
-    ) or []
-    now = utc_now()
-    for row in rows:
-        existing = _run(
-            connection,
-            backend,
-            """
-            SELECT id
-            FROM messaging_accounts
-            WHERE workshop_id=%s AND provider='meta' AND channel='whatsapp' AND sender_id=%s
-            LIMIT 1
-            """,
-            (row["workshop_id"], row["whatsapp_phone_number_id"]),
-            one=True,
-        )
-        args = (
-            row.get("meta_business_account_id") or "",
-            row.get("access_token") or "",
-            row.get("webhook_verify_token") or "",
-            _db_bool(row.get("is_active", True), backend),
-            now,
-        )
-        if existing:
-            _run(
-                connection,
-                backend,
-                """
-                UPDATE messaging_accounts
-                SET account_id=%s, access_token=%s, webhook_verify_token=%s, is_active=%s, updated_at=%s
-                WHERE id=%s
-                """,
-                (*args, existing["id"]),
-            )
-        else:
-            _run(
-                connection,
-                backend,
-                """
-                INSERT INTO messaging_accounts (
-                    workshop_id, provider, channel, account_id, sender_id, access_token,
-                    webhook_verify_token, is_active, created_at, updated_at
-                ) VALUES (%s, 'meta', 'whatsapp', %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    row["workshop_id"],
-                    row.get("meta_business_account_id") or "",
-                    row["whatsapp_phone_number_id"],
-                    row.get("access_token") or "",
-                    row.get("webhook_verify_token") or "",
-                    _db_bool(row.get("is_active", True), backend),
-                    now,
-                    now,
-                ),
-            )
-
-
 def _get_or_create_franchise(connection, backend, name, contact_email="", contact_phone=""):
     existing = _run(connection, backend, "SELECT * FROM franchises WHERE lower(name)=lower(%s)", (name,), one=True)
     if existing:
@@ -1977,7 +1906,6 @@ def initialize_database():
         _ensure_unique_username_index(connection, backend)
         _ensure_indexes(connection, backend)
         _ensure_workshop_mappings(connection, backend)
-        _sync_meta_whatsapp_accounts(connection, backend)
         _seed_plan_defaults(connection, backend)
         _seed_saas_templates(connection, backend)
         _ensure_super_admin(connection, backend)

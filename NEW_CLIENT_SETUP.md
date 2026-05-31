@@ -17,7 +17,7 @@ Collect:
 - Reception phone
 - Preferred plan
 - Public booking enabled or disabled
-- WhatsApp Cloud API requirement
+- Manual customer messaging workflow
 - Paystack billing requirement
 
 ## 2. Log In As Super Admin
@@ -157,45 +157,11 @@ Each service should have:
 - Branch or franchise scope
 - Active status
 
-## 8. Configure Meta WhatsApp Cloud API
+## 8. Configure Messaging
 
-Make sure Railway has the Meta variables:
+Direct messaging provider integrations are removed. Client reminders and follow-ups are tracked in the app and opened through manual SMS/WhatsApp action links where needed.
 
-```txt
-META_GRAPH_API_VERSION
-META_APP_SECRET
-PUBLIC_BASE_URL
-```
-
-Create or update provider rows in `messaging_accounts`:
-
-```txt
-workshop_id
-provider=meta|twilio
-channel=whatsapp|sms
-account_id
-sender_id
-access_token
-auth_secret
-webhook_verify_token
-```
-
-For Meta WhatsApp, also mirror the phone number ID in `whatsapp_numbers` for webhook lookup.
-
-Then configure the Meta webhook:
-
-```txt
-https://your-backend-domain.up.railway.app/webhooks/meta/whatsapp
-```
-
-The verify token must match the active `whatsapp_numbers.webhook_verify_token`. Existing franchise records map to this tenant through `franchises.workshop_id`.
-
-For Twilio, configure:
-
-```txt
-https://your-backend-domain.up.railway.app/webhooks/twilio/whatsapp/<franchise_slug>/<branch_slug>/<token>
-https://your-backend-domain.up.railway.app/webhooks/twilio/sms/<franchise_slug>/<branch_slug>/<token>
-```
+Do not add external messaging provider secrets for new clients.
 
 ## 9. Configure Client Payment/Billing
 
@@ -305,8 +271,8 @@ The frontend reads:
 - Public booking is enabled if needed.
 - Reception user can log in.
 - Public booking page works.
-- Meta WhatsApp Cloud API sends outbound messages.
-- Meta WhatsApp Cloud API inbound webhook works.
+- Manual SMS/WhatsApp action links open from reminders.
+- Communication logs record prepared manual outreach.
 - Paystack payment link generation works.
 - Paystack webhook works.
 - Frontend dashboard loads live data.

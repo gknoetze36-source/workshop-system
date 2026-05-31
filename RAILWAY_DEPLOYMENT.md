@@ -82,8 +82,6 @@ login
 dashboard
 booking APIs
 public booking webhooks
-Meta WhatsApp webhook
-Twilio WhatsApp/SMS webhook
 Paystack webhook
 health checks
 ```
@@ -225,35 +223,11 @@ SUPERADMIN_PASSWORD=<strong-superadmin-password>
 
 Keep it set until the first deployment has bootstrapped the admin account. After confirming login works, rotate/remove it according to your admin policy.
 
-## 8. Messaging Variables
+## 8. Messaging
 
-The platform supports Meta WhatsApp Cloud API and Twilio WhatsApp/SMS. Per-workshop provider credentials should be stored in the app database through the messaging account setup, not hardcoded per service.
+Direct messaging provider integrations are removed. The app keeps manual SMS/WhatsApp action links for staff, communication logs, reminders, and inquiry tracking.
 
-Set global Meta variables where needed:
-
-```txt
-META_GRAPH_API_VERSION=v20.0
-META_APP_SECRET=<meta-app-secret>
-```
-
-For Meta WhatsApp, each workshop needs:
-
-```txt
-Meta business account ID
-Meta WhatsApp phone number ID
-Meta access token
-Webhook verify token
-Workshop phone number
-```
-
-For Twilio fallback/SMS, each workshop needs:
-
-```txt
-Twilio account SID
-Twilio auth token
-Twilio WhatsApp sender
-Twilio SMS sender
-```
+Do not configure external messaging provider secrets in Railway.
 
 ## 9. Paystack Billing Variables
 
@@ -352,32 +326,11 @@ PUBLIC_BASE_URL=https://<your-production-domain>
 Use this URL for:
 
 ```txt
-Meta webhook callback
-Twilio webhook callback
 Paystack webhook callback
 frontend backend URL
 ```
 
 ## 14. Webhook URLs
-
-Meta WhatsApp Cloud API:
-
-```txt
-GET  https://<domain>/webhooks/meta/whatsapp
-POST https://<domain>/webhooks/meta/whatsapp
-```
-
-Twilio WhatsApp:
-
-```txt
-POST https://<domain>/webhooks/twilio/whatsapp/<franchise_slug>/<branch_slug>/<token>
-```
-
-Twilio SMS:
-
-```txt
-POST https://<domain>/webhooks/twilio/sms/<franchise_slug>/<branch_slug>/<token>
-```
 
 Paystack:
 
@@ -456,29 +409,8 @@ scheduler has DATABASE_URL
 scheduler logs show "Scheduler started..."
 customer has reminder_opt_in=true
 booking has phone number
-messaging account is active
 workshop/franchise is active
 branch is active
-```
-
-### Meta webhook verification fails
-
-Check:
-
-```txt
-Webhook callback URL is correct
-Webhook verify token matches the workshop record
-META_APP_SECRET is set if signature validation is enabled
-```
-
-### Twilio messages fail
-
-Check:
-
-```txt
-Twilio credentials are stored for that workshop
-Twilio sender number is approved
-Webhook URL points to the correct franchise/branch/token
 ```
 
 ### Postgres connection errors

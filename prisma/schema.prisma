@@ -66,28 +66,12 @@ enum delivery_status {
   @@schema("vanta_core")
 }
 
-enum messaging_provider {
-  meta
-  twilio
-
-  @@schema("vanta_core")
-}
-
-enum messaging_channel {
-  whatsapp
-  sms
-
-  @@schema("vanta_core")
-}
-
 model workshops {
   id                         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                       String
   slug                       String             @unique
   logo_url                   String?
   phone_number               String?
-  whatsapp_phone_number_id   String?            @unique
-  meta_business_account_id   String?
   subscription_plan          subscription_plan  @default(starter)
   is_active                  Boolean            @default(true)
   created_at                 DateTime           @default(now()) @db.Timestamptz(6)
@@ -96,9 +80,6 @@ model workshops {
   customers                  customers[]
   vehicles                   vehicles[]
   bookings                   bookings[]
-  whatsapp_numbers           whatsapp_numbers[]
-  messaging_accounts         messaging_accounts[]
-  whatsapp_messages          whatsapp_messages[]
   audit_logs                 audit_logs[]
 
   @@schema("vanta_core")
@@ -137,8 +118,6 @@ model customers {
   workshop          workshops           @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
   vehicles          vehicles[]
   bookings          bookings[]
-  whatsapp_messages whatsapp_messages[]
-
   @@unique([workshop_id, phone_number])
   @@unique([workshop_id, id])
   @@index([workshop_id])
@@ -186,67 +165,6 @@ model bookings {
   @@index([workshop_id])
   @@index([booking_date])
   @@index([status])
-  @@schema("vanta_core")
-}
-
-model whatsapp_numbers {
-  id                         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workshop_id                String              @db.Uuid
-  phone_number               String
-  whatsapp_phone_number_id   String              @unique
-  meta_business_account_id   String
-  access_token               String
-  webhook_verify_token       String
-  is_active                  Boolean             @default(true)
-  created_at                 DateTime            @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime            @updatedAt @db.Timestamptz(6)
-  workshop                   workshops           @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
-  whatsapp_messages          whatsapp_messages[]
-
-  @@unique([workshop_id, phone_number])
-  @@unique([workshop_id, id])
-  @@index([workshop_id])
-  @@index([phone_number])
-  @@index([whatsapp_phone_number_id])
-  @@schema("vanta_core")
-}
-
-model messaging_accounts {
-  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workshop_id          String             @db.Uuid
-  provider             messaging_provider
-  channel              messaging_channel
-  account_id           String?
-  sender_id            String
-  access_token         String?
-  auth_secret          String?
-  webhook_verify_token String?
-  is_active            Boolean            @default(true)
-  created_at           DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime           @updatedAt @db.Timestamptz(6)
-  workshop             workshops          @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
-
-  @@unique([workshop_id, provider, channel, sender_id])
-  @@index([workshop_id, provider, channel, is_active])
-  @@schema("vanta_core")
-}
-
-model whatsapp_messages {
-  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workshop_id           String            @db.Uuid
-  customer_id           String?           @db.Uuid
-  whatsapp_number_id    String            @db.Uuid
-  direction             message_direction
-  message_type          message_type      @default(text)
-  message_content       String?
-  whatsapp_message_id   String?           @unique
-  delivery_status       delivery_status   @default(queued)
-  created_at            DateTime          @default(now()) @db.Timestamptz(6)
-  workshop              workshops         @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
-  customer              customers?        @relation(fields: [workshop_id, customer_id], references: [workshop_id, id], onDelete: Restrict)
-  whatsapp_number       whatsapp_numbers  @relation(fields: [workshop_id, whatsapp_number_id], references: [workshop_id, id], onDelete: Cascade)
-
-  @@index([workshop_id])
   @@schema("vanta_core")
 }
 
