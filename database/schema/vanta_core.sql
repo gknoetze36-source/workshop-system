@@ -5,6 +5,8 @@ SET search_path TO vanta_core;
 CREATE TYPE subscription_plan AS ENUM ('free', 'starter', 'pro', 'enterprise');
 CREATE TYPE user_role AS ENUM ('owner', 'admin', 'advisor', 'technician', 'reception');
 CREATE TYPE booking_status AS ENUM ('pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show');
+CREATE TYPE messaging_provider AS ENUM ('360dialog');
+CREATE TYPE messaging_channel AS ENUM ('whatsapp');
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
@@ -86,6 +88,21 @@ CREATE TABLE bookings (
   FOREIGN KEY (workshop_id, assigned_user_id) REFERENCES users(workshop_id, id) ON DELETE RESTRICT
 );
 
+CREATE TABLE messaging_accounts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workshop_id UUID NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
+  provider messaging_provider NOT NULL DEFAULT '360dialog',
+  channel messaging_channel NOT NULL DEFAULT 'whatsapp',
+  account_id TEXT,
+  sender_id TEXT,
+  access_token TEXT NOT NULL,
+  webhook_verify_token TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workshop_id, provider, channel, sender_id)
+);
+
 CREATE TABLE audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workshop_id UUID NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
@@ -104,6 +121,7 @@ CREATE INDEX idx_vehicles_workshop_id ON vehicles(workshop_id);
 CREATE INDEX idx_bookings_workshop_id ON bookings(workshop_id);
 CREATE INDEX idx_bookings_booking_date ON bookings(booking_date);
 CREATE INDEX idx_bookings_status ON bookings(status);
+CREATE INDEX idx_messaging_accounts_scope ON messaging_accounts(workshop_id, provider, channel, is_active);
 CREATE INDEX idx_audit_logs_workshop_id ON audit_logs(workshop_id);
 
 CREATE TRIGGER trg_workshops_updated_at BEFORE UPDATE ON workshops FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -111,3 +129,4 @@ CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE 
 CREATE TRIGGER trg_customers_updated_at BEFORE UPDATE ON customers FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_vehicles_updated_at BEFORE UPDATE ON vehicles FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_bookings_updated_at BEFORE UPDATE ON bookings FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER trg_messaging_accounts_updated_at BEFORE UPDATE ON messaging_accounts FOR EACH ROW EXECUTE FUNCTION set_updated_at();

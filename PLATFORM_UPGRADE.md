@@ -76,7 +76,7 @@
 
 ## Messaging variables
 
-- Direct messaging provider integrations are removed.
+- WhatsApp messaging uses 360dialog through `messaging_accounts`.
 - Optional AI fallback:
   - `OPENAI_API_KEY`
 
@@ -84,7 +84,8 @@
 
 - SMTP/email delivery is no longer part of the platform runtime.
 - Super admin manages reminders and follow-ups inside the platform.
-- Manual SMS/WhatsApp action links remain available for staff workflows.
+- Manual SMS action links remain available for staff workflows.
+- 360dialog sends booking confirmations, reminders, and assistant replies when the workshop has an active account.
 
 ## Verified
 

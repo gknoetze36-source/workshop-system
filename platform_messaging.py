@@ -16,6 +16,7 @@ from platform_helpers import (
     public_booking_url,
     role_label,
     scope_clause,
+    track_message_usage,
 )
 
 
@@ -63,6 +64,59 @@ def manual_channel_link(channel, recipient, subject, body):
     if channel == "sms":
         return f"sms:{recipient}?body={quote(body)}"
     return f"https://wa.me/{normalize_phone(recipient)}?text={quote(body)}"
+
+
+def active_360dialog_account(context=None):
+    context = context or {}
+    where = ["ma.is_active=TRUE", "ma.provider='360dialog'", "ma.channel='whatsapp'"]
+    args = []
+    if context.get("workshop_id"):
+        where.append("ma.workshop_id=%s")
+        args.append(context.get("workshop_id"))
+    if context.get("franchise_id"):
+        where.append("f.id=%s")
+        args.append(context.get("franchise_id"))
+    elif context.get("id") and context.get("slug"):
+        where.append("f.id=%s")
+        args.append(context.get("id"))
+    return fetch_one(
+        f"""
+        SELECT ma.*
+        FROM messaging_accounts ma
+        LEFT JOIN franchises f ON f.workshop_id = ma.workshop_id
+        WHERE {' AND '.join(where)}
+        ORDER BY ma.id DESC
+        LIMIT 1
+        """,
+        tuple(args),
+    )
+
+
+def dialog360_configured(context=None):
+    return bool(active_360dialog_account(context))
+
+
+def send_360dialog_message(recipient, body, context=None, account=None):
+    import requests
+
+    account = account or active_360dialog_account(context)
+    api_key = (account or {}).get("access_token") or ""
+    if not api_key:
+        raise RuntimeError("360dialog API key is not configured for this workshop.")
+
+    target = normalize_phone(recipient)
+    response = requests.post(
+        "https://waba-v2.360dialog.io/messages",
+        headers={"D360-API-KEY": api_key, "Content-Type": "application/json"},
+        json={
+            "to": target,
+            "type": "text",
+            "text": {"body": body},
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def build_booking_message(booking, reminder=None):
@@ -711,12 +765,36 @@ def auto_send_reminder(reminder, actor_user=None):
     subject, body = build_booking_message(booking, reminder)
     if not can_send_outbound(booking, subject, body):
         return False, "Outbound messaging is disabled for this client account."
-    return False, "Direct messaging providers are disabled."
+    if not boolish(booking.get("whatsapp_opt_in", 0)):
+        return False, "WhatsApp opt-in is disabled for this customer."
+    try:
+        account = active_360dialog_account(booking)
+        if account and booking.get("phone"):
+            send_360dialog_message(booking["phone"], body, booking, account=account)
+            log_communication(booking, reminder, "whatsapp", booking["phone"], subject, body, "sent:360dialog", actor_user["id"] if actor_user else None)
+            track_message_usage(booking.get("franchise_id"))
+            update_reminder_status(reminder["id"], "Sent", "whatsapp", count_as_send=True)
+            return True, "WhatsApp message sent by 360dialog."
+    except Exception as exc:
+        log_communication(booking, reminder, "whatsapp", booking.get("phone", ""), subject, body, f"failed: {exc}", actor_user["id"] if actor_user else None)
+        return False, str(exc)
+    return False, "No active 360dialog account is configured for this workshop."
 
 
 def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=None):
     if not can_send_outbound(booking, subject, body):
         return False, "suppressed"
+    recipient_phone = booking.get("phone")
+    if recipient_phone and boolish(booking.get("whatsapp_opt_in", 0)):
+        try:
+            account = active_360dialog_account(booking)
+            if account:
+                send_360dialog_message(recipient_phone, body, booking, account=account)
+                log_communication(booking, reminder, "whatsapp", recipient_phone, subject, body, "sent:360dialog", actor_user_id)
+                track_message_usage(booking.get("franchise_id"))
+                return True, "whatsapp"
+        except Exception as exc:
+            log_communication(booking, reminder, "whatsapp", recipient_phone, subject, body, f"failed: {exc}", actor_user_id)
     return False, "manual"
 
 

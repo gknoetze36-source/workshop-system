@@ -19,3 +19,14 @@ INSERT INTO users (
   '$2b$12$replace_with_real_hash',
   'owner'
 ) ON CONFLICT (workshop_id, email) DO NOTHING;
+
+INSERT INTO messaging_accounts (
+  workshop_id, provider, channel, sender_id, access_token, webhook_verify_token
+) VALUES (
+  '11111111-1111-1111-1111-111111111111',
+  '360dialog',
+  'whatsapp',
+  '+27000000000',
+  'replace_with_360dialog_api_key',
+  'replace_with_webhook_token'
+) ON CONFLICT (workshop_id, provider, channel, sender_id) DO NOTHING;

@@ -159,9 +159,24 @@ Each service should have:
 
 ## 8. Configure Messaging
 
-Direct messaging provider integrations are removed. Client reminders and follow-ups are tracked in the app and opened through manual SMS/WhatsApp action links where needed.
+WhatsApp messaging uses 360dialog. Client reminders and follow-ups are tracked in the app and sent through the active workshop 360dialog account.
 
-Do not add external messaging provider secrets for new clients.
+Create one active provider row in `messaging_accounts`:
+
+```txt
+provider=360dialog
+channel=whatsapp
+access_token=<360dialog-api-key>
+sender_id=<360dialog-phone-number-or-channel-id>
+webhook_verify_token=<same-token-used-in-webhook-url>
+is_active=true
+```
+
+Configure the 360dialog webhook:
+
+```txt
+https://your-backend-domain.up.railway.app/webhooks/360dialog/<franchise_slug>/<branch_slug>/<token>
+```
 
 ## 9. Configure Client Payment/Billing
 

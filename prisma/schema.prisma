@@ -37,6 +37,18 @@ enum booking_status {
   @@schema("vanta_core")
 }
 
+enum messaging_provider {
+  dialog360 @map("360dialog")
+
+  @@schema("vanta_core")
+}
+
+enum messaging_channel {
+  whatsapp
+
+  @@schema("vanta_core")
+}
+
 enum message_direction {
   inbound
   outbound
@@ -80,6 +92,7 @@ model workshops {
   customers                  customers[]
   vehicles                   vehicles[]
   bookings                   bookings[]
+  messaging_accounts         messaging_accounts[]
   audit_logs                 audit_logs[]
 
   @@schema("vanta_core")
@@ -180,5 +193,24 @@ model audit_logs {
   user        users?     @relation(fields: [workshop_id, user_id], references: [workshop_id, id], onDelete: Restrict)
 
   @@index([workshop_id])
+  @@schema("vanta_core")
+}
+
+model messaging_accounts {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workshop_id          String             @db.Uuid
+  provider             messaging_provider @default(dialog360)
+  channel              messaging_channel  @default(whatsapp)
+  account_id           String?
+  sender_id            String?
+  access_token         String
+  webhook_verify_token String?
+  is_active            Boolean            @default(true)
+  created_at           DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime           @updatedAt @db.Timestamptz(6)
+  workshop             workshops          @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+
+  @@unique([workshop_id, provider, channel, sender_id])
+  @@index([workshop_id, provider, channel, is_active])
   @@schema("vanta_core")
 }

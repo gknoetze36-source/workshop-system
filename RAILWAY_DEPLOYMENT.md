@@ -225,9 +225,24 @@ Keep it set until the first deployment has bootstrapped the admin account. After
 
 ## 8. Messaging
 
-Direct messaging provider integrations are removed. The app keeps manual SMS/WhatsApp action links for staff, communication logs, reminders, and inquiry tracking.
+WhatsApp messaging uses 360dialog. The app keeps manual SMS action links for staff, but direct SMS sending is not configured.
 
-Do not configure external messaging provider secrets in Railway.
+For each workshop, create one active `messaging_accounts` row:
+
+```txt
+provider=360dialog
+channel=whatsapp
+access_token=<360dialog-api-key>
+sender_id=<360dialog-phone-number-or-channel-id>
+webhook_verify_token=<same-token-used-in-webhook-url>
+is_active=true
+```
+
+360dialog webhook URL:
+
+```txt
+https://<domain>/webhooks/360dialog/<franchise_slug>/<branch_slug>/<token>
+```
 
 ## 9. Paystack Billing Variables
 
@@ -342,6 +357,12 @@ Public booking:
 
 ```txt
 POST https://<domain>/webhook/booking/<franchise_slug>/<branch_slug>/<token>
+```
+
+360dialog:
+
+```txt
+POST https://<domain>/webhooks/360dialog/<franchise_slug>/<branch_slug>/<token>
 ```
 
 ## 15. Frontend/Vercel Connection

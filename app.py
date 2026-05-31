@@ -69,6 +69,7 @@ from platform_messaging import (
     log_communication,
     manual_channel_link,
     reminder_in_scope,
+    active_360dialog_account,
     send_booking_confirmation,
     send_inquiry_followups,
     send_missed_booking_followups,
@@ -1762,6 +1763,59 @@ def _handle_inbound_customer_message(branch, phone, message, channel_label="What
 
     if should_count:
         _record_chatbot_usage(branch["franchise_id"])
+
+
+@app.route("/webhooks/360dialog/<franchise_slug>/<branch_slug>/<token>", methods=["POST"])
+@csrf.exempt
+@limiter.limit("60 per minute")
+def dialog360_webhook(franchise_slug, branch_slug, token):
+    branch = branch_for_public_booking(franchise_slug, branch_slug)
+    if not branch:
+        abort(404)
+    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],))
+    if not _validate_required_webhook_token(franchise, token):
+        abort(403)
+    if not active_360dialog_account(franchise):
+        logger.warning("dialog360_webhook_no_account")
+        abort(403)
+
+    payload = request.get_json(silent=True) or {}
+    statuses = payload.get("statuses") or []
+    if statuses:
+        for status in statuses:
+            execute_db(
+                """
+                INSERT INTO communication_logs (
+                    franchise_id, branch_id, channel, recipient, subject, body, status, external_target, created_at, sent_at
+                )
+                VALUES (%s, %s, 'whatsapp', %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    branch["franchise_id"],
+                    branch["id"],
+                    status.get("recipient_id") or "",
+                    "360dialog delivery status",
+                    status.get("status") or "",
+                    status.get("status") or "status",
+                    status.get("id") or "",
+                    utc_now(),
+                    utc_now(),
+                ),
+            )
+        return jsonify({"ok": True})
+
+    for item in payload.get("messages") or []:
+        phone = item.get("from") or ""
+        message_type = item.get("type") or "unknown"
+        message = (
+            ((item.get("text") or {}).get("body") or "")
+            or ((item.get("button") or {}).get("text") or "")
+            or ((item.get("interactive") or {}).get("type") or "")
+            or f"[{message_type}]"
+        ).strip()
+        if phone and message:
+            _handle_inbound_customer_message(branch, phone, message, "WhatsApp", "Received")
+    return jsonify({"ok": True})
 
 
 def is_date_available(branch_id, date):
