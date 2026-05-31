@@ -3,6 +3,7 @@ from database import initialize_database
 from platform_helpers import close_billing_period, expire_due_subscriptions, fetch_all, month_end
 from platform_messaging import (
     auto_send_reminder,
+    build_declined_work_reminder_message,
     fetch_reminders_for_user,
     generate_due_reminders,
     send_booking_reminders,
@@ -54,7 +55,8 @@ def send_declined_work_reminders():
         LEFT JOIN franchises f ON f.id = b.franchise_id
         LEFT JOIN branches br ON br.id = b.branch_id
         WHERE b.quote_declined = 'Yes'
-          AND b.status NOT IN ('Done', 'Collected', 'Declined')
+          AND COALESCE(b.work_to_be_done, '') <> ''
+          AND b.status <> 'Declined'
           AND COALESCE(b.reminder_opt_in, TRUE) = TRUE
           AND COALESCE(b.phone, '') <> ''
           AND COALESCE(f.active, TRUE) = TRUE
@@ -65,7 +67,8 @@ def send_declined_work_reminders():
 
     sent = 0
     for b in bookings:
-        success, _channel = send_cheapest_message(b, "Pending work reminder", "Reminder: You still have pending work. Book this month?")
+        subject, body = build_declined_work_reminder_message(b)
+        success, _channel = send_cheapest_message(b, subject, body)
         if success:
             sent += 1
 

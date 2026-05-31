@@ -72,6 +72,7 @@ from platform_messaging import (
     reminder_in_scope,
     active_360dialog_account,
     send_booking_confirmation,
+    send_vehicle_ready_notification,
     send_inquiry_followups,
     send_missed_booking_followups,
     send_cheapest_message,
@@ -883,6 +884,7 @@ def quick_update_booking(reference):
     booking = fetch_booking_for_user(reference, current_user())
     if not booking:
         abort(404)
+    previous_status = booking.get("status")
     status = request.form.get("status") or booking.get("status")
     if status not in QUICK_UPDATE_STATUS_OPTIONS:
         abort(400)
@@ -891,6 +893,8 @@ def quick_update_booking(reference):
     completed_at = completed_at or (utc_today() if status in DONE_STATUSES else "")
     service_due_date = __import__("platform_helpers").compute_service_due_date(booking.get("service_level"), completed_at)
     execute_db("UPDATE bookings SET status=%s, quote_declined=%s, completed_at=%s, service_due_date=%s, updated_at=%s WHERE id=%s", (status, quote_declined, completed_at, service_due_date, utc_now(), booking["id"]))
+    if status == "Done" and previous_status != "Done":
+        send_vehicle_ready_notification(fetch_booking_for_user(reference, current_user()) or {**booking, "status": status}, actor_user_id=current_user().get("id"))
     flash(f"Booking {reference} updated.", "success")
     return redirect(request.referrer or url_for("bookings"))
 
@@ -901,6 +905,7 @@ def update_booking(reference):
     booking = fetch_booking_for_user(reference, current_user())
     if not booking:
         abort(404)
+    previous_status = booking.get("status")
     branch = selected_branch_for_user(current_user(), request.form.get("branch_id")) or branch_by_id(booking["branch_id"])
     scheduled_date = iso_date(request.form.get("scheduled_date")) or booking.get("scheduled_date") or utc_today()
     service = (request.form.get("service") or booking.get("service") or "").strip()
@@ -931,6 +936,8 @@ def update_booking(reference):
             db_bool(request.form.get("reminder_opt_in", "true")), completed_at or None, utc_now(), booking["id"],
         ),
     )
+    if status == "Done" and previous_status != "Done":
+        send_vehicle_ready_notification(fetch_booking_for_user(reference, current_user()) or {**booking, "status": status}, actor_user_id=current_user().get("id"))
     flash(f"Booking {reference} saved.", "success")
     return redirect(url_for("booking_detail", reference=reference))
 

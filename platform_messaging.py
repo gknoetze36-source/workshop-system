@@ -175,6 +175,38 @@ def build_appointment_reminder_message(booking, label):
     return subject, body
 
 
+def build_vehicle_ready_message(booking):
+    branch_name = booking.get("branch_name") or booking.get("branch") or "your workshop"
+    customer_name = booking.get("first_name") or "Customer"
+    vehicle = " ".join(part for part in [booking.get("make"), booking.get("model")] if part).strip() or "your vehicle"
+    reference = booking.get("booking_reference") or str(booking.get("id") or "")
+    subject = f"{branch_name}: vehicle ready for collection"
+    body = (
+        f"Hi {customer_name}, {vehicle} is ready for collection at {branch_name}. "
+        f"Reference: {reference}. Please contact the workshop if you need help with collection."
+    )
+    return subject, body
+
+
+def build_declined_work_reminder_message(booking):
+    branch_name = booking.get("branch_name") or booking.get("branch") or "your workshop"
+    customer_name = booking.get("first_name") or "Customer"
+    vehicle = " ".join(part for part in [booking.get("make"), booking.get("model")] if part).strip() or "your vehicle"
+    work = (booking.get("work_to_be_done") or "the work previously quoted").strip()
+    booking_link = public_booking_url(
+        {
+            "franchise_slug": booking.get("franchise_slug"),
+            "slug": booking.get("branch_slug"),
+        }
+    )
+    subject = f"{branch_name}: pending work reminder"
+    body = (
+        f"Hi {customer_name}, reminder from {branch_name}: the following work for {vehicle} is still pending: {work}. "
+        f"You can book it here when ready: {booking_link}"
+    )
+    return subject, body
+
+
 def send_booking_confirmation(reference):
     booking = fetch_one(
         """
@@ -195,6 +227,11 @@ def send_booking_confirmation(reference):
         return False, "booking not found"
     subject, body = build_booking_confirmation_message(booking)
     return send_cheapest_message(booking, subject, body)
+
+
+def send_vehicle_ready_notification(booking, actor_user_id=None):
+    subject, body = build_vehicle_ready_message(booking)
+    return send_cheapest_message(booking, subject, body, actor_user_id=actor_user_id)
 
 
 def send_booking_reminders(days_ahead=1, label=None):
