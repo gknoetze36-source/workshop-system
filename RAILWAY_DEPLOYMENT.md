@@ -225,23 +225,30 @@ Keep it set until the first deployment has bootstrapped the admin account. After
 
 ## 8. Messaging
 
-WhatsApp messaging uses 360dialog. The app keeps manual SMS action links for staff, but direct SMS sending is not configured.
+WhatsApp messaging uses the Meta WhatsApp Cloud API. The app keeps manual SMS action links for staff, but direct SMS sending is not configured.
 
 For each workshop, create one active `messaging_accounts` row:
 
 ```txt
-provider=360dialog
+provider=meta
 channel=whatsapp
-access_token=<360dialog-api-key>
-sender_id=<360dialog-phone-number-or-channel-id>
-webhook_verify_token=<same-token-used-in-webhook-url>
+business_account_id=<meta-business-account-id>
+whatsapp_business_account_id=<waba-id>
+phone_number_id=<meta-phone-number-id>
+sender_id=<workshop-whatsapp-number>
+access_token=<meta-access-token>
+token_expiry=<token-expiry-iso-timestamp>
+webhook_verify_token=<meta-verify-token>
+webhook_secret=<meta-app-secret>
+embedded_signup_state=not_started
+coexistence_status=not_started
 is_active=true
 ```
 
-360dialog webhook URL:
+Meta webhook URL:
 
 ```txt
-https://<domain>/webhooks/360dialog/<franchise_slug>/<branch_slug>/<token>
+https://<domain>/webhooks/meta/<franchise_slug>/<branch_slug>/<token>
 ```
 
 ## 9. Paystack Billing Variables
@@ -359,10 +366,10 @@ Public booking:
 POST https://<domain>/webhook/booking/<franchise_slug>/<branch_slug>/<token>
 ```
 
-360dialog:
+Meta WhatsApp Cloud API:
 
 ```txt
-POST https://<domain>/webhooks/360dialog/<franchise_slug>/<branch_slug>/<token>
+GET/POST https://<domain>/webhooks/meta/<franchise_slug>/<branch_slug>/<token>
 ```
 
 ## 15. Frontend/Vercel Connection

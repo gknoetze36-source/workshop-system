@@ -5,7 +5,7 @@ SET search_path TO vanta_core;
 CREATE TYPE subscription_plan AS ENUM ('free', 'starter', 'pro', 'enterprise');
 CREATE TYPE user_role AS ENUM ('owner', 'admin', 'advisor', 'technician', 'reception');
 CREATE TYPE booking_status AS ENUM ('pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show');
-CREATE TYPE messaging_provider AS ENUM ('360dialog');
+CREATE TYPE messaging_provider AS ENUM ('meta', 'evolution_api', 'waha');
 CREATE TYPE messaging_channel AS ENUM ('whatsapp');
 
 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -91,12 +91,19 @@ CREATE TABLE bookings (
 CREATE TABLE messaging_accounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workshop_id UUID NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
-  provider messaging_provider NOT NULL DEFAULT '360dialog',
+  provider messaging_provider NOT NULL DEFAULT 'meta',
   channel messaging_channel NOT NULL DEFAULT 'whatsapp',
   account_id TEXT,
   sender_id TEXT,
+  business_account_id TEXT,
+  whatsapp_business_account_id TEXT,
+  phone_number_id TEXT,
   access_token TEXT NOT NULL,
+  token_expiry TIMESTAMPTZ,
   webhook_verify_token TEXT,
+  webhook_secret TEXT,
+  embedded_signup_state TEXT NOT NULL DEFAULT 'not_started',
+  coexistence_status TEXT NOT NULL DEFAULT 'not_started',
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -122,6 +129,7 @@ CREATE INDEX idx_bookings_workshop_id ON bookings(workshop_id);
 CREATE INDEX idx_bookings_booking_date ON bookings(booking_date);
 CREATE INDEX idx_bookings_status ON bookings(status);
 CREATE INDEX idx_messaging_accounts_scope ON messaging_accounts(workshop_id, provider, channel, is_active);
+CREATE INDEX idx_messaging_accounts_phone_id ON messaging_accounts(provider, phone_number_id, is_active);
 CREATE INDEX idx_audit_logs_workshop_id ON audit_logs(workshop_id);
 
 CREATE TRIGGER trg_workshops_updated_at BEFORE UPDATE ON workshops FOR EACH ROW EXECUTE FUNCTION set_updated_at();

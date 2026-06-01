@@ -38,7 +38,9 @@ enum booking_status {
 }
 
 enum messaging_provider {
-  dialog360 @map("360dialog")
+  meta
+  evolution_api
+  waha
 
   @@schema("vanta_core")
 }
@@ -199,12 +201,19 @@ model audit_logs {
 model messaging_accounts {
   id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   workshop_id          String             @db.Uuid
-  provider             messaging_provider @default(dialog360)
+  provider             messaging_provider @default(meta)
   channel              messaging_channel  @default(whatsapp)
   account_id           String?
   sender_id            String?
+  business_account_id  String?
+  whatsapp_business_account_id String?
+  phone_number_id      String?
   access_token         String
+  token_expiry         DateTime?          @db.Timestamptz(6)
   webhook_verify_token String?
+  webhook_secret       String?
+  embedded_signup_state String            @default("not_started")
+  coexistence_status   String             @default("not_started")
   is_active            Boolean            @default(true)
   created_at           DateTime           @default(now()) @db.Timestamptz(6)
   updated_at           DateTime           @updatedAt @db.Timestamptz(6)
@@ -212,5 +221,6 @@ model messaging_accounts {
 
   @@unique([workshop_id, provider, channel, sender_id])
   @@index([workshop_id, provider, channel, is_active])
+  @@index([provider, phone_number_id, is_active])
   @@schema("vanta_core")
 }

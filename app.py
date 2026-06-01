@@ -1,5 +1,6 @@
 from functools import wraps
 from datetime import datetime, timedelta
+import hashlib
 import hmac
 import json
 import logging
@@ -70,7 +71,7 @@ from platform_messaging import (
     log_communication,
     manual_channel_link,
     reminder_in_scope,
-    active_360dialog_account,
+    active_messaging_account,
     send_booking_confirmation,
     send_vehicle_ready_notification,
     send_inquiry_followups,
@@ -1677,14 +1678,14 @@ def paystack_webhook():
 
 @app.errorhandler(403)
 def forbidden(_error):
-    if request.path.startswith("/webhook/") or request.is_json:
+    if request.path.startswith("/webhook") or request.is_json:
         return jsonify({"ok": False, "error": "forbidden"}), 403
     return render_template("error.html", title="Access Denied", message="You do not have permission to view that page."), 403
 
 
 @app.errorhandler(404)
 def not_found(_error):
-    if request.path.startswith("/webhook/") or request.is_json:
+    if request.path.startswith("/webhook") or request.is_json:
         return jsonify({"ok": False, "error": "not_found"}), 404
     return render_template("error.html", title="Page Not Found", message="We could not find the page you requested."), 404
 
@@ -1692,7 +1693,7 @@ def not_found(_error):
 @app.errorhandler(400)
 def bad_request(error):
     message = getattr(error, "description", "bad_request")
-    if request.path.startswith("/webhook/") or request.is_json:
+    if request.path.startswith("/webhook") or request.is_json:
         return jsonify({"ok": False, "error": message}), 400
     flash(message, "error")
     return redirect(request.referrer or url_for("dashboard"))
@@ -1700,7 +1701,7 @@ def bad_request(error):
 
 @app.errorhandler(429)
 def rate_limited(_error):
-    if request.path.startswith("/webhook/") or request.is_json:
+    if request.path.startswith("/webhook") or request.is_json:
         return jsonify({"ok": False, "error": "rate_limited"}), 429
     return render_template("error.html", title="Rate Limited", message="Too many requests. Please wait and try again."), 429
 
@@ -1708,7 +1709,7 @@ def rate_limited(_error):
 @app.errorhandler(500)
 def server_error(error):
     logger.exception("unhandled_error path=%s", request.path)
-    if request.path.startswith("/webhook/") or request.is_json:
+    if request.path.startswith("/webhook") or request.is_json:
         return jsonify({"ok": False, "error": "server_error"}), 500
     return render_template("error.html", title="Server Error", message="Something went wrong."), 500
 
@@ -1776,46 +1777,89 @@ def _handle_inbound_customer_message(branch, phone, message, channel_label="What
         _record_chatbot_usage(branch["franchise_id"])
 
 
-@app.route("/webhooks/360dialog/<franchise_slug>/<branch_slug>/<token>", methods=["POST"])
+def _meta_phone_number_id(payload):
+    for entry in payload.get("entry") or []:
+        for change in entry.get("changes") or []:
+            value = change.get("value") or {}
+            metadata = value.get("metadata") or {}
+            phone_number_id = metadata.get("phone_number_id")
+            if phone_number_id:
+                return phone_number_id
+    return ""
+
+
+def _validate_meta_signature(raw_body, signature, secret):
+    if not signature or not secret or not signature.startswith("sha256="):
+        return False
+    expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+@app.route("/webhooks/meta/<franchise_slug>/<branch_slug>/<token>", methods=["GET", "POST"])
 @csrf.exempt
 @limiter.limit("60 per minute")
-def dialog360_webhook(franchise_slug, branch_slug, token):
+def meta_webhook(franchise_slug, branch_slug, token):
     branch = branch_for_public_booking(franchise_slug, branch_slug)
     if not branch:
         abort(404)
     franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"],))
     if not _validate_required_webhook_token(franchise, token):
         abort(403)
-    if not active_360dialog_account(franchise):
-        logger.warning("dialog360_webhook_no_account")
+
+    if request.method == "GET":
+        verify_token = request.args.get("hub.verify_token") or ""
+        challenge = request.args.get("hub.challenge") or ""
+        account = active_messaging_account(franchise, provider="meta")
+        expected = (account or {}).get("webhook_verify_token") or ""
+        if expected and hmac.compare_digest(expected, verify_token):
+            return challenge, 200
         abort(403)
 
+    raw_body = request.get_data() or b""
     payload = request.get_json(silent=True) or {}
-    statuses = payload.get("statuses") or []
-    if statuses:
-        for status in statuses:
-            execute_db(
-                """
-                INSERT INTO communication_logs (
-                    franchise_id, branch_id, channel, recipient, subject, body, status, external_target, created_at, sent_at
-                )
-                VALUES (%s, %s, 'whatsapp', %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    branch["franchise_id"],
-                    branch["id"],
-                    status.get("recipient_id") or "",
-                    "360dialog delivery status",
-                    status.get("status") or "",
-                    status.get("status") or "status",
-                    status.get("id") or "",
-                    utc_now(),
-                    utc_now(),
-                ),
-            )
-        return jsonify({"ok": True})
+    phone_number_id = _meta_phone_number_id(payload)
+    account = active_messaging_account(franchise, provider="meta", phone_number_id=phone_number_id)
+    if not account:
+        logger.warning("meta_webhook_no_account phone_number_id=%s", phone_number_id)
+        abort(403)
+    signature_secret = account.get("webhook_secret") or account.get("auth_secret") or ""
+    if not signature_secret:
+        logger.warning("meta_webhook_missing_secret phone_number_id=%s", phone_number_id)
+        abort(403)
+    if not _validate_meta_signature(raw_body, request.headers.get("X-Hub-Signature-256"), signature_secret):
+        logger.warning("meta_webhook_invalid_signature phone_number_id=%s", phone_number_id)
+        abort(403)
 
-    for item in payload.get("messages") or []:
+    statuses = payload.get("statuses") or []
+    messages = payload.get("messages") or []
+    for entry in payload.get("entry") or []:
+        for change in entry.get("changes") or []:
+            value = change.get("value") or {}
+            statuses.extend(value.get("statuses") or [])
+            messages.extend(value.get("messages") or [])
+
+    for status in statuses:
+        execute_db(
+            """
+            INSERT INTO communication_logs (
+                franchise_id, branch_id, channel, recipient, subject, body, status, external_target, created_at, sent_at
+            )
+            VALUES (%s, %s, 'whatsapp', %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                branch["franchise_id"],
+                branch["id"],
+                status.get("recipient_id") or "",
+                "Meta delivery status",
+                status.get("status") or "",
+                status.get("status") or "status",
+                status.get("id") or "",
+                utc_now(),
+                utc_now(),
+            ),
+        )
+
+    for item in messages:
         phone = item.get("from") or ""
         message_type = item.get("type") or "unknown"
         message = (

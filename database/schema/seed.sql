@@ -21,12 +21,16 @@ INSERT INTO users (
 ) ON CONFLICT (workshop_id, email) DO NOTHING;
 
 INSERT INTO messaging_accounts (
-  workshop_id, provider, channel, sender_id, access_token, webhook_verify_token
+  workshop_id, provider, channel, sender_id, phone_number_id, access_token, webhook_verify_token, webhook_secret, embedded_signup_state, coexistence_status
 ) VALUES (
   '11111111-1111-1111-1111-111111111111',
-  '360dialog',
+  'meta',
   'whatsapp',
   '+27000000000',
-  'replace_with_360dialog_api_key',
-  'replace_with_webhook_token'
+  'replace_with_meta_phone_number_id',
+  'replace_with_meta_access_token',
+  'replace_with_meta_verify_token',
+  'replace_with_meta_webhook_secret',
+  'not_started',
+  'not_started'
 ) ON CONFLICT (workshop_id, provider, channel, sender_id) DO NOTHING;

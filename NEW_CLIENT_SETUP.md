@@ -159,23 +159,30 @@ Each service should have:
 
 ## 8. Configure Messaging
 
-WhatsApp messaging uses 360dialog. Client reminders and follow-ups are tracked in the app and sent through the active workshop 360dialog account.
+WhatsApp messaging uses the Meta WhatsApp Cloud API. Client reminders and follow-ups are tracked in the app and sent through the active workshop Meta account.
 
 Create one active provider row in `messaging_accounts`:
 
 ```txt
-provider=360dialog
+provider=meta
 channel=whatsapp
-access_token=<360dialog-api-key>
-sender_id=<360dialog-phone-number-or-channel-id>
-webhook_verify_token=<same-token-used-in-webhook-url>
+business_account_id=<meta-business-account-id>
+whatsapp_business_account_id=<waba-id>
+phone_number_id=<meta-phone-number-id>
+sender_id=<workshop-whatsapp-number>
+access_token=<meta-access-token>
+token_expiry=<token-expiry-iso-timestamp>
+webhook_verify_token=<meta-verify-token>
+webhook_secret=<meta-app-secret>
+embedded_signup_state=not_started
+coexistence_status=not_started
 is_active=true
 ```
 
-Configure the 360dialog webhook:
+Configure the Meta webhook:
 
 ```txt
-https://your-backend-domain.up.railway.app/webhooks/360dialog/<franchise_slug>/<branch_slug>/<token>
+https://your-backend-domain.up.railway.app/webhooks/meta/<franchise_slug>/<branch_slug>/<token>
 ```
 
 ## 9. Configure Client Payment/Billing

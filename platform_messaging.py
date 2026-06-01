@@ -66,10 +66,18 @@ def manual_channel_link(channel, recipient, subject, body):
     return f"https://wa.me/{normalize_phone(recipient)}?text={quote(body)}"
 
 
-def active_360dialog_account(context=None):
+def active_messaging_account(context=None, provider=None, channel="whatsapp", phone_number_id=None):
     context = context or {}
-    where = ["ma.is_active=TRUE", "ma.provider='360dialog'", "ma.channel='whatsapp'"]
-    args = []
+    where = ["ma.is_active=TRUE", "ma.channel=%s"]
+    args = [channel]
+    if provider:
+        where.append("ma.provider=%s")
+        args.append(provider)
+    else:
+        where.append("ma.provider='meta'")
+    if phone_number_id:
+        where.append("ma.phone_number_id=%s")
+        args.append(phone_number_id)
     if context.get("workshop_id"):
         where.append("ma.workshop_id=%s")
         args.append(context.get("workshop_id"))
@@ -92,31 +100,55 @@ def active_360dialog_account(context=None):
     )
 
 
-def dialog360_configured(context=None):
-    return bool(active_360dialog_account(context))
+def messaging_configured(context=None, provider=None):
+    return bool(active_messaging_account(context, provider=provider))
 
 
-def send_360dialog_message(recipient, body, context=None, account=None):
-    import requests
+class MetaCloudApiProvider:
+    provider = "meta"
 
-    account = account or active_360dialog_account(context)
-    api_key = (account or {}).get("access_token") or ""
-    if not api_key:
-        raise RuntimeError("360dialog API key is not configured for this workshop.")
+    def send_text(self, account, recipient, body):
+        import requests
 
-    target = normalize_phone(recipient)
-    response = requests.post(
-        "https://waba-v2.360dialog.io/messages",
-        headers={"D360-API-KEY": api_key, "Content-Type": "application/json"},
-        json={
-            "to": target,
-            "type": "text",
-            "text": {"body": body},
-        },
-        timeout=20,
-    )
-    response.raise_for_status()
-    return response.json()
+        token = (account or {}).get("access_token") or ""
+        phone_number_id = (account or {}).get("phone_number_id") or (account or {}).get("sender_id") or ""
+        if not token:
+            raise RuntimeError("Meta access token is not configured for this workshop.")
+        if not phone_number_id:
+            raise RuntimeError("Meta phone_number_id is not configured for this workshop.")
+
+        response = requests.post(
+            f"https://graph.facebook.com/v20.0/{phone_number_id}/messages",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={
+                "messaging_product": "whatsapp",
+                "to": normalize_phone(recipient),
+                "type": "text",
+                "text": {"body": body},
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+PROVIDER_ADAPTERS = {
+    "meta": MetaCloudApiProvider(),
+}
+
+
+def provider_adapter(provider):
+    adapter = PROVIDER_ADAPTERS.get(provider)
+    if not adapter:
+        raise RuntimeError(f"Messaging provider is not supported: {provider}")
+    return adapter
+
+
+def send_provider_message(recipient, body, context=None, account=None):
+    account = account or active_messaging_account(context)
+    if not account:
+        raise RuntimeError("No active messaging account is configured for this workshop.")
+    return provider_adapter(account.get("provider")).send_text(account, recipient, body)
 
 
 def build_booking_message(booking, reminder=None):
@@ -805,17 +837,17 @@ def auto_send_reminder(reminder, actor_user=None):
     if not boolish(booking.get("whatsapp_opt_in", 0)):
         return False, "WhatsApp opt-in is disabled for this customer."
     try:
-        account = active_360dialog_account(booking)
+        account = active_messaging_account(booking)
         if account and booking.get("phone"):
-            send_360dialog_message(booking["phone"], body, booking, account=account)
-            log_communication(booking, reminder, "whatsapp", booking["phone"], subject, body, "sent:360dialog", actor_user["id"] if actor_user else None)
+            send_provider_message(booking["phone"], body, booking, account=account)
+            log_communication(booking, reminder, "whatsapp", booking["phone"], subject, body, f"sent:{account.get('provider')}", actor_user["id"] if actor_user else None)
             track_message_usage(booking.get("franchise_id"))
             update_reminder_status(reminder["id"], "Sent", "whatsapp", count_as_send=True)
-            return True, "WhatsApp message sent by 360dialog."
+            return True, f"WhatsApp message sent by {account.get('provider')}."
     except Exception as exc:
         log_communication(booking, reminder, "whatsapp", booking.get("phone", ""), subject, body, f"failed: {exc}", actor_user["id"] if actor_user else None)
         return False, str(exc)
-    return False, "No active 360dialog account is configured for this workshop."
+    return False, "No active messaging account is configured for this workshop."
 
 
 def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=None):
@@ -824,10 +856,10 @@ def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=N
     recipient_phone = booking.get("phone")
     if recipient_phone and boolish(booking.get("whatsapp_opt_in", 0)):
         try:
-            account = active_360dialog_account(booking)
+            account = active_messaging_account(booking)
             if account:
-                send_360dialog_message(recipient_phone, body, booking, account=account)
-                log_communication(booking, reminder, "whatsapp", recipient_phone, subject, body, "sent:360dialog", actor_user_id)
+                send_provider_message(recipient_phone, body, booking, account=account)
+                log_communication(booking, reminder, "whatsapp", recipient_phone, subject, body, f"sent:{account.get('provider')}", actor_user_id)
                 track_message_usage(booking.get("franchise_id"))
                 return True, "whatsapp"
         except Exception as exc:
