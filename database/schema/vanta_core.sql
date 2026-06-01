@@ -110,6 +110,17 @@ CREATE TABLE messaging_accounts (
   UNIQUE (workshop_id, provider, channel, sender_id)
 );
 
+CREATE TABLE webhook_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider messaging_provider NOT NULL,
+  event_id TEXT NOT NULL,
+  workshop_id UUID REFERENCES workshops(id) ON DELETE CASCADE,
+  phone_number_id TEXT,
+  event_type TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (provider, event_id)
+);
+
 CREATE TABLE audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workshop_id UUID NOT NULL REFERENCES workshops(id) ON DELETE CASCADE,
@@ -130,6 +141,9 @@ CREATE INDEX idx_bookings_booking_date ON bookings(booking_date);
 CREATE INDEX idx_bookings_status ON bookings(status);
 CREATE INDEX idx_messaging_accounts_scope ON messaging_accounts(workshop_id, provider, channel, is_active);
 CREATE INDEX idx_messaging_accounts_phone_id ON messaging_accounts(provider, phone_number_id, is_active);
+CREATE UNIQUE INDEX idx_messaging_meta_active_workshop ON messaging_accounts(workshop_id, provider) WHERE provider='meta' AND is_active=TRUE;
+CREATE UNIQUE INDEX idx_messaging_meta_active_phone ON messaging_accounts(provider, phone_number_id) WHERE provider='meta' AND is_active=TRUE AND phone_number_id IS NOT NULL;
+CREATE INDEX idx_webhook_events_scope ON webhook_events(workshop_id, provider, created_at);
 CREATE INDEX idx_audit_logs_workshop_id ON audit_logs(workshop_id);
 
 CREATE TRIGGER trg_workshops_updated_at BEFORE UPDATE ON workshops FOR EACH ROW EXECUTE FUNCTION set_updated_at();

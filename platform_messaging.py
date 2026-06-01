@@ -1,4 +1,9 @@
 import re
+import os
+import base64
+import hashlib
+import hmac
+import secrets
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
@@ -66,6 +71,63 @@ def manual_channel_link(channel, recipient, subject, body):
     return f"https://wa.me/{normalize_phone(recipient)}?text={quote(body)}"
 
 
+def _token_key():
+    key = os.environ.get("MESSAGING_TOKEN_ENCRYPTION_KEY") or ""
+    if not key:
+        raise RuntimeError("MESSAGING_TOKEN_ENCRYPTION_KEY is required for encrypted messaging tokens.")
+    return hashlib.sha256(key.encode("utf-8")).digest()
+
+
+def _token_stream(key, nonce, length):
+    output = b""
+    counter = 0
+    while len(output) < length:
+        output += hmac.new(key, nonce + counter.to_bytes(4, "big"), hashlib.sha256).digest()
+        counter += 1
+    return output[:length]
+
+
+def encrypt_access_token(token):
+    text = str(token or "")
+    if not text or text.startswith("enc:"):
+        return text
+    key = _token_key()
+    nonce = secrets.token_bytes(16)
+    plaintext = text.encode("utf-8")
+    stream = _token_stream(key, nonce, len(plaintext))
+    ciphertext = bytes(left ^ right for left, right in zip(plaintext, stream))
+    tag = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()
+    payload = base64.urlsafe_b64encode(nonce + tag + ciphertext).decode("utf-8")
+    return "enc:v1:" + payload
+
+
+def decrypt_access_token(token):
+    text = str(token or "")
+    if text.startswith("enc:v1:"):
+        key = _token_key()
+        payload = base64.urlsafe_b64decode(text[7:].encode("utf-8"))
+        nonce, tag, ciphertext = payload[:16], payload[16:48], payload[48:]
+        expected = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()
+        if not hmac.compare_digest(tag, expected):
+            raise RuntimeError("Messaging access token failed integrity validation.")
+        stream = _token_stream(key, nonce, len(ciphertext))
+        plaintext = bytes(left ^ right for left, right in zip(ciphertext, stream))
+        return plaintext.decode("utf-8")
+    if os.environ.get("ALLOW_PLAINTEXT_MESSAGING_TOKENS", "").lower() == "true":
+        return text
+    raise RuntimeError("Messaging access token is not encrypted.")
+
+
+def validate_messaging_account(account):
+    if not account:
+        return
+    if account.get("provider") == "meta" and account.get("is_active"):
+        if not account.get("workshop_id"):
+            raise RuntimeError("Active Meta messaging account must belong to a workshop.")
+        if not account.get("phone_number_id"):
+            raise RuntimeError("Active Meta messaging account requires phone_number_id.")
+
+
 def active_messaging_account(context=None, provider=None, channel="whatsapp", phone_number_id=None):
     context = context or {}
     where = ["ma.is_active=TRUE", "ma.channel=%s"]
@@ -87,17 +149,18 @@ def active_messaging_account(context=None, provider=None, channel="whatsapp", ph
     elif context.get("id") and context.get("slug"):
         where.append("f.id=%s")
         args.append(context.get("id"))
-    return fetch_one(
+    row = fetch_one(
         f"""
         SELECT ma.*
         FROM messaging_accounts ma
         LEFT JOIN franchises f ON f.workshop_id = ma.workshop_id
         WHERE {' AND '.join(where)}
-        ORDER BY ma.id DESC
         LIMIT 1
         """,
         tuple(args),
     )
+    validate_messaging_account(row)
+    return row
 
 
 def messaging_configured(context=None, provider=None):
@@ -110,7 +173,7 @@ class MetaCloudApiProvider:
     def send_text(self, account, recipient, body):
         import requests
 
-        token = (account or {}).get("access_token") or ""
+        token = decrypt_access_token((account or {}).get("access_token") or "")
         phone_number_id = (account or {}).get("phone_number_id") or (account or {}).get("sender_id") or ""
         if not token:
             raise RuntimeError("Meta access token is not configured for this workshop.")

@@ -95,6 +95,7 @@ model workshops {
   vehicles                   vehicles[]
   bookings                   bookings[]
   messaging_accounts         messaging_accounts[]
+  webhook_events             webhook_events[]
   audit_logs                 audit_logs[]
 
   @@schema("vanta_core")
@@ -222,5 +223,20 @@ model messaging_accounts {
   @@unique([workshop_id, provider, channel, sender_id])
   @@index([workshop_id, provider, channel, is_active])
   @@index([provider, phone_number_id, is_active])
+  @@schema("vanta_core")
+}
+
+model webhook_events {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider        messaging_provider
+  event_id        String
+  workshop_id     String?            @db.Uuid
+  phone_number_id String?
+  event_type      String?
+  created_at      DateTime           @default(now()) @db.Timestamptz(6)
+  workshop        workshops?         @relation(fields: [workshop_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, event_id])
+  @@index([workshop_id, provider, created_at])
   @@schema("vanta_core")
 }

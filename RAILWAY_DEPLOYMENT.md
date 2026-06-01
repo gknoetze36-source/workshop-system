@@ -245,6 +245,12 @@ coexistence_status=not_started
 is_active=true
 ```
 
+Set this on every service that sends or receives WhatsApp messages:
+
+```txt
+MESSAGING_TOKEN_ENCRYPTION_KEY=<fernet-key>
+```
+
 Meta webhook URL:
 
 ```txt

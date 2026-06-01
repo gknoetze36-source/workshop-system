@@ -489,6 +489,17 @@ def _create_tables(connection, backend):
         )
         """,
         f"""
+        CREATE TABLE IF NOT EXISTS webhook_events (
+            id {primary_key},
+            provider TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            workshop_id {"UUID" if backend == "postgres" else "TEXT"},
+            phone_number_id TEXT,
+            event_type TEXT,
+            created_at TEXT
+        )
+        """,
+        f"""
         CREATE TABLE IF NOT EXISTS service_prices (
             id {primary_key},
             franchise_id INTEGER,
@@ -981,6 +992,14 @@ def _ensure_columns(connection, backend):
             "created_at": "TEXT",
             "updated_at": "TEXT",
         },
+        "webhook_events": {
+            "provider": "TEXT",
+            "event_id": "TEXT",
+            "workshop_id": "UUID" if backend == "postgres" else "TEXT",
+            "phone_number_id": "TEXT",
+            "event_type": "TEXT",
+            "created_at": "TEXT",
+        },
         "services": {
             "franchise_id": "INTEGER",
             "branch_id": "INTEGER",
@@ -1217,6 +1236,10 @@ def _ensure_indexes(connection, backend):
         "CREATE INDEX IF NOT EXISTS idx_whatsapp_numbers_workshop ON whatsapp_numbers(workshop_id, is_active)",
         "CREATE INDEX IF NOT EXISTS idx_messaging_accounts_scope ON messaging_accounts(workshop_id, provider, channel, is_active)",
         "CREATE INDEX IF NOT EXISTS idx_messaging_accounts_phone_id ON messaging_accounts(provider, phone_number_id, is_active)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_messaging_meta_active_workshop ON messaging_accounts(workshop_id, provider) WHERE provider='meta' AND is_active=TRUE",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_messaging_meta_active_phone ON messaging_accounts(provider, phone_number_id) WHERE provider='meta' AND is_active=TRUE AND phone_number_id IS NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_events_provider_event ON webhook_events(provider, event_id)",
+        "CREATE INDEX IF NOT EXISTS idx_webhook_events_scope ON webhook_events(workshop_id, provider, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_booking_inquiries_scope ON booking_inquiries(franchise_id, branch_id, user_state, next_followup_at)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_booking_inquiries_contact ON booking_inquiries(franchise_id, branch_id, customer_phone, source_channel)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_inquiry_followup_events_unique ON inquiry_followup_events(inquiry_id, followup_stage)",

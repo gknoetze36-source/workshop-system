@@ -1795,6 +1795,56 @@ def _validate_meta_signature(raw_body, signature, secret):
     return hmac.compare_digest(expected, signature)
 
 
+def _claim_webhook_event(provider, event_id, account, event_type):
+    event_id = str(event_id or "").strip()
+    if not event_id:
+        return True
+    existing = fetch_one("SELECT id FROM webhook_events WHERE provider=%s AND event_id=%s", (provider, event_id))
+    if existing:
+        return False
+    try:
+        execute_db(
+            """
+            INSERT INTO webhook_events (provider, event_id, workshop_id, phone_number_id, event_type, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                provider,
+                event_id,
+                account.get("workshop_id"),
+                account.get("phone_number_id"),
+                event_type,
+                utc_now(),
+            ),
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _meta_webhook_events(payload, raw_body):
+    events = []
+    for entry in payload.get("entry") or []:
+        entry_id = entry.get("id") or ""
+        for change_index, change in enumerate(entry.get("changes") or []):
+            value = change.get("value") or {}
+            for status in value.get("statuses") or []:
+                status_id = status.get("id") or status.get("recipient_id") or ""
+                event_id = f"status:{status_id}:{status.get('status') or ''}" if status_id else ""
+                events.append(("status", event_id, status))
+            for message in value.get("messages") or []:
+                message_id = message.get("id") or ""
+                event_id = f"message:{message_id}" if message_id else ""
+                events.append(("message", event_id, message))
+            if not value.get("statuses") and not value.get("messages"):
+                digest = hashlib.sha256(raw_body + str(entry_id).encode("utf-8") + str(change_index).encode("utf-8")).hexdigest()
+                events.append(("event", f"payload:{digest}", value))
+    if not events:
+        digest = hashlib.sha256(raw_body).hexdigest()
+        events.append(("event", f"payload:{digest}", payload))
+    return events
+
+
 @app.route("/webhooks/meta/<franchise_slug>/<branch_slug>/<token>", methods=["GET", "POST"])
 @csrf.exempt
 @limiter.limit("60 per minute")
@@ -1830,46 +1880,40 @@ def meta_webhook(franchise_slug, branch_slug, token):
         logger.warning("meta_webhook_invalid_signature phone_number_id=%s", phone_number_id)
         abort(403)
 
-    statuses = payload.get("statuses") or []
-    messages = payload.get("messages") or []
-    for entry in payload.get("entry") or []:
-        for change in entry.get("changes") or []:
-            value = change.get("value") or {}
-            statuses.extend(value.get("statuses") or [])
-            messages.extend(value.get("messages") or [])
-
-    for status in statuses:
-        execute_db(
-            """
-            INSERT INTO communication_logs (
-                franchise_id, branch_id, channel, recipient, subject, body, status, external_target, created_at, sent_at
+    for event_type, event_id, item in _meta_webhook_events(payload, raw_body):
+        if not _claim_webhook_event("meta", event_id, account, event_type):
+            continue
+        if event_type == "status":
+            execute_db(
+                """
+                INSERT INTO communication_logs (
+                    franchise_id, branch_id, channel, recipient, subject, body, status, external_target, created_at, sent_at
+                )
+                VALUES (%s, %s, 'whatsapp', %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    branch["franchise_id"],
+                    branch["id"],
+                    item.get("recipient_id") or "",
+                    "Meta delivery status",
+                    item.get("status") or "",
+                    item.get("status") or "status",
+                    item.get("id") or "",
+                    utc_now(),
+                    utc_now(),
+                ),
             )
-            VALUES (%s, %s, 'whatsapp', %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                branch["franchise_id"],
-                branch["id"],
-                status.get("recipient_id") or "",
-                "Meta delivery status",
-                status.get("status") or "",
-                status.get("status") or "status",
-                status.get("id") or "",
-                utc_now(),
-                utc_now(),
-            ),
-        )
-
-    for item in messages:
-        phone = item.get("from") or ""
-        message_type = item.get("type") or "unknown"
-        message = (
-            ((item.get("text") or {}).get("body") or "")
-            or ((item.get("button") or {}).get("text") or "")
-            or ((item.get("interactive") or {}).get("type") or "")
-            or f"[{message_type}]"
-        ).strip()
-        if phone and message:
-            _handle_inbound_customer_message(branch, phone, message, "WhatsApp", "Received")
+        elif event_type == "message":
+            phone = item.get("from") or ""
+            message_type = item.get("type") or "unknown"
+            message = (
+                ((item.get("text") or {}).get("body") or "")
+                or ((item.get("button") or {}).get("text") or "")
+                or ((item.get("interactive") or {}).get("type") or "")
+                or f"[{message_type}]"
+            ).strip()
+            if phone and message:
+                _handle_inbound_customer_message(branch, phone, message, "WhatsApp", "Received")
     return jsonify({"ok": True})
 
 

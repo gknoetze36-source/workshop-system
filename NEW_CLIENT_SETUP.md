@@ -179,6 +179,8 @@ coexistence_status=not_started
 is_active=true
 ```
 
+The stored `access_token` must be encrypted with the service `MESSAGING_TOKEN_ENCRYPTION_KEY`.
+
 Configure the Meta webhook:
 
 ```txt
