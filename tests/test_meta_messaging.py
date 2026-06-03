@@ -6,7 +6,16 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("DATABASE_URL", "postgresql://user:pass@localhost:5432/vanta")
+os.environ.setdefault("META_APP_ID", "test-meta-app-id")
+os.environ.setdefault("META_APP_SECRET", "test-meta-app-secret")
+os.environ.setdefault("META_ACCESS_TOKEN", "test-meta-access-token")
+os.environ.setdefault("WHATSAPP_BUSINESS_ACCOUNT_ID", "test-waba-id")
+os.environ.setdefault("WHATSAPP_PHONE_NUMBER_ID", "test-phone-number-id")
+os.environ.setdefault("VERIFY_TOKEN", "test-verify-token")
+os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")
 os.environ.setdefault("MESSAGING_TOKEN_ENCRYPTION_KEY", "BW8p_0QsLsxstYCqdNLdtYntSYxEHcWCXwF4beHxRlQ=")
+os.environ.setdefault("SKIP_DATABASE_INIT", "true")
 
 import app
 import platform_messaging

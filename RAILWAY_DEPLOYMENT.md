@@ -248,7 +248,7 @@ is_active=true
 Set this on every service that sends or receives WhatsApp messages:
 
 ```txt
-MESSAGING_TOKEN_ENCRYPTION_KEY=<fernet-key>
+MESSAGING_TOKEN_ENCRYPTION_KEY=<strong-token-encryption-secret>
 ```
 
 Meta webhook URL:

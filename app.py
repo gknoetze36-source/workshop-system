@@ -87,9 +87,30 @@ from validators.phone_validator import is_valid_phone, normalize_phone
 from validators.request_validator import require_fields
 
 app = Flask(__name__)
-SECRET_KEY = os.environ.get("SECRET_KEY") or os.environ.get("SESSION_SECRET")
-if not SECRET_KEY:
-    raise RuntimeError("SECRET_KEY or SESSION_SECRET is required")
+
+REQUIRED_STARTUP_ENV_VARS = (
+    "DATABASE_URL",
+    "SECRET_KEY",
+    "META_APP_ID",
+    "META_APP_SECRET",
+    "META_ACCESS_TOKEN",
+    "WHATSAPP_BUSINESS_ACCOUNT_ID",
+    "WHATSAPP_PHONE_NUMBER_ID",
+    "VERIFY_TOKEN",
+    "OPENAI_API_KEY",
+    "MESSAGING_TOKEN_ENCRYPTION_KEY",
+)
+
+
+def validate_startup_environment():
+    missing = [key for key in REQUIRED_STARTUP_ENV_VARS if not os.environ.get(key)]
+    if missing:
+        logging.getLogger("vanta").error("startup_missing_environment variables=%s", ",".join(missing))
+        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+
+
+validate_startup_environment()
+SECRET_KEY = os.environ["SECRET_KEY"]
 app.secret_key = SECRET_KEY
 app.config.update(
     SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "true").lower() in {"1", "true", "yes"},
@@ -109,13 +130,18 @@ handler = logging.StreamHandler()
 handler.setFormatter(JsonFormatter())
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), handlers=[handler], force=True)
 logger = logging.getLogger("vanta")
+logger.info("startup_environment_validated")
 csrf = CSRFProtect(app)
 limiter = Limiter(get_remote_address, app=app, default_limits=[os.environ.get("DEFAULT_RATE_LIMIT", "300 per hour")], storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"))
 
 DATABASE_INIT_ERROR = None
 DATABASE_STATE = None
 try:
-    DATABASE_STATE = initialize_database()
+    if os.environ.get("SKIP_DATABASE_INIT", "").lower() in {"1", "true", "yes"}:
+        DATABASE_STATE = {"backend": "skipped"}
+    else:
+        DATABASE_STATE = initialize_database()
+    logger.info("startup_success")
 except Exception as exc:
     DATABASE_INIT_ERROR = exc
     if __import__("os").environ.get("DATABASE_URL"):
@@ -162,6 +188,8 @@ def _user_from_api_token(token):
 
 @app.before_request
 def load_current_user():
+    if request.endpoint in {"health"}:
+        return
     session.permanent = True
     g.current_user = None
     if local_database_unavailable():
@@ -250,7 +278,21 @@ def _active_franchise_required():
 
 @app.route("/health")
 def health():
-    return {"status": "ok", "database": "error" if DATABASE_INIT_ERROR else "ready"}
+    return {"status": "ok"}
+
+
+@app.route("/admin/system-status")
+@roles_required("super_admin")
+def system_status():
+    return jsonify(
+        {
+            "meta_app_id_configured": bool(os.environ.get("META_APP_ID")),
+            "access_token_configured": bool(os.environ.get("META_ACCESS_TOKEN")),
+            "waba_id_configured": bool(os.environ.get("WHATSAPP_BUSINESS_ACCOUNT_ID")),
+            "phone_number_id_configured": bool(os.environ.get("WHATSAPP_PHONE_NUMBER_ID")),
+            "verify_token_configured": bool(os.environ.get("VERIFY_TOKEN")),
+        }
+    )
 
 
 @app.route("/health/db")
@@ -1670,9 +1712,6 @@ def paystack_webhook():
         verified = verify_transaction(reference)
         if ((verified.get("data") or {}).get("status")) == "success":
             mark_billing_paid(metadata["franchise_id"], metadata["billing_period"], reference)
-            logger.info("paystack_payment_marked_paid reference=%s", reference)
-    elif event.startswith("charge."):
-        logger.info("paystack_payment_event event=%s reference=%s", event, reference)
     return {"ok": True}
 
 
