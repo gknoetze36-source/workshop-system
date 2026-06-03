@@ -2,6 +2,15 @@
 
 ## Required Railway Variables
 
+The web service will fail startup without:
+
+```txt
+DATABASE_URL
+SECRET_KEY
+```
+
+The full production deployment check also requires:
+
 ```txt
 DATABASE_URL
 SECRET_KEY

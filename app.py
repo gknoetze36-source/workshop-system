@@ -88,9 +88,11 @@ from validators.request_validator import require_fields
 
 app = Flask(__name__)
 
-REQUIRED_STARTUP_ENV_VARS = (
+CRITICAL_STARTUP_ENV_VARS = (
     "DATABASE_URL",
     "SECRET_KEY",
+)
+DEPLOYMENT_CONFIG_ENV_VARS = (
     "META_APP_ID",
     "META_APP_SECRET",
     "META_ACCESS_TOKEN",
@@ -103,10 +105,14 @@ REQUIRED_STARTUP_ENV_VARS = (
 
 
 def validate_startup_environment():
-    missing = [key for key in REQUIRED_STARTUP_ENV_VARS if not os.environ.get(key)]
-    if missing:
-        logging.getLogger("vanta").error("startup_missing_environment variables=%s", ",".join(missing))
-        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+    logger = logging.getLogger("vanta")
+    missing_critical = [key for key in CRITICAL_STARTUP_ENV_VARS if not os.environ.get(key)]
+    if missing_critical:
+        logger.error("startup_missing_critical_environment variables=%s", ",".join(missing_critical))
+        raise RuntimeError(f"Missing required environment variables: {', '.join(missing_critical)}")
+    missing_config = [key for key in DEPLOYMENT_CONFIG_ENV_VARS if not os.environ.get(key)]
+    if missing_config:
+        logger.warning("startup_missing_deployment_configuration variables=%s", ",".join(missing_config))
 
 
 validate_startup_environment()
