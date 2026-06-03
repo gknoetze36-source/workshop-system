@@ -9,6 +9,16 @@ DATABASE_URL
 SECRET_KEY
 ```
 
+If Railway provides separate Postgres variables instead of `DATABASE_URL`, the app can derive it from:
+
+```txt
+PGHOST
+PGPORT
+PGDATABASE
+PGUSER
+PGPASSWORD
+```
+
 The full production deployment check also requires:
 
 ```txt

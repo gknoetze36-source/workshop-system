@@ -2,6 +2,8 @@ import os
 import sys
 from urllib.parse import urlparse
 
+from database import configure_database_url_from_railway_env
+
 
 REQUIRED_ENV_VARS = (
     "DATABASE_URL",
@@ -23,6 +25,7 @@ def database_url_valid(value):
 
 
 def main():
+    configure_database_url_from_railway_env()
     missing = [key for key in REQUIRED_ENV_VARS if not os.environ.get(key)]
     if missing:
         print("Missing required environment variables:")

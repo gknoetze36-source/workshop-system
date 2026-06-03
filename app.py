@@ -15,7 +15,7 @@ from flask_wtf.csrf import CSRFProtect
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database import execute_db, initialize_database, iso_date, query_db, utc_now
+from database import configure_database_url_from_railway_env, execute_db, initialize_database, iso_date, query_db, utc_now
 from platform_helpers import (
     CONTACT_OPTIONS,
     DONE_STATUSES,
@@ -106,6 +106,7 @@ DEPLOYMENT_CONFIG_ENV_VARS = (
 
 def validate_startup_environment():
     logger = logging.getLogger("vanta")
+    configure_database_url_from_railway_env()
     missing_critical = [key for key in CRITICAL_STARTUP_ENV_VARS if not os.environ.get(key)]
     if missing_critical:
         logger.error("startup_missing_critical_environment variables=%s", ",".join(missing_critical))

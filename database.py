@@ -9,13 +9,32 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import quote_plus, urlsplit, urlunsplit
+from urllib.parse import quote, quote_plus, urlsplit, urlunsplit
 
 BASE_DIR = Path(__file__).resolve().parent
 PRIMARY_SQLITE_PATH = os.environ.get("SQLITE_PATH") or str(BASE_DIR / "database.db")
 DEFAULT_FRANCHISE_NAME = os.environ.get("DEFAULT_FRANCHISE_NAME", "Main Workshop Group")
 BOOKINGS_CSV_PATH = BASE_DIR / "bookings.csv"
 logger = logging.getLogger(__name__)
+
+
+def configure_database_url_from_railway_env():
+    if os.environ.get("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
+
+    required = ("PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD")
+    values = {key: os.environ.get(key) for key in required}
+    if not all(values.values()):
+        return ""
+
+    user = quote(values["PGUSER"], safe="")
+    password = quote(values["PGPASSWORD"], safe="")
+    host = values["PGHOST"]
+    port = values["PGPORT"]
+    database = quote(values["PGDATABASE"], safe="")
+    database_url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+    os.environ["DATABASE_URL"] = database_url
+    return database_url
 
 
 def require_postgres_for_service():
@@ -35,6 +54,7 @@ _LOCAL = threading.local()
 
 
 def _database_url():
+    configure_database_url_from_railway_env()
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         return database_url
@@ -120,7 +140,7 @@ def classify_service_level(service_name):
 
 
 def get_connection():
-    database_url = os.environ.get("DATABASE_URL")
+    database_url = _database_url()
     if database_url:
         connection = _PooledConnection(_postgres_pool(), _postgres_pool().getconn())
         connection.autocommit = False
@@ -212,7 +232,7 @@ def transaction():
 def run_alembic_migrations():
     if os.environ.get("SKIP_ALEMBIC_MIGRATIONS", "").lower() in {"1", "true", "yes"}:
         return
-    database_url = os.environ.get("DATABASE_URL")
+    database_url = _database_url()
     if not database_url:
         return
     from alembic import command
