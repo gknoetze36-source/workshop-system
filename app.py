@@ -86,6 +86,7 @@ from platform_messaging import (
     ensure_inquiry,
     update_reminder_status,
     encrypt_access_token,
+    decrypt_access_token,
 )
 from automation_engine import retry_failed_job
 from services.paystack import claim_webhook_event, mark_webhook_event_processed, valid_webhook_signature, verify_transaction
@@ -1375,6 +1376,24 @@ def _client_audit_payload(franchise_id=None):
     summaries = []
     for franchise in franchises:
         fid = franchise["id"]
+        messaging_accounts = fetch_all(
+            """
+            SELECT ma.*
+            FROM messaging_accounts ma
+            WHERE ma.workshop_id=%s
+            ORDER BY ma.is_active DESC, ma.updated_at DESC
+            """,
+            (franchise.get("workshop_id"),),
+        ) if franchise.get("workshop_id") else []
+        for account in messaging_accounts:
+            rotated = account.get("token_rotated_at") or account.get("updated_at") or account.get("created_at")
+            parsed = None
+            if rotated:
+                try:
+                    parsed = datetime.fromisoformat(str(rotated).replace("Z", ""))
+                except ValueError:
+                    parsed = None
+            account["token_age_days"] = (datetime.utcnow() - parsed).days if parsed else None
         summaries.append(
             {
                 "franchise": franchise,
@@ -1384,15 +1403,7 @@ def _client_audit_payload(franchise_id=None):
                 "messages": fetch_one("SELECT COUNT(*) AS total FROM communication_logs WHERE franchise_id=%s", (fid,)).get("total", 0),
                 "failed_messages": fetch_one("SELECT COUNT(*) AS total FROM communication_logs WHERE franchise_id=%s AND status LIKE 'failed%%'", (fid,)).get("total", 0),
                 "last_payment": fetch_one("SELECT * FROM billing_records WHERE franchise_id=%s ORDER BY paid_at DESC, updated_at DESC LIMIT 1", (fid,)),
-                "messaging_accounts": fetch_all(
-                    """
-                    SELECT ma.*
-                    FROM messaging_accounts ma
-                    WHERE ma.workshop_id=%s
-                    ORDER BY ma.is_active DESC, ma.updated_at DESC
-                    """,
-                    (franchise.get("workshop_id"),),
-                ) if franchise.get("workshop_id") else [],
+                "messaging_accounts": messaging_accounts,
             }
         )
     return summaries
@@ -1454,6 +1465,7 @@ def save_messaging_account(franchise_id):
     account_id = request.form.get("account_id") or None
     token = (request.form.get("access_token") or "").strip()
     encrypted_token = encrypt_access_token(token) if token else None
+    webhook_secret = (request.form.get("webhook_secret") or "").strip()
     values = (
         franchise["workshop_id"],
         "meta",
@@ -1465,7 +1477,7 @@ def save_messaging_account(franchise_id):
         "v2" if encrypted_token and encrypted_token.startswith("enc:v2:") else None,
         utc_now() if encrypted_token else None,
         (request.form.get("webhook_verify_token") or "").strip(),
-        (request.form.get("webhook_secret") or "").strip(),
+        webhook_secret,
         (request.form.get("embedded_signup_state") or "manual").strip(),
         db_bool(request.form.get("is_active", "true")),
         utc_now(),
@@ -1476,11 +1488,13 @@ def save_messaging_account(franchise_id):
             abort(404)
         token_sql = ", access_token=%s, token_encryption_version=%s, token_rotated_at=%s" if encrypted_token else ""
         token_args = (encrypted_token, "v2", utc_now()) if encrypted_token else ()
+        secret_sql = ", webhook_secret=%s" if webhook_secret else ""
+        secret_args = (webhook_secret,) if webhook_secret else ()
         execute_db(
             f"""
             UPDATE messaging_accounts
             SET business_account_id=%s, whatsapp_business_account_id=%s, phone_number_id=%s{token_sql},
-                webhook_verify_token=%s, webhook_secret=%s, embedded_signup_state=%s, is_active=%s, updated_at=%s
+                webhook_verify_token=%s{secret_sql}, embedded_signup_state=%s, is_active=%s, updated_at=%s
             WHERE id=%s AND workshop_id=%s
             """,
             (
@@ -1489,7 +1503,7 @@ def save_messaging_account(franchise_id):
                 values[5],
                 *token_args,
                 values[9],
-                values[10],
+                *secret_args,
                 values[11],
                 values[12],
                 utc_now(),
@@ -1531,12 +1545,16 @@ def disable_messaging_account(franchise_id, account_id):
 @app.route("/admin/franchises/<int:franchise_id>/meta/signup/start")
 @roles_required("super_admin")
 def meta_signup_start(franchise_id):
-    _franchise_required(franchise_id)
+    franchise = _franchise_required(franchise_id)
     app_id = os.environ.get("META_APP_ID")
     redirect_uri = os.environ.get("META_EMBEDDED_SIGNUP_REDIRECT_URI") or url_for("meta_signup_callback", _external=True)
     if not app_id:
         flash("META_APP_ID is not configured.", "error")
         return redirect(url_for("admin_client_audit", franchise_id=franchise_id))
+    if franchise.get("workshop_id"):
+        existing = fetch_one("SELECT id FROM messaging_accounts WHERE workshop_id=%s AND provider='meta' ORDER BY is_active DESC, id DESC LIMIT 1", (franchise["workshop_id"],))
+        if existing:
+            execute_db("UPDATE messaging_accounts SET embedded_signup_state='started', updated_at=%s WHERE id=%s", (utc_now(), existing["id"]))
     state = f"{franchise_id}:{secrets.token_urlsafe(16)}"
     session["meta_signup_state"] = state
     params = urlencode(
@@ -1551,6 +1569,39 @@ def meta_signup_start(franchise_id):
     return redirect(f"https://www.facebook.com/v20.0/dialog/oauth?{params}")
 
 
+def _meta_signup_fail(franchise_id, message, reason):
+    franchise = _franchise_required(franchise_id)
+    if franchise.get("workshop_id"):
+        existing = fetch_one("SELECT id FROM messaging_accounts WHERE workshop_id=%s AND provider='meta' ORDER BY is_active DESC, id DESC LIMIT 1", (franchise["workshop_id"],))
+        if existing:
+            execute_db("UPDATE messaging_accounts SET embedded_signup_state='failed_discovery', updated_at=%s WHERE id=%s", (utc_now(), existing["id"]))
+    record_audit("meta_embedded_signup_failed", "messaging_account", franchise_id, current_user(), franchise_id=franchise_id, details={"reason": reason})
+    flash(message, "error")
+    return redirect(url_for("admin_client_audit", franchise_id=franchise_id))
+
+
+def _meta_graph_get(path, access_token):
+    import requests
+
+    response = requests.get(f"https://graph.facebook.com/v20.0/{path}", params={"access_token": access_token}, timeout=15)
+    response.raise_for_status()
+    return response.json().get("data") or []
+
+
+def _render_meta_selection(franchise_id, state, access_token, businesses, selected_business_id="", wabas=None, selected_waba_id="", phones=None):
+    session["meta_signup_access_token"] = encrypt_access_token(access_token)
+    return render_template(
+        "meta_signup_select.html",
+        franchise=_franchise_required(franchise_id),
+        state=state,
+        businesses=businesses or [],
+        selected_business_id=selected_business_id,
+        wabas=wabas or [],
+        selected_waba_id=selected_waba_id,
+        phones=phones or [],
+    )
+
+
 @app.route("/admin/meta/signup/callback")
 @roles_required("super_admin")
 def meta_signup_callback():
@@ -1559,32 +1610,63 @@ def meta_signup_callback():
         abort(403)
     franchise_id = int(state.split(":", 1)[0])
     franchise = _franchise_required(franchise_id)
-    code = request.args.get("code") or ""
-    if not code:
-        flash("Meta signup did not return an authorization code.", "error")
-        return redirect(url_for("admin_client_audit", franchise_id=franchise_id))
     app_id = os.environ.get("META_APP_ID")
     app_secret = os.environ.get("META_APP_SECRET")
     redirect_uri = os.environ.get("META_EMBEDDED_SIGNUP_REDIRECT_URI") or url_for("meta_signup_callback", _external=True)
     if not app_id or not app_secret:
-        flash("Meta app credentials are not configured.", "error")
-        return redirect(url_for("admin_client_audit", franchise_id=franchise_id))
-    import requests
+        return _meta_signup_fail(franchise_id, "Meta app credentials are not configured.", "missing_meta_credentials")
+    encrypted_session_token = session.get("meta_signup_access_token")
+    code = request.args.get("code") or ""
+    if encrypted_session_token:
+        access_token = decrypt_access_token(encrypted_session_token)
+    else:
+        if not code:
+            return _meta_signup_fail(franchise_id, "Meta signup did not return an authorization code.", "missing_code")
+        import requests
 
-    token_response = requests.get(
-        "https://graph.facebook.com/v20.0/oauth/access_token",
-        params={"client_id": app_id, "client_secret": app_secret, "redirect_uri": redirect_uri, "code": code},
-        timeout=15,
-    )
-    token_response.raise_for_status()
-    access_token = token_response.json().get("access_token") or ""
-    businesses = requests.get("https://graph.facebook.com/v20.0/me/businesses", params={"access_token": access_token}, timeout=15)
-    businesses.raise_for_status()
-    business_id = ((businesses.json().get("data") or [{}])[0]).get("id") or ""
-    wabas = requests.get(f"https://graph.facebook.com/v20.0/{business_id}/owned_whatsapp_business_accounts", params={"access_token": access_token}, timeout=15) if business_id else None
-    waba_id = (((wabas.json().get("data") or [{}])[0]).get("id") if wabas else "") or ""
-    phones = requests.get(f"https://graph.facebook.com/v20.0/{waba_id}/phone_numbers", params={"access_token": access_token}, timeout=15) if waba_id else None
-    phone_number_id = (((phones.json().get("data") or [{}])[0]).get("id") if phones else "") or ""
+        try:
+            token_response = requests.get(
+                "https://graph.facebook.com/v20.0/oauth/access_token",
+                params={"client_id": app_id, "client_secret": app_secret, "redirect_uri": redirect_uri, "code": code},
+                timeout=15,
+            )
+            token_response.raise_for_status()
+            access_token = token_response.json().get("access_token") or ""
+        except Exception as exc:
+            return _meta_signup_fail(franchise_id, "Meta authorization failed. Please retry Embedded Signup.", f"token_exchange:{exc}")
+    try:
+        businesses = _meta_graph_get("me/businesses", access_token)
+    except Exception as exc:
+        return _meta_signup_fail(franchise_id, "Could not read Meta business assets. Please retry.", f"business_discovery:{exc}")
+    if not businesses:
+        return _meta_signup_fail(franchise_id, "No Meta business assets were found for this login.", "no_businesses")
+
+    business_id = request.args.get("business_id") or (businesses[0].get("id") if len(businesses) == 1 else "")
+    if not business_id:
+        return _render_meta_selection(franchise_id, state, access_token, businesses)
+
+    try:
+        wabas = _meta_graph_get(f"{business_id}/owned_whatsapp_business_accounts", access_token)
+    except Exception as exc:
+        return _meta_signup_fail(franchise_id, "Could not read WhatsApp Business Accounts. Please retry.", f"waba_discovery:{exc}")
+    if not wabas:
+        return _meta_signup_fail(franchise_id, "No WhatsApp Business Account was found for the selected business.", "no_wabas")
+
+    waba_id = request.args.get("waba_id") or (wabas[0].get("id") if len(wabas) == 1 else "")
+    if not waba_id:
+        return _render_meta_selection(franchise_id, state, access_token, businesses, selected_business_id=business_id, wabas=wabas)
+
+    try:
+        phones = _meta_graph_get(f"{waba_id}/phone_numbers", access_token)
+    except Exception as exc:
+        return _meta_signup_fail(franchise_id, "Could not read WhatsApp phone numbers. Please retry.", f"phone_discovery:{exc}")
+    if not phones:
+        return _meta_signup_fail(franchise_id, "No WhatsApp phone numbers were found for the selected WABA.", "no_phone_numbers")
+
+    phone_number_id = request.args.get("phone_number_id") or (phones[0].get("id") if len(phones) == 1 else "")
+    if not phone_number_id:
+        return _render_meta_selection(franchise_id, state, access_token, businesses, selected_business_id=business_id, wabas=wabas, selected_waba_id=waba_id, phones=phones)
+
     encrypted_token = encrypt_access_token(access_token)
     existing = fetch_one("SELECT id FROM messaging_accounts WHERE workshop_id=%s AND provider='meta' AND is_active=TRUE", (franchise["workshop_id"],))
     if existing:
@@ -1611,6 +1693,7 @@ def meta_signup_callback():
         )
     record_audit("meta_embedded_signup_completed", "messaging_account", phone_number_id, current_user(), franchise_id=franchise_id, details={"waba_id": waba_id})
     session.pop("meta_signup_state", None)
+    session.pop("meta_signup_access_token", None)
     flash("Meta Embedded Signup completed and messaging account was saved.", "success")
     return redirect(url_for("admin_client_audit", franchise_id=franchise_id))
 
@@ -1819,6 +1902,7 @@ def reset_all_passwords():
             "INSERT INTO credential_audit (user_id, username, franchise_id, actor_user_id, event_type, note, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (user["id"], user["username"], user.get("franchise_id"), current_user()["id"], "password_reset_batch", "Temporary password reset to platform-wide temporary credential.", utc_now()),
         )
+        record_audit("password_reset_batch", "user", user["id"], current_user(), franchise_id=user.get("franchise_id"), branch_id=user.get("branch_id"), user_id=user["id"])
     flash("All client passwords were reset to the current temporary password policy and forced to change on next login.", "success")
     return redirect(url_for("manage_credentials"))
 
@@ -1850,6 +1934,7 @@ def manage_prices():
                 utc_now(),
             ),
         )
+        record_audit("service_price_created", "service_price", request.form.get("service_name"), current_user(), franchise_id=franchise_id, branch_id=branch["id"] if branch else None, details={"price_amount": request.form.get("price_amount") or 0})
         flash("Service price saved.", "success")
     return render_template("manage_prices.html", prices=fetch_service_prices(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=visible_franchises(user=current_user(), include_inactive=True))
 
@@ -1892,6 +1977,7 @@ def chatbot_inbox():
                 utc_now(),
             ),
         )
+        record_audit("chatbot_message_saved", "chatbot_message", request.form.get("customer_phone"), current_user(), franchise_id=franchise_id, branch_id=branch["id"] if branch else None)
         _record_chatbot_usage(franchise_id)
         flash("Message saved to inbox for processing.", "success")
     messages = fetch_all(
@@ -1943,6 +2029,7 @@ def _record_chatbot_usage(franchise_id):
 def close_billing_month():
     usage_month = (request.form.get("usage_month") or utc_today()[:7]).strip()
     closed = close_billing_period(usage_month)
+    record_audit("billing_period_closed", "billing", usage_month, current_user(), details={"records_closed": closed})
     flash(f"Closed billing calculations for {closed} account(s) in {usage_month}.", "success")
     return redirect(url_for("manage_franchises"))
 
@@ -1961,6 +2048,7 @@ def update_billing_payment(billing_id):
     )
     if status == "Paid":
         mark_billing_paid(billing["franchise_id"], billing["usage_month"], (request.form.get("payment_reference") or "").strip())
+    record_audit("billing_payment_updated", "billing", billing_id, current_user(), franchise_id=billing["franchise_id"], details={"status": status, "usage_month": billing["usage_month"]})
     flash("Billing payment status updated.", "success")
     return redirect(url_for("manage_franchises"))
 
@@ -1970,6 +2058,8 @@ def update_billing_payment(billing_id):
 @limiter.limit("20 per hour")
 def generate_payment_link(billing_id):
     link = create_payment_link(billing_id)
+    billing = fetch_one("SELECT * FROM billing_records WHERE id=%s", (billing_id,))
+    record_audit("billing_payment_link_generated", "billing_record", billing_id, current_user(), franchise_id=(billing or {}).get("franchise_id"), details={"created": bool(link)})
     flash("Payment link generated." if link is not None else "Billing record not found.", "success" if link is not None else "error")
     return redirect(url_for("manage_franchises"))
 

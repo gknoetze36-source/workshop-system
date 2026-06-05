@@ -33,7 +33,7 @@
         <section>
             <h3>Meta & Messaging Audit</h3>
             <div class="table-wrap"><table>
-                <tr><th>Provider</th><th>Business</th><th>WABA</th><th>Phone ID</th><th>Signup</th><th>Token</th><th>Status</th><th>Action</th></tr>
+                <tr><th>Provider</th><th>Business</th><th>WABA</th><th>Phone ID</th><th>Signup</th><th>Token</th><th>Version</th><th>Age</th><th>Status</th><th>Action</th></tr>
                 {% for account in item.messaging_accounts %}
                 <tr>
                     <td>{{ account.provider }}</td>
@@ -42,6 +42,8 @@
                     <td>{{ account.phone_number_id or "-" }}</td>
                     <td>{{ account.embedded_signup_state or "not_started" }}</td>
                     <td>{{ "Configured" if account.access_token else "Missing" }}</td>
+                    <td>{{ account.token_encryption_version or "legacy" }}</td>
+                    <td>{{ account.token_age_days if account.token_age_days is not none else "-" }} days</td>
                     <td>{{ "Active" if account.is_active else "Disabled" }}</td>
                     <td>
                         {% if account.is_active %}
@@ -49,12 +51,12 @@
                         {% endif %}
                     </td>
                 </tr>
-                {% else %}<tr><td colspan="8">No messaging account configured.</td></tr>{% endfor %}
+                {% else %}<tr><td colspan="10">No messaging account configured.</td></tr>{% endfor %}
             </table></div>
         </section>
 
         <section>
-            <h3>Messaging Account</h3>
+            <h3>Create Messaging Account</h3>
             <form method="post" action="{{ url_for('save_messaging_account', franchise_id=franchise.id) }}" class="grid-form">
                 <label>Business Account ID<input name="business_account_id"></label>
                 <label>WABA ID<input name="whatsapp_business_account_id"></label>
@@ -67,6 +69,29 @@
             </form>
         </section>
     </div>
+
+    {% if item.messaging_accounts %}
+    <section style="margin-top:18px;">
+        <h3>Edit / Rotate Messaging Accounts</h3>
+        <div class="grid two">
+            {% for account in item.messaging_accounts %}
+            <form method="post" action="{{ url_for('save_messaging_account', franchise_id=franchise.id) }}" class="grid-form panel">
+                <input type="hidden" name="account_id" value="{{ account.id }}">
+                <label>Business Account ID<input name="business_account_id" value="{{ account.business_account_id or '' }}"></label>
+                <label>WABA ID<input name="whatsapp_business_account_id" value="{{ account.whatsapp_business_account_id or '' }}"></label>
+                <label>Phone Number ID<input name="phone_number_id" value="{{ account.phone_number_id or '' }}"></label>
+                <label>Rotate Token<input name="access_token" type="password" placeholder="Leave blank to keep current token"></label>
+                <label>Webhook Verify Token<input name="webhook_verify_token" value="{{ account.webhook_verify_token or '' }}"></label>
+                <label>Webhook Secret<input name="webhook_secret" type="password" placeholder="Leave blank to keep current secret"></label>
+                <label>Signup State<input name="embedded_signup_state" value="{{ account.embedded_signup_state or 'manual' }}"></label>
+                <label>Status<select name="is_active"><option value="true" {% if account.is_active %}selected{% endif %}>Active</option><option value="false" {% if not account.is_active %}selected{% endif %}>Disabled</option></select></label>
+                <p class="small">Token: {{ "Configured" if account.access_token else "Missing" }} | Version: {{ account.token_encryption_version or "legacy" }} | Age: {{ account.token_age_days if account.token_age_days is not none else "-" }} days</p>
+                <button type="submit" class="alt">Save Account</button>
+            </form>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
 
     <div class="grid two" style="margin-top:18px;">
         <section>
