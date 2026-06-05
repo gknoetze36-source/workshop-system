@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Superadmin Organization{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading"><h1>Organization Management</h1><p>Platform view of franchises, branches, users, and role rollout.</p></div>
+    <div class="actions"><a class="button alt" href="{{ url_for('manage_franchises') }}">Manage Businesses</a><a class="button alt" href="{{ url_for('admin_client_audit') }}">Audit Center</a></div>
+</div>
+
+<div class="grid two">
+    <section class="panel">
+        <h3>Franchises</h3>
+        <div class="table-wrap"><table>
+            <tr><th>Name</th><th>ID</th><th>Subscription</th><th>Users</th><th>Branches</th><th>Created</th></tr>
+            {% for franchise in franchises %}
+            <tr>
+                <td>{{ franchise.name }}<div class="small">{{ "Active" if franchise.active else "Suspended" }}</div></td>
+                <td>{{ franchise.id }}</td>
+                <td>{{ franchise.subscription_status or "active" }}</td>
+                <td>{{ user_counts.get(franchise.id, 0) }}</td>
+                <td>{{ branch_counts.get(franchise.id, 0) }}</td>
+                <td>{{ franchise.created_at or "-" }}</td>
+            </tr>
+            {% else %}<tr><td colspan="6">No franchises found.</td></tr>{% endfor %}
+        </table></div>
+    </section>
+
+    <section class="panel">
+        <h3>Branches</h3>
+        <div class="table-wrap"><table>
+            <tr><th>Branch</th><th>Franchise</th><th>Status</th><th>Public Booking</th></tr>
+            {% for branch in branches %}
+            <tr><td>{{ branch.name }}</td><td>{{ branch.franchise_name }}</td><td>{{ "Active" if branch.active else "Disabled" }}</td><td>{{ "Enabled" if branch.public_booking_enabled else "Disabled" }}</td></tr>
+            {% else %}<tr><td colspan="4">No branches found.</td></tr>{% endfor %}
+        </table></div>
+    </section>
+</div>
+
+<div class="grid two" style="margin-top:18px;">
+    <section class="panel">
+        <h3>Users</h3>
+        <div class="table-wrap"><table>
+            <tr><th>Name</th><th>Email</th><th>Role</th><th>Franchise</th><th>Branch</th><th>Last Login</th></tr>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.full_name or user.username }}<div class="small">{{ "Active" if user.active else "Disabled" }}</div></td>
+                <td>{{ user.email or "-" }}</td>
+                <td>{{ role_label(user.role) }}</td>
+                <td>{{ user.franchise_name or "-" }}</td>
+                <td>{{ user.branch_name or "-" }}</td>
+                <td>{{ user.last_login or "-" }}</td>
+            </tr>
+            {% else %}<tr><td colspan="6">No users found.</td></tr>{% endfor %}
+        </table></div>
+    </section>
+
+    <section class="panel">
+        <h3>Roles</h3>
+        <p class="small">Existing roles remain active. Future roles are listed for controlled rollout only.</p>
+        <div class="table-wrap"><table>
+            <tr><th>Role</th><th>Status</th></tr>
+            <tr><td>Platform Super Admin</td><td>Active</td></tr>
+            <tr><td>Franchise Admin</td><td>Active</td></tr>
+            <tr><td>Reception</td><td>Active</td></tr>
+            {% for _key, label in future_roles.items() %}
+            <tr><td>{{ label }}</td><td>Planned</td></tr>
+            {% endfor %}
+        </table></div>
+    </section>
+</div>
+{% endblock %}

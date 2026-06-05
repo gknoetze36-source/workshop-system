@@ -96,6 +96,8 @@
                 <a class="nav-link" href="{{ url_for('manage_users') }}">Users</a>
                 {% endif %}
                 {% if current_user.role == 'super_admin' %}
+                <a class="nav-link" href="{{ url_for('admin_organization') }}">Organization</a>
+                <a class="nav-link" href="{{ url_for('admin_client_audit') }}">Audit Center</a>
                 <a class="nav-link" href="{{ url_for('manage_franchises') }}">Businesses</a>
                 <a class="nav-link" href="{{ url_for('manage_credentials') }}">Credentials</a>
                 {% endif %}

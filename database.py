@@ -634,6 +634,32 @@ def _create_tables(connection, backend):
         )
         """,
         f"""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id {primary_key},
+            franchise_id INTEGER,
+            branch_id INTEGER,
+            user_id INTEGER,
+            actor_user_id INTEGER,
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT,
+            details_json TEXT,
+            created_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS paystack_webhook_events (
+            id {primary_key},
+            event_id TEXT,
+            reference TEXT,
+            event_type TEXT,
+            received_at TEXT,
+            processed_at TEXT,
+            status TEXT,
+            payload_json TEXT
+        )
+        """,
+        f"""
         CREATE TABLE IF NOT EXISTS industry_templates (
             id {primary_key},
             industry TEXT NOT NULL,
@@ -861,6 +887,7 @@ def _ensure_columns(connection, backend):
             "full_name": "TEXT",
             "email": "TEXT",
             "phone": "TEXT",
+            "last_login": "TEXT",
             "company": "TEXT",
             "franchise_id": "INTEGER",
             "branch_id": "INTEGER",
@@ -1002,6 +1029,8 @@ def _ensure_columns(connection, backend):
             "whatsapp_business_account_id": "TEXT",
             "phone_number_id": "TEXT",
             "access_token": "TEXT",
+            "token_encryption_version": "TEXT",
+            "token_rotated_at": "TEXT",
             "token_expiry": "TEXT",
             "auth_secret": "TEXT",
             "webhook_verify_token": "TEXT",
@@ -1097,6 +1126,26 @@ def _ensure_columns(connection, backend):
             "event_type": "TEXT",
             "note": "TEXT",
             "created_at": "TEXT",
+        },
+        "audit_logs": {
+            "franchise_id": "INTEGER",
+            "branch_id": "INTEGER",
+            "user_id": "INTEGER",
+            "actor_user_id": "INTEGER",
+            "action": "TEXT",
+            "entity_type": "TEXT",
+            "entity_id": "TEXT",
+            "details_json": "TEXT",
+            "created_at": "TEXT",
+        },
+        "paystack_webhook_events": {
+            "event_id": "TEXT",
+            "reference": "TEXT",
+            "event_type": "TEXT",
+            "received_at": "TEXT",
+            "processed_at": "TEXT",
+            "status": "TEXT",
+            "payload_json": "TEXT",
         },
         "industry_templates": {
             "industry": "TEXT",
@@ -1266,6 +1315,10 @@ def _ensure_indexes(connection, backend):
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_chatbot_usage_daily_scope ON chatbot_usage_daily(franchise_id, usage_date)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_chatbot_usage_monthly_scope ON chatbot_usage_monthly(franchise_id, usage_month)",
         "CREATE INDEX IF NOT EXISTS idx_credential_audit_scope ON credential_audit(franchise_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_logs_scope ON audit_logs(franchise_id, branch_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_paystack_webhook_events_event ON paystack_webhook_events(event_id)",
+        "CREATE INDEX IF NOT EXISTS idx_paystack_webhook_events_reference ON paystack_webhook_events(reference)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_industry_templates_industry ON industry_templates(industry)",
         "CREATE INDEX IF NOT EXISTS idx_automation_templates_industry ON automation_templates(industry, event_type)",
         "CREATE INDEX IF NOT EXISTS idx_automation_rules_scope ON automation_rules(franchise_id, event_type, active)",

@@ -4,6 +4,8 @@ import os
 
 import requests
 
+from database import execute_db, query_db, utc_now
+
 
 PAYSTACK_BASE_URL = "https://api.paystack.co"
 
@@ -49,3 +51,30 @@ def valid_webhook_signature(raw_body, signature):
         return False
     expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
     return hmac.compare_digest(expected, signature)
+
+
+def claim_webhook_event(event_id, reference, event_type, payload_json):
+    if not event_id:
+        event_id = f"{event_type}:{reference}"
+    existing = query_db("SELECT id FROM paystack_webhook_events WHERE event_id=%s", (event_id,), one=True)
+    if existing:
+        return False
+    try:
+        execute_db(
+            """
+            INSERT INTO paystack_webhook_events (
+                event_id, reference, event_type, received_at, status, payload_json
+            ) VALUES (%s, %s, %s, %s, 'received', %s)
+            """,
+            (event_id, reference, event_type, utc_now(), payload_json),
+        )
+        return True
+    except Exception:
+        return False
+
+
+def mark_webhook_event_processed(event_id, status="processed"):
+    execute_db(
+        "UPDATE paystack_webhook_events SET processed_at=%s, status=%s WHERE event_id=%s",
+        (utc_now(), status, event_id),
+    )

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 import os
 
 from flask import has_request_context, url_for
@@ -10,6 +11,16 @@ ROLE_LABELS = {
     "reception": "Reception",
     "franchise_admin": "Franchise Admin",
     "super_admin": "Platform Super Admin",
+    "branch_manager": "Branch Manager",
+    "technician": "Technician",
+    "accounts": "Accounts",
+    "viewer": "Viewer",
+}
+FUTURE_ROLE_LABELS = {
+    "branch_manager": "Branch Manager",
+    "technician": "Technician",
+    "accounts": "Accounts",
+    "viewer": "Viewer",
 }
 
 PLAN_DEFINITIONS = {
@@ -101,6 +112,55 @@ def boolish(value):
 
 def db_bool(value):
     return value if isinstance(value, bool) else boolish(value)
+
+
+def record_audit(action, entity_type, entity_id=None, actor_user=None, franchise_id=None, branch_id=None, user_id=None, details=None):
+    actor_user = actor_user or {}
+    execute_db(
+        """
+        INSERT INTO audit_logs (
+            franchise_id, branch_id, user_id, actor_user_id, action,
+            entity_type, entity_id, details_json, created_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            franchise_id if franchise_id is not None else actor_user.get("franchise_id"),
+            branch_id if branch_id is not None else actor_user.get("branch_id"),
+            user_id,
+            actor_user.get("id"),
+            action,
+            entity_type,
+            str(entity_id or ""),
+            json.dumps(details or {}, separators=(",", ":"), sort_keys=True),
+            utc_now(),
+        ),
+    )
+
+
+def fetch_audit_logs(user=None, franchise_id=None, limit=100):
+    clauses = []
+    args = []
+    if user and user.get("role") != "super_admin":
+        clauses.append("al.franchise_id=%s")
+        args.append(user.get("franchise_id"))
+    elif franchise_id:
+        clauses.append("al.franchise_id=%s")
+        args.append(franchise_id)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    args.append(limit)
+    return fetch_all(
+        f"""
+        SELECT al.*, f.name AS franchise_name, b.name AS branch_name, u.username AS actor_username
+        FROM audit_logs al
+        LEFT JOIN franchises f ON f.id = al.franchise_id
+        LEFT JOIN branches b ON b.id = al.branch_id
+        LEFT JOIN users u ON u.id = al.actor_user_id
+        {where}
+        ORDER BY al.created_at DESC
+        LIMIT %s
+        """,
+        tuple(args),
+    )
 
 
 def refresh_subscription_status(franchise):

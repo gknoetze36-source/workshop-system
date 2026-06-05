@@ -91,28 +91,33 @@ def encrypt_access_token(token):
     text = str(token or "")
     if not text or text.startswith("enc:"):
         return text
+    from cryptography.fernet import Fernet
+
+    key = base64.urlsafe_b64encode(_token_key())
+    return "enc:v2:" + Fernet(key).encrypt(text.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt_legacy_access_token(text):
     key = _token_key()
-    nonce = secrets.token_bytes(16)
-    plaintext = text.encode("utf-8")
-    stream = _token_stream(key, nonce, len(plaintext))
-    ciphertext = bytes(left ^ right for left, right in zip(plaintext, stream))
-    tag = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()
-    payload = base64.urlsafe_b64encode(nonce + tag + ciphertext).decode("utf-8")
-    return "enc:v1:" + payload
+    payload = base64.urlsafe_b64decode(text[7:].encode("utf-8"))
+    nonce, tag, ciphertext = payload[:16], payload[16:48], payload[48:]
+    expected = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()
+    if not hmac.compare_digest(tag, expected):
+        raise RuntimeError("Messaging access token failed integrity validation.")
+    stream = _token_stream(key, nonce, len(ciphertext))
+    plaintext = bytes(left ^ right for left, right in zip(ciphertext, stream))
+    return plaintext.decode("utf-8")
 
 
 def decrypt_access_token(token):
     text = str(token or "")
+    if text.startswith("enc:v2:"):
+        from cryptography.fernet import Fernet
+
+        key = base64.urlsafe_b64encode(_token_key())
+        return Fernet(key).decrypt(text[7:].encode("utf-8")).decode("utf-8")
     if text.startswith("enc:v1:"):
-        key = _token_key()
-        payload = base64.urlsafe_b64decode(text[7:].encode("utf-8"))
-        nonce, tag, ciphertext = payload[:16], payload[16:48], payload[48:]
-        expected = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()
-        if not hmac.compare_digest(tag, expected):
-            raise RuntimeError("Messaging access token failed integrity validation.")
-        stream = _token_stream(key, nonce, len(ciphertext))
-        plaintext = bytes(left ^ right for left, right in zip(ciphertext, stream))
-        return plaintext.decode("utf-8")
+        return _decrypt_legacy_access_token(text)
     if os.environ.get("ALLOW_PLAINTEXT_MESSAGING_TOKENS", "").lower() == "true":
         return text
     raise RuntimeError("Messaging access token is not encrypted.")
