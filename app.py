@@ -1719,7 +1719,7 @@ def meta_signup_start(franchise_id):
             "redirect_uri": redirect_uri,
             "state": state,
             "response_type": "code",
-            "scope": "business_management,whatsapp_business_management,whatsapp_business_messaging",
+            "scope": "whatsapp_business_management,whatsapp_business_messaging",
         }
     )
     return redirect(f"https://www.facebook.com/v20.0/dialog/oauth?{params}")
