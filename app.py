@@ -894,7 +894,7 @@ def dashboard():
             "whatsapp_connected": (fetch_one("SELECT COUNT(*) AS total FROM messaging_accounts WHERE provider='meta' AND is_active=TRUE") or {}).get("total", 0),
             "messages_today": (fetch_one("SELECT COUNT(*) AS total FROM communication_logs WHERE substr(created_at, 1, 10)=%s", (today,)) or {}).get("total", 0),
             "failed_jobs": (fetch_one("SELECT COUNT(*) AS total FROM failed_jobs WHERE resolved=FALSE") or {}).get("total", 0),
-            "pending_setups": (fetch_one("SELECT COUNT(*) AS total FROM franchises f WHERE active=TRUE AND NOT EXISTS (SELECT 1 FROM messaging_accounts ma WHERE ma.workshop_id=f.workshop_id AND ma.provider='meta' AND ma.active=TRUE)") or {}).get("total", 0),
+            "pending_setups": (fetch_one("SELECT COUNT(*) AS total FROM franchises f WHERE active=TRUE AND NOT EXISTS (SELECT 1 FROM messaging_accounts ma WHERE ma.workshop_id=f.workshop_id AND ma.provider='meta' AND ma.is_active=TRUE)") or {}).get("total", 0),
             "recent_activity": fetch_all("SELECT al.*, f.name AS franchise_name FROM audit_logs al LEFT JOIN franchises f ON f.id=al.franchise_id ORDER BY al.created_at DESC LIMIT 6"),
         }
     return render_template(
