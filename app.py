@@ -1773,6 +1773,9 @@ def meta_signup_callback():
         return _meta_signup_fail(franchise_id, "Meta app credentials are not configured.", "missing_meta_credentials")
     encrypted_session_token = session.get("meta_signup_access_token")
     code = request.args.get("code") or ""
+
+    print("CALLBACK ARGS:", dict(request.args))
+    
     if encrypted_session_token:
         access_token = decrypt_access_token(encrypted_session_token)
     else:
