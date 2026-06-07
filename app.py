@@ -1793,13 +1793,21 @@ def meta_signup_callback():
     try:
         businesses = _meta_graph_get("me/businesses", access_token)
     except Exception as exc:
-        flash(f"Meta discovery error: {exc}", "error")
-        return _meta_signup_fail(franchise_id, 
-                                 f"Meta discovery error: {exc}", 
-                                 f"business_discovery:{exc}"
-                                )
+        flash(f"Meta discovery warning: {exc}", "warning")
+        businesses = []
+    
     if not businesses:
-        return _meta_signup_fail(franchise_id, "No Meta business assets were found for this login.", "no_businesses")
+        business_id = request.args.get("business_id")
+        
+        if business_id:
+            businesses = [{"id":business_id}]
+            
+    if not businesses:
+        return _meta_signup_fail(
+            franchise_id,
+            "No Meta business assets were found for this login.",
+            "no_businesses"
+        )
 
     business_id = request.args.get("business_id") or (businesses[0].get("id") if len(businesses) == 1 else "")
     if not business_id:
