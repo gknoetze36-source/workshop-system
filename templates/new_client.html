@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}New Client{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading">
+        <h1>New Client</h1>
+        <p>Onboard a workshop from setup to WhatsApp handoff in one flow.</p>
+    </div>
+    <a class="button alt" href="{{ url_for('manage_franchises') }}">Clients</a>
+</div>
+
+<form method="post" class="grid" id="clientWizard">
+    <section class="panel">
+        <h3>1. Client details</h3>
+        <div class="grid two">
+            <label>Business Name<input name="business_name" required></label>
+            <label>Owner Name<input name="owner_name"></label>
+            <label>Email<input name="owner_email" type="email"></label>
+            <label>Phone<input name="owner_phone"></label>
+            <label>Subscription Plan
+                <select name="plan_code">
+                    {% for code, plan in plans.items() %}
+                    <option value="{{ code }}">{{ plan.label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h3>2. Branch setup</h3>
+        <div id="branches" class="grid">
+            <div class="grid two repeat-row">
+                <label>Branch Name<input name="branch_name" value="Main Branch" required></label>
+                <label>Branch Code<input name="branch_code" value="MAIN"></label>
+                <label>Location<input name="branch_location"></label>
+                <label>Contact Email<input name="branch_email" type="email"></label>
+                <label>Contact Phone<input name="branch_phone"></label>
+                <label>Allow Public Bookings<select name="branch_public"><option value="true">Yes</option><option value="false">No</option></select></label>
+            </div>
+        </div>
+        <button class="alt" type="button" data-add="branches">Add Branch</button>
+    </section>
+
+    <section class="panel">
+        <h3>3. Staff setup</h3>
+        <div id="staff" class="grid">
+            <div class="grid two repeat-row">
+                <label>Username<input name="staff_username" required></label>
+                <label>Password<input name="staff_password" type="password" required></label>
+                <label>Full Name<input name="staff_full_name"></label>
+                <label>Email<input name="staff_email" type="email"></label>
+                <label>Phone<input name="staff_phone"></label>
+                <label>Role<select name="staff_role"><option value="franchise_admin">Franchise Admin</option><option value="reception">Reception Staff</option></select></label>
+                <label>Branch Assignment<select name="staff_branch_index"><option value="0">First Branch</option><option value="1">Second Branch</option><option value="2">Third Branch</option></select></label>
+            </div>
+        </div>
+        <button class="alt" type="button" data-add="staff">Add Staff</button>
+    </section>
+
+    <section class="panel">
+        <h3>4. WhatsApp setup</h3>
+        <div class="grid two">
+            <label>Connection Status
+                <select name="whatsapp_status">
+                    <option value="connect">Connect after create</option>
+                    <option value="pending">Skip: WhatsApp Pending</option>
+                </select>
+            </label>
+            <div class="metric"><span>Uses existing Meta Embedded Signup</span><strong style="font-size:1rem;">Encrypted token storage</strong></div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h3>5. Services</h3>
+        <div class="grid two">
+            <label>Template
+                <select name="service_template">
+                    <option value="starter">Workshop Starter</option>
+                    <option value="advanced">Workshop Advanced</option>
+                    <option value="custom">Custom</option>
+                </select>
+            </label>
+            <label>Custom Services<textarea name="custom_services" placeholder="One service per line"></textarea></label>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h3>6. Review</h3>
+        <p class="small">Create Client will create the client, branches, staff, services, automation defaults, booking token, and audit entries using the existing platform systems.</p>
+        <button type="submit">Create Client</button>
+    </section>
+</form>
+
+<script>
+document.querySelectorAll("[data-add]").forEach((button) => {
+    button.addEventListener("click", () => {
+        const target = document.getElementById(button.dataset.add);
+        const clone = target.querySelector(".repeat-row").cloneNode(true);
+        clone.querySelectorAll("input, textarea").forEach((field) => field.value = "");
+        target.appendChild(clone);
+    });
+});
+</script>
+{% endblock %}

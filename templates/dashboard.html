@@ -12,6 +12,34 @@
     <div class="metric"><span>Completed</span><strong>{{ metrics.completed }}</strong></div>
     <div class="metric"><span>Pending reminders</span><strong>{{ metrics.reminders }}</strong></div>
 </section>
+{% if current_user.role == 'super_admin' %}
+<section class="panel" style="margin-top:18px;">
+    <div class="topbar" style="margin-bottom:14px;">
+        <div class="heading"><h2>Onboarding control</h2><p>Client setup, integration status, and worker visibility.</p></div>
+        <a class="button" href="{{ url_for('new_client') }}">New Client</a>
+    </div>
+    <div class="metrics">
+        <div class="metric"><span>Total Clients</span><strong>{{ onboarding.total_clients }}</strong></div>
+        <div class="metric"><span>Total Branches</span><strong>{{ onboarding.total_branches }}</strong></div>
+        <div class="metric"><span>WhatsApp Connected</span><strong>{{ onboarding.whatsapp_connected }}</strong></div>
+        <div class="metric"><span>Bookings Today</span><strong>{{ metrics.today }}</strong></div>
+        <div class="metric"><span>Messages Today</span><strong>{{ onboarding.messages_today }}</strong></div>
+        <div class="metric"><span>Worker Health</span><strong>{{ 'Action' if onboarding.failed_jobs else 'OK' }}</strong></div>
+        <div class="metric"><span>Automation Health</span><strong>{{ onboarding.failed_jobs }} failed</strong></div>
+        <div class="metric"><span>Pending Client Setups</span><strong>{{ onboarding.pending_setups }}</strong></div>
+    </div>
+    <div class="table-wrap" style="margin-top:14px;">
+        <table>
+            <tr><th>Recent Client Activity</th><th>Client</th><th>When</th></tr>
+            {% for item in onboarding.recent_activity %}
+            <tr><td>{{ item.action }}</td><td>{{ item.franchise_name or '-' }}</td><td>{{ item.created_at }}</td></tr>
+            {% else %}
+            <tr><td colspan="3">No audit activity yet.</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</section>
+{% endif %}
 <section class="panel" style="margin-top:18px;">
     <h3>Inquiry follow-up pipeline</h3>
     <div class="metrics">

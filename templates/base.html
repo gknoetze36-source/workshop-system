@@ -83,25 +83,34 @@
             <div class="chip">{{ role_label(current_user.role) }}</div>
             <nav class="nav-group">
                 <a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a>
+                {% if current_user.role == 'super_admin' %}
+                <a class="nav-link" href="{{ url_for('new_client') }}">* New Client</a>
+                {% endif %}
+                <div class="small" style="color:rgba(247,248,242,.62);font-weight:700;margin-top:6px;">Operations</div>
                 <a class="nav-link" href="{{ url_for('bookings') }}">Bookings</a>
-                <a class="nav-link" href="{{ url_for('add_booking') }}">Reception Booking</a>
                 <a class="nav-link" href="{{ url_for('walkin') }}">Walk-In / On-Site</a>
                 <a class="nav-link" href="{{ url_for('customers') }}">Customers</a>
                 <a class="nav-link" href="{{ url_for('reports') }}">Reports</a>
                 <a class="nav-link" href="{{ url_for('reminders') }}">Reminders</a>
                 {% if current_user.role in ['franchise_admin', 'super_admin'] %}
-                <a class="nav-link" href="{{ url_for('manage_prices') }}">Service Prices</a>
-                <a class="nav-link" href="{{ url_for('chatbot_inbox') }}">Chatbot Inbox</a>
-                <a class="nav-link" href="{{ url_for('manage_branches') }}">Locations</a>
-                <a class="nav-link" href="{{ url_for('manage_users') }}">Users</a>
+                <div class="small" style="color:rgba(247,248,242,.62);font-weight:700;margin-top:6px;">Communication</div>
+                <a class="nav-link" href="{{ url_for('admin_client_audit') if current_user.role == 'super_admin' else url_for('chatbot_inbox') }}">WhatsApp</a>
+                <a class="nav-link" href="{{ url_for('chatbot_inbox') }}">Messages</a>
+                <div class="small" style="color:rgba(247,248,242,.62);font-weight:700;margin-top:6px;">Management</div>
+                {% if current_user.role == 'super_admin' %}
+                <a class="nav-link" href="{{ url_for('manage_franchises') }}">Clients</a>
+                {% endif %}
+                <a class="nav-link" href="{{ url_for('manage_branches') }}">Branches</a>
+                <a class="nav-link" href="{{ url_for('manage_users') }}">Staff</a>
+                <a class="nav-link" href="{{ url_for('manage_prices') }}">Services</a>
                 {% endif %}
                 {% if current_user.role == 'super_admin' %}
-                <a class="nav-link" href="{{ url_for('admin_organization') }}">Organization</a>
+                <div class="small" style="color:rgba(247,248,242,.62);font-weight:700;margin-top:6px;">Platform</div>
+                <a class="nav-link" href="{{ url_for('manage_credentials') }}">Security</a>
                 <a class="nav-link" href="{{ url_for('admin_client_audit') }}">Audit Center</a>
-                <a class="nav-link" href="{{ url_for('manage_franchises') }}">Businesses</a>
-                <a class="nav-link" href="{{ url_for('manage_credentials') }}">Credentials</a>
+                <a class="nav-link" href="{{ url_for('admin_organization') }}">Settings</a>
                 {% endif %}
-                <a class="nav-link" href="{{ url_for('logout') }}">Log Out</a>
+                <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
             </nav>
         </aside>
         {% endif %}

@@ -886,6 +886,17 @@ def dashboard():
     franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (current_user().get("franchise_id"),)) if current_user()["role"] != "super_admin" else None
     monthly_rows = monthly_usage_summary(current_user())
     latest_monthly = monthly_rows[0] if monthly_rows else None
+    onboarding = {}
+    if current_user()["role"] == "super_admin":
+        onboarding = {
+            "total_clients": (fetch_one("SELECT COUNT(*) AS total FROM franchises") or {}).get("total", 0),
+            "total_branches": (fetch_one("SELECT COUNT(*) AS total FROM branches") or {}).get("total", 0),
+            "whatsapp_connected": (fetch_one("SELECT COUNT(*) AS total FROM messaging_accounts WHERE provider='meta' AND active=TRUE") or {}).get("total", 0),
+            "messages_today": (fetch_one("SELECT COUNT(*) AS total FROM communication_logs WHERE substr(created_at, 1, 10)=%s", (today,)) or {}).get("total", 0),
+            "failed_jobs": (fetch_one("SELECT COUNT(*) AS total FROM failed_jobs WHERE resolved=FALSE") or {}).get("total", 0),
+            "pending_setups": (fetch_one("SELECT COUNT(*) AS total FROM franchises f WHERE active=TRUE AND NOT EXISTS (SELECT 1 FROM messaging_accounts ma WHERE ma.workshop_id=f.workshop_id AND ma.provider='meta' AND ma.active=TRUE)") or {}).get("total", 0),
+            "recent_activity": fetch_all("SELECT al.*, f.name AS franchise_name FROM audit_logs al LEFT JOIN franchises f ON f.id=al.franchise_id ORDER BY al.created_at DESC LIMIT 6"),
+        }
     return render_template(
         "dashboard.html",
         today_bookings=[item for item in bookings if item.get("scheduled_date") == today],
@@ -904,7 +915,152 @@ def dashboard():
         monthly_usage=monthly_rows,
         inquiry_rows=inquiries,
         inquiry_metrics=inquiry_metrics(current_user()),
+        onboarding=onboarding,
     )
+
+
+def _split_form_list(name):
+    return [item.strip() for item in request.form.getlist(name) if item and item.strip()]
+
+
+@app.route("/new-client", methods=["GET", "POST"])
+@roles_required("super_admin")
+def new_client():
+    if request.method == "POST":
+        name = (request.form.get("business_name") or "").strip()
+        if not name or fetch_one("SELECT id FROM franchises WHERE lower(name)=lower(%s)", (name,)):
+            flash("Use a unique client name.", "error")
+            return redirect(url_for("new_client"))
+
+        plan_code = (request.form.get("plan_code") or "basic").lower()
+        plan = PLAN_DEFINITIONS.get(plan_code, PLAN_DEFINITIONS["basic"])
+        slug = __import__("database").slugify(name)
+        token = secrets.token_urlsafe(18)
+        execute_db(
+            """
+            INSERT INTO franchises (
+                name, slug, contact_email, contact_phone, notes, industry, subscription_status,
+                subscription_start, subscription_end, setup_fee, plan_code, branch_limit, user_limit,
+                automation_enabled, chatbot_enabled, reporting_enabled, custom_integrations_enabled,
+                priority_support_enabled, monthly_base_price, monthly_message_limit, overage_price_per_message,
+                billing_day, public_base_url, inbound_webhook_token, active, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, 'workshop', 'active', %s, %s, 0, %s, %s, %s, %s, %s, %s, %s, %s, 0, 2000, 0.5, 'month_end', '', %s, %s, %s, %s)
+            """,
+            (
+                name,
+                slug,
+                (request.form.get("owner_email") or "").strip(),
+                (request.form.get("owner_phone") or "").strip(),
+                (request.form.get("owner_name") or "").strip(),
+                utc_today(),
+                (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d"),
+                plan_code,
+                plan["branch_limit"],
+                plan["user_limit"],
+                db_bool(plan["automation_enabled"]),
+                db_bool(plan["chatbot_enabled"]),
+                db_bool(plan["reporting_enabled"]),
+                db_bool(plan["custom_integrations_enabled"]),
+                db_bool(plan["priority_support_enabled"]),
+                token,
+                db_bool(True),
+                utc_now(),
+                utc_now(),
+            ),
+        )
+        franchise = fetch_one("SELECT * FROM franchises WHERE slug=%s", (slug,))
+        if not franchise:
+            flash("Client could not be created.", "error")
+            return redirect(url_for("new_client"))
+
+        branch_ids = []
+        branch_names = _split_form_list("branch_name")
+        branch_codes = request.form.getlist("branch_code")
+        branch_locations = request.form.getlist("branch_location")
+        branch_emails = request.form.getlist("branch_email")
+        branch_phones = request.form.getlist("branch_phone")
+        public_booking = request.form.getlist("branch_public")
+        for index, branch_name in enumerate(branch_names):
+            execute_db(
+                "INSERT INTO branches (franchise_id, name, slug, code, location, contact_email, contact_phone, public_booking_enabled, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    franchise["id"],
+                    branch_name,
+                    __import__("database").slugify(branch_name),
+                    (branch_codes[index] if index < len(branch_codes) else "").strip(),
+                    (branch_locations[index] if index < len(branch_locations) else "").strip(),
+                    (branch_emails[index] if index < len(branch_emails) else "").strip(),
+                    (branch_phones[index] if index < len(branch_phones) else "").strip(),
+                    db_bool(public_booking[index] if index < len(public_booking) else "true"),
+                    db_bool(True),
+                    utc_now(),
+                    utc_now(),
+                ),
+            )
+            created_branch = fetch_one("SELECT id FROM branches WHERE franchise_id=%s AND lower(name)=lower(%s)", (franchise["id"], branch_name))
+            if created_branch:
+                branch_ids.append(created_branch["id"])
+                record_audit("branch_created", "branch", branch_name, current_user(), franchise_id=franchise["id"], branch_id=created_branch["id"])
+
+        provision_business(franchise["id"], {"industry": "workshop", "plan": plan_code})
+
+        user_names = _split_form_list("staff_username")
+        passwords = request.form.getlist("staff_password")
+        full_names = request.form.getlist("staff_full_name")
+        emails = request.form.getlist("staff_email")
+        phones = request.form.getlist("staff_phone")
+        roles = request.form.getlist("staff_role")
+        assigned_branches = request.form.getlist("staff_branch_index")
+        for index, username in enumerate(user_names):
+            if fetch_one("SELECT id FROM users WHERE lower(username)=lower(%s)", (username,)):
+                continue
+            role = roles[index] if index < len(roles) and roles[index] in {"franchise_admin", "reception"} else "reception"
+            branch_id = None
+            branch_name = ""
+            if role == "reception" and branch_ids:
+                branch_index = int(assigned_branches[index] or 0) if index < len(assigned_branches) and (assigned_branches[index] or "0").isdigit() else 0
+                branch_id = branch_ids[min(branch_index, len(branch_ids) - 1)]
+                branch = fetch_one("SELECT * FROM branches WHERE id=%s", (branch_id,))
+                branch_name = (branch or {}).get("name", "")
+            execute_db(
+                "INSERT INTO users (username, password, password_hash, full_name, email, phone, branch, company, role, franchise_id, branch_id, active, must_reset_password, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    username,
+                    "",
+                    generate_password_hash(passwords[index] if index < len(passwords) else secrets.token_urlsafe(10)),
+                    (full_names[index] if index < len(full_names) else username).strip(),
+                    (emails[index] if index < len(emails) else "").strip(),
+                    (phones[index] if index < len(phones) else "").strip(),
+                    branch_name,
+                    franchise["name"],
+                    role,
+                    franchise["id"],
+                    branch_id,
+                    db_bool(True),
+                    db_bool(True),
+                    utc_now(),
+                    utc_now(),
+                ),
+            )
+            record_audit("user_created", "user", username, current_user(), franchise_id=franchise["id"], branch_id=branch_id, details={"role": role})
+
+        service_template = request.form.get("service_template") or "starter"
+        services = ["Minor Service", "Major Service", "Diagnostics", "Brake Inspection", "Vehicle Inspection"] if service_template == "starter" else ["Minor Service", "Major Service", "Diagnostics", "Brake Inspection", "Vehicle Inspection", "Fleet Inspection", "Roadworthy Check"]
+        if service_template == "custom":
+            services = [item.strip() for item in (request.form.get("custom_services") or "").splitlines() if item.strip()]
+        for service_name in services:
+            execute_db(
+                "INSERT INTO service_prices (franchise_id, branch_id, service_name, service_category, price_amount, active, created_at, updated_at) VALUES (%s, %s, %s, 'Workshop', 0, %s, %s, %s)",
+                (franchise["id"], None, service_name, db_bool(True), utc_now(), utc_now()),
+            )
+
+        record_audit("client_onboarding_completed", "franchise", franchise["id"], current_user(), franchise_id=franchise["id"], details={"branches": len(branch_ids), "staff": len(user_names), "services": len(services), "whatsapp": request.form.get("whatsapp_status") or "pending"})
+        flash("Client created. Connect WhatsApp now or continue from Audit Center.", "success")
+        if request.form.get("whatsapp_status") == "connect":
+            return redirect(url_for("meta_signup_start", franchise_id=franchise["id"]))
+        return redirect(url_for("admin_client_audit", franchise_id=franchise["id"]))
+
+    return render_template("new_client.html", plans=PLAN_DEFINITIONS)
 
 
 @app.route("/bookings")

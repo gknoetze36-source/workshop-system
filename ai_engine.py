@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 
 
 def classify_message(message):
@@ -9,6 +10,15 @@ def classify_message(message):
         return "pricing"
     if any(word in text for word in ["repair", "fix", "noise", "problem", "issue", "brake", "engine"]):
         return "repair"
+    if any(word in text for word in ["hours", "open", "close", "location", "address", "where"]):
+        return "chat"
+    if os.environ.get("ENABLE_AI_INTENT_CLASSIFICATION", "").lower() != "true":
+        return "chat"
+    return _classify_with_ai(text[:500])
+
+
+@lru_cache(maxsize=512)
+def _classify_with_ai(text):
     if not os.environ.get("OPENAI_API_KEY"):
         return "chat"
 
@@ -22,7 +32,7 @@ Classify into ONE:
 - repair
 - chat
 
-Message: "{message}"
+Message: "{text}"
 """
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
