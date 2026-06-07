@@ -1775,6 +1775,7 @@ def meta_signup_callback():
     code = request.args.get("code") or ""
 
     print("CALLBACK ARGS:", dict(request.args))
+    print("QUERY STRINGS:", request.query_string.decode("utf-8", errors="ignore"))
     
     if encrypted_session_token:
         access_token = decrypt_access_token(encrypted_session_token)
