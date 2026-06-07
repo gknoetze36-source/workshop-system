@@ -1793,7 +1793,11 @@ def meta_signup_callback():
     try:
         businesses = _meta_graph_get("me/businesses", access_token)
     except Exception as exc:
-        return _meta_signup_fail(franchise_id, "Could not read Meta business assets. Please retry.", f"business_discovery:{exc}")
+        flash(f"Meta discovery error: {exc}", "error")
+        return _meta_signup_fail(franchise_id, 
+                                 f"Meta discovery error: {exc}", 
+                                 f"business_discovery:{exc}"
+                                )
     if not businesses:
         return _meta_signup_fail(franchise_id, "No Meta business assets were found for this login.", "no_businesses")
 
