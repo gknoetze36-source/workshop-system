@@ -10,3 +10,4 @@ requests>=2.32,<3.0
 sentry-sdk[flask]>=2.0,<3.0
 openai>=1.0,<2.0
 cryptography>=42.0,<45.0
+validators>=0.22,<1.0
