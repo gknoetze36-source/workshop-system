@@ -1701,29 +1701,20 @@ def disable_messaging_account(franchise_id, account_id):
 @app.route("/admin/franchises/<int:franchise_id>/meta/signup/start")
 @roles_required("super_admin")
 def meta_signup_start(franchise_id):
-    franchise = _franchise_required(franchise_id)
-    app_id = os.environ.get("META_APP_ID")
-    redirect_uri = os.environ.get("META_EMBEDDED_SIGNUP_REDIRECT_URI") or url_for("meta_signup_callback", _external=True)
-    if not app_id:
-        flash("META_APP_ID is not configured.", "error")
-        return redirect(url_for("admin_client_audit", franchise_id=franchise_id))
-    if franchise.get("workshop_id"):
-        existing = fetch_one("SELECT id FROM messaging_accounts WHERE workshop_id=%s AND provider='meta' ORDER BY is_active DESC, id DESC LIMIT 1", (franchise["workshop_id"],))
-        if existing:
-            execute_db("UPDATE messaging_accounts SET embedded_signup_state='started', updated_at=%s WHERE id=%s", (utc_now(), existing["id"]))
-    state = f"{franchise_id}:{secrets.token_urlsafe(16)}"
-    session["meta_signup_state"] = state
-    params = urlencode(
-        {
-            "client_id": app_id,
-            "redirect_uri": redirect_uri,
-            "state": state,
-            "response_type": "code",
-            "scope": "whatsapp_business_management,whatsapp_business_messaging",
-        }
-    )
-    return redirect(f"https://www.facebook.com/v20.0/dialog/oauth?{params}")
 
+    franchise = _franchise_required(franchise_id)
+
+    state = f"{franchise_id}:{secrets.token_urlsafe(16)}"
+
+    session["meta_signup_state"] = state
+
+    return render_template(
+        "meta_embedded_signup_v4.html",
+        franchise=franchise,
+        state=state,
+        meta_app_id=os.environ.get("META_APP_ID"),
+        meta_config_id=os.environ.get("META_CONFIG_ID")
+    )
 
 def _meta_signup_fail(franchise_id, message, reason):
     franchise = _franchise_required(franchise_id)
@@ -1766,6 +1757,121 @@ def _render_meta_selection(franchise_id, state, access_token, businesses, select
 
 @app.route("/admin/meta/signup/callback")
 @roles_required("super_admin")
+@app.route("/meta/v4/callback", methods=["POST"])
+@roles_required("super_admin")
+def meta_v4_callback():
+
+    payload = request.get_json() or {}
+
+    code = payload.get("code")
+    waba_id = payload.get("waba_id")
+    phone_number_id = payload.get("phone_number_id")
+    franchise_id = payload.get("franchise_id")
+
+    if not code:
+        return {"success": False, "error": "missing_code"}, 400
+
+    app_id = os.environ.get("META_APP_ID")
+    app_secret = os.environ.get("META_APP_SECRET")
+
+    import requests
+
+    token_response = requests.get(
+        "https://graph.facebook.com/v25.0/oauth/access_token",
+        params={
+            "client_id": app_id,
+            "client_secret": app_secret,
+            "code": code
+        },
+        timeout=20
+    )
+
+    token_response.raise_for_status()
+
+    access_token = token_response.json()["access_token"]
+
+    franchise = _franchise_required(franchise_id)
+
+    encrypted_token = encrypt_access_token(access_token)
+
+    existing = fetch_one(
+        """
+        SELECT id
+        FROM messaging_accounts
+        WHERE workshop_id=%s
+        AND provider='meta'
+        AND is_active=TRUE
+        """,
+        (franchise["workshop_id"],)
+    )
+
+    if existing:
+
+        execute_db(
+            """
+            UPDATE messaging_accounts
+            SET
+                whatsapp_business_account_id=%s,
+                phone_number_id=%s,
+                access_token=%s,
+                token_rotated_at=%s,
+                embedded_signup_state='completed',
+                updated_at=%s
+            WHERE id=%s
+            """,
+            (
+                waba_id,
+                phone_number_id,
+                encrypted_token,
+                utc_now(),
+                utc_now(),
+                existing["id"]
+            )
+        )
+
+    else:
+
+        execute_db(
+            """
+            INSERT INTO messaging_accounts
+            (
+                workshop_id,
+                provider,
+                channel,
+                whatsapp_business_account_id,
+                phone_number_id,
+                access_token,
+                embedded_signup_state,
+                is_active,
+                created_at,
+                updated_at
+            )
+            VALUES
+            (
+                %s,
+                'meta',
+                'whatsapp',
+                %s,
+                %s,
+                %s,
+                'completed',
+                TRUE,
+                %s,
+                %s
+            )
+            """,
+            (
+                franchise["workshop_id"],
+                waba_id,
+                phone_number_id,
+                encrypted_token,
+                utc_now(),
+                utc_now()
+            )
+        )
+
+    return {"success": True}
+    
 def meta_signup_callback():
     state = request.args.get("state") or ""
     if not state or state != session.get("meta_signup_state"):
