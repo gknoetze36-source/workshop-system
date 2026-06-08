@@ -1687,7 +1687,6 @@ def save_messaging_account(franchise_id):
     flash("Messaging account saved.", "success")
     return redirect(url_for("admin_client_audit", franchise_id=franchise_id))
 
-
 @app.route("/admin/franchises/<int:franchise_id>/messaging/<int:account_id>/disable", methods=["POST"])
 @roles_required("super_admin")
 def disable_messaging_account(franchise_id, account_id):
