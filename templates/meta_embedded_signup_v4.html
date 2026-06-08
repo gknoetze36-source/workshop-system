@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Meta Signup</title>
+</head>
+<body>
+
+<button onclick="launchWhatsAppSignup()">
+    Connect WhatsApp
+</button>
+
+<script>
+
+window.fbAsyncInit = function() {
+
+    FB.init({
+        appId: "{{ meta_app_id }}",
+        autoLogAppEvents: true,
+        xfbml: true,
+        version: "v25.0"
+    });
+
+};
+
+</script>
+
+<script async defer crossorigin="anonymous"
+src="https://connect.facebook.net/en_US/sdk.js">
+</script>
+
+<script>
+
+let currentWabaId = null;
+let currentPhoneId = null;
+
+window.addEventListener("message", function(event) {
+
+    if(event.origin !== "https://www.facebook.com")
+        return;
+
+    try {
+
+        const data =
+            typeof event.data === "string"
+            ? JSON.parse(event.data)
+            : event.data;
+
+        if(data.waba_id)
+            currentWabaId = data.waba_id;
+
+        if(data.phone_number_id)
+            currentPhoneId = data.phone_number_id;
+
+    }
+    catch(err) {}
+
+});
+
+function launchWhatsAppSignup() {
+
+    FB.login(function(response) {
+
+        if(!response.authResponse)
+            return;
+
+        fetch("/meta/v4/callback", {
+
+            method: "POST",
+
+            headers: {
+                "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify({
+
+                franchise_id: {{ franchise.id }},
+                code: response.authResponse.code,
+                waba_id: currentWabaId,
+                phone_number_id: currentPhoneId
+
+            })
+
+        })
+        .then(r => r.json())
+        .then(data => {
+
+            if(data.success)
+                window.location =
+                    "/admin/franchises/{{ franchise.id }}/audit";
+
+        });
+
+    }, {
+
+        config_id: "{{ meta_config_id }}",
+        response_type: "code",
+        override_default_response_type: true
+
+    });
+
+}
+
+</script>
+
+</body>
+</html>
