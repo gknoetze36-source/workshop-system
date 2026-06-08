@@ -1730,7 +1730,13 @@ def _meta_signup_fail(franchise_id, message, reason):
     if franchise.get("workshop_id"):
         existing = fetch_one("SELECT id FROM messaging_accounts WHERE workshop_id=%s AND provider='meta' ORDER BY is_active DESC, id DESC LIMIT 1", (franchise["workshop_id"],))
         if existing:
-            execute_db("UPDATE messaging_accounts SET embedded_signup_state='failed_discovery', updated_at=%s WHERE id=%s", (utc_now(), existing["id"]))
+            execute_db("UPDATE messaging_accounts SET embedded_signup_state=%s, updated_at=%s WHERE id=%s", 
+                       (
+                               reason,
+                               utc_now(),
+                               existing["id"]
+                       )
+                      )
     record_audit("meta_embedded_signup_failed", "messaging_account", franchise_id, current_user(), franchise_id=franchise_id, details={"reason": reason})
     flash(message, "error")
     return redirect(url_for("admin_client_audit", franchise_id=franchise_id))
