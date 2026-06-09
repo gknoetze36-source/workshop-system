@@ -1753,7 +1753,7 @@ def _render_meta_selection(franchise_id, state, access_token, businesses, select
         phones=phones or [],
     )
 
-
+@csrf.exempt
 @app.route("/meta/v4/callback", methods=["POST"])
 @roles_required("super_admin")
 def meta_v4_callback():
