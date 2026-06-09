@@ -35,7 +35,7 @@ let currentPhoneId = null;
 
 window.addEventListener("message", function(event) {
     console.log("Meta event received");
-        console.log("Origin:" event.origin);
+    console.log("Origin:", event.origin);
     console.log("Data:", event.data);
 
     if(event.origin !== "https://www.facebook.com")
