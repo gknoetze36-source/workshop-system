@@ -100,10 +100,10 @@ function launchWhatsAppSignup() {
         .then(data => {
             console.log("Flask response:", data);
 
-            if(data.success)
+            if(data.success) {
                 window.location =
                     "/admin/franchises/{{ franchise.id }}/audit";
-
+            }
         });
 
     }, {
