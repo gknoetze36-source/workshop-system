@@ -92,7 +92,7 @@ function launchWhatsAppSignup() {
             code: response.authResponse.code,
             waba_id: currentWabaId,
             phone_number_id: currentPhoneId
-         )     
+                             })     
         .then(r => {
             console.log("Flask HTTP status:", r.status);
             return r.json();
