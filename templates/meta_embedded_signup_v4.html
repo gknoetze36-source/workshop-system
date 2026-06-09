@@ -73,34 +73,27 @@ function launchWhatsAppSignup() {
             return;
         }
         console.log("Received auth code:", response.authResponse.code);
-
-        fetch("/meta/v4/callback", {
+        
             console.log("Sending callback to Flask");
-            console.log({
-                franchise_id: {{franchise.id}},
-                code: response.authResponse.code,
-                waba_id: currentWabaId,
-                phone_number_id: currentPhoneId
-        .catch(err => {
-            console.error("Fetch failed:", err);
+        
+        console.log({
+            franchise_id: {{franchise.id}},
+            code: response.authResponse.code,
+            waba_id: currentWabaId,
+            phone_number_id: currentPhoneId
     });
-
-            method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
-            },
-
-            body: JSON.stringify({
-
-                franchise_id: {{ franchise.id }},
-                code: response.authResponse.code,
-                waba_id: currentWabaId,
-                phone_number_id: currentPhoneId
-
-            })
-
-        })
+    fetch("/meta/v4/callback", {
+        method: "POST",
+        headers: {
+        "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            franchise_id: {{franchise.id}},
+            code: response.authResponse.code,
+            waba_id: currentWabaId,
+            phone_number_id: currentPhoneId
+         })   
+         )  
         .then(r => {
             console.log("Flask HTTP status:", r.status);
             return r.json();
@@ -115,13 +108,11 @@ function launchWhatsAppSignup() {
         });
 
     }, {
-
         config_id: "1585425766261252",
         response_type: "code",
         override_default_response_type: true,
             version: "v4"
-
-    });
+       });
 
 }
 
