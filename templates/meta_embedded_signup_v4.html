@@ -34,6 +34,9 @@ let currentWabaId = null;
 let currentPhoneId = null;
 
 window.addEventListener("message", function(event) {
+    console.log(Meta event received");
+        console.log("Origin:" event.origin);
+    console.log("Data:", event.data);
 
     if(event.origin !== "https://www.facebook.com")
         return;
@@ -52,18 +55,35 @@ window.addEventListener("message", function(event) {
             currentPhoneId = data.phone_number_id;
 
     }
-    catch(err) {}
+    catch(err) {
+        console.error("Meta event parse failed:", err);
+    }
 
 });
 
 function launchWhatsAppSignup() {
+    
+    console.log("=== META SIGNUP STARTED ===");
 
     FB.login(function(response) {
+        console.log("FB Login response:", response);
 
-        if(!response.authResponse)
+        if(!response.authResponse) {
+            console.error("No authResponse returned from Meta");
             return;
+        }
+        console.log("Received auth code:", response.authResponse.code);
 
         fetch("/meta/v4/callback", {
+            console.log("Sending callback to Flask");
+            console.log({
+                franchise_id: {{franchise.id}},
+                code: response.authResponse.code,
+                waba_id: currentWabaId,
+                phone_number_id: currentPhoneId
+        .catch(err => {
+            console.error("Fetch failed:", err);
+    });
 
             method: "POST",
 
@@ -81,8 +101,12 @@ function launchWhatsAppSignup() {
             })
 
         })
-        .then(r => r.json())
+        .then(r => {
+            console.log("Flask HTTP status:", r.status);
+            return r.json();
+        })
         .then(data => {
+            console.log("Flask response:", data);
 
             if(data.success)
                 window.location =
