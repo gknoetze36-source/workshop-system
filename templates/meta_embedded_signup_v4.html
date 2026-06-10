@@ -31,24 +31,36 @@ src="https://connect.facebook.net/en_US/sdk.js"></script>
 
 <script>
 
-let currentWabaId = null;
-let currentPhoneId = null;
-let currentCode = null;
+// -------------------------------------------------
+// STATE MACHINE (PREVENTS NULLS + DUPLICATES)
+// -------------------------------------------------
+let state = {
+    waba_id: null,
+    phone_number_id: null,
+    code: null,
+    cancelled: false,
+    committed: false
+};
 
 // -------------------------------------------------
-// META EMBEDDED SIGNUP EVENT LISTENER (FIXED)
+// SAFE META MESSAGE PARSER (NO CRASH ON NOISE)
 // -------------------------------------------------
 window.addEventListener("message", function (event) {
 
     if (event.origin !== "https://www.facebook.com") return;
 
     let data;
+
     try {
-        data = typeof event.data === "string"
-            ? JSON.parse(event.data)
-            : event.data;
+        if (typeof event.data === "string" && event.data.trim().startsWith("{")) {
+            data = JSON.parse(event.data);
+        } else if (typeof event.data === "object") {
+            data = event.data;
+        } else {
+            return; // ignore Meta noise (cb=xxxxx etc)
+        }
     } catch (e) {
-        console.error("Invalid Meta payload:", e);
+        console.log("Skipping invalid Meta message");
         return;
     }
 
@@ -58,50 +70,71 @@ window.addEventListener("message", function (event) {
 
     console.log("META PAYLOAD:", payload);
 
-    // ❌ Ignore cancelled or incomplete flows
+    // -------------------------------------------------
+    // HANDLE CANCEL
+    // -------------------------------------------------
     if (payload.event === "CANCEL") {
-        console.warn("Signup cancelled by user");
+        state.cancelled = true;
+        console.warn("Signup cancelled - aborting flow");
         return;
     }
 
-    // -----------------------------
-    // STORE VALUES SAFELY
-    // -----------------------------
+    // -------------------------------------------------
+    // UPDATE STATE SAFELY
+    // -------------------------------------------------
     if (payload.waba_id) {
-        currentWabaId = payload.waba_id;
+        state.waba_id = payload.waba_id;
         document.getElementById("waba_id").value = payload.waba_id;
     }
 
     if (payload.phone_number_id) {
-        currentPhoneId = payload.phone_number_id;
+        state.phone_number_id = payload.phone_number_id;
         document.getElementById("phone_number_id").value = payload.phone_number_id;
     }
 
     if (payload.code) {
-        currentCode = payload.code;
+        state.code = payload.code;
     }
 
+    // -------------------------------------------------
+    // UPDATE UI
+    // -------------------------------------------------
     document.getElementById("status").innerText =
-        "WABA: " + (currentWabaId || "pending") +
-        " | Phone: " + (currentPhoneId || "pending");
+        "WABA: " + (state.waba_id || "pending") +
+        " | Phone: " + (state.phone_number_id || "pending");
 
     // -------------------------------------------------
-    // ONLY SEND WHEN EVERYTHING IS READY
+    // TRY COMMIT (ONLY WHEN COMPLETE)
     // -------------------------------------------------
-    if (currentWabaId && currentPhoneId && currentCode) {
-        sendToFlask();
-    }
+    tryCommit();
 });
 
+// -------------------------------------------------
+// COMMIT GUARD (NO NULLS, NO DUPLICATES)
+// -------------------------------------------------
+function tryCommit() {
+
+    if (state.committed) return;
+    if (state.cancelled) return;
+
+    if (!state.waba_id || !state.phone_number_id || !state.code) {
+        return;
+    }
+
+    state.committed = true;
+
+    sendToFlask();
+}
 
 // -------------------------------------------------
-// LAUNCH SIGNUP (FIXED - TRIGGER ONLY)
+// LAUNCH META SIGNUP (TRIGGER ONLY)
 // -------------------------------------------------
 function launchWhatsAppSignup() {
+
     console.log("=== META SIGNUP STARTED ===");
 
     FB.login(function (response) {
-        console.log("FB login triggered (ignore data):", response);
+        console.log("FB login triggered (ignored):", response);
     }, {
         config_id: "1585425766261252",
         response_type: "code",
@@ -112,20 +145,19 @@ function launchWhatsAppSignup() {
     });
 }
 
-
 // -------------------------------------------------
-// FLASK CALLBACK (ONLY WHEN COMPLETE)
+// FLASK CALLBACK (FINAL COMMIT)
 // -------------------------------------------------
 function sendToFlask() {
 
     const payload = {
         franchise_id: "{{ franchise.id }}",
-        code: currentCode,
-        waba_id: currentWabaId,
-        phone_number_id: currentPhoneId
+        waba_id: state.waba_id,
+        phone_number_id: state.phone_number_id,
+        code: state.code
     };
 
-    console.log("SENDING COMPLETE PAYLOAD TO FLASK:", payload);
+    console.log("SENDING TO FLASK:", payload);
 
     fetch("/meta/v4/callback", {
         method: "POST",
@@ -136,6 +168,7 @@ function sendToFlask() {
     })
     .then(r => r.json())
     .then(data => {
+
         console.log("FLASK RESPONSE:", data);
 
         if (data.success) {
@@ -143,10 +176,12 @@ function sendToFlask() {
                 "/admin/franchises/{{ franchise.id }}/audit";
         } else {
             console.error("Backend rejected payload:", data);
+            state.committed = false; // allow retry if backend fails
         }
     })
     .catch(err => {
         console.error("Flask error:", err);
+        state.committed = false;
     });
 }
 
