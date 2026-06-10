@@ -9,118 +9,102 @@
     Connect WhatsApp
 </button>
 
-    <div id="status"></div>
+<div id="status"></div>
 
-    <input id="waba_id" placeholder="WABA ID" readonly>
-    <input id="phone_number_id" placeholder="Phone Number ID" readonly>
-    
+<input id="waba_id" placeholder="WABA ID" readonly>
+<input id="phone_number_id" placeholder="Phone Number ID" readonly>
 
 <script>
-
-window.fbAsyncInit = function() {
-
+window.fbAsyncInit = function () {
     FB.init({
         appId: "1549270700101851",
         autoLogAppEvents: true,
         xfbml: true,
         version: "v23.0"
     });
-
 };
-
 </script>
 
 <script async defer crossorigin="anonymous"
-src="https://connect.facebook.net/en_US/sdk.js">
-</script>
+src="https://connect.facebook.net/en_US/sdk.js"></script>
 
 <script>
 
 let currentWabaId = null;
 let currentPhoneId = null;
 
-window.addEventListener("message", function(event) {
+window.addEventListener("message", function (event) {
     console.log("Meta event received");
     console.log("Origin:", event.origin);
     console.log("Data:", event.data);
 
-    if(event.origin !== "https://www.facebook.com")
-        return;
+    if (event.origin !== "https://www.facebook.com") return;
 
     try {
-
         const data =
             typeof event.data === "string"
-            ? JSON.parse(event.data)
-            : event.data;
+                ? JSON.parse(event.data)
+                : event.data;
 
-        if(data.waba_id) {
-            currentWabaId = data.waba.id;
-            document.getElementById("waba_id").value = data.waba.id;
+        if (data.waba_id) {
+            currentWabaId = data.waba_id;
+            document.getElementById("waba_id").value = data.waba_id;
         }
+
         if (data.phone_number_id) {
             currentPhoneId = data.phone_number_id;
             document.getElementById("phone_number_id").value = data.phone_number_id;
         }
-         document.getElementById("status").innerText = 
-             "WABA: " + (currentWabaId || "none") +
-             " | Phone :" + (currentPhoneId || "none");
-    }
-        
-    catch(err) {
+
+        document.getElementById("status").innerText =
+            "WABA: " + (currentWabaId || "none") +
+            " | Phone: " + (currentPhoneId || "none");
+
+    } catch (err) {
         console.error("Meta event parse failed:", err);
     }
-
 });
 
 function launchWhatsAppSignup() {
-    
     console.log("=== META SIGNUP STARTED ===");
 
-    FB.login(function(response) {
+    FB.login(function (response) {
         console.log("FB Login response:", response);
 
-        if(!response.authResponse) {
+        if (!response.authResponse) {
             console.error("No authResponse returned from Meta");
             return;
         }
-        console.log("Received auth code:", response.authResponse.code);
-        
-            console.log("Sending callback to Flask");
-        
-        console.log({
-            franchise_id: {{franchise.id}},
+
+        const payload = {
+            franchise_id: "{{ franchise.id }}",
             code: response.authResponse.code,
             waba_id: currentWabaId,
             phone_number_id: currentPhoneId
+        };
+
+        console.log("Sending callback to Flask:", payload);
 
         alert(
             "WABA: " + currentWabaId +
             "\nPhone: " + currentPhoneId
-      );
-        
-    });
-    fetch("/meta/v4/callback", {
-        method: "POST",
-        headers: {
-        "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            franchise_id: {{franchise.id}},
-            code: response.authResponse.code,
-            waba_id: currentWabaId,
-            phone_number_id: currentPhoneId
-                             })
-})
-        
-    .then(r => {
+        );
+
+        fetch("/meta/v4/callback", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(r => {
             console.log("Flask HTTP status:", r.status);
             return r.json();
         })
         .then(data => {
             console.log("Flask response:", data);
 
-            if(data.success) {
+            if (data.success) {
                 window.location =
                     "/admin/franchises/{{ franchise.id }}/audit";
             }
@@ -130,11 +114,11 @@ function launchWhatsAppSignup() {
         config_id: "1585425766261252",
         response_type: "code",
         override_default_response_type: true,
-            extras: {
+        extras: {
             version: "v4"
         }
-       }
-
+    });
+}
 </script>
 
 </body>
