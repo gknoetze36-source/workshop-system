@@ -1,60 +1,320 @@
 {% extends "base.html" %}
+
 {% block title %}Client Audit Center{% endblock %}
+
 {% block content %}
 
 <div class="topbar">
+
     <div class="heading">
         <h1>Client Audit & Integration Center</h1>
-        <p>One-click Meta onboarding + system health monitoring.</p>
+        <p>Superadmin visibility for client health, Meta, messaging, Paystack, and webhooks.</p>
     </div>
 
     <form method="get" class="actions">
+
         <select name="franchise_id">
             <option value="">All franchises</option>
-            {% for franchise in franchises %}
+            {% for franchise in franchises or [] %}
             <option value="{{ franchise.id }}"
                 {% if selected_franchise_id == franchise.id %}selected{% endif %}>
                 {{ franchise.name }}
             </option>
             {% endfor %}
         </select>
+
         <button type="submit" class="alt">Filter</button>
     </form>
+
 </div>
 
-{% for item in summaries %}
+
+{% for item in summaries or [] %}
+
 {% set franchise = item.franchise %}
 
 <section class="panel" style="margin-bottom:18px;">
 
-    <!-- HEADER -->
     <div class="topbar">
+
         <div class="heading">
             <h2>{{ franchise.name }}</h2>
-            <p>
-                {{ franchise.subscription_status or "active" }} |
-                {{ "Active" if franchise.active else "Suspended" }}
-            </p>
+            <p>{{ franchise.subscription_status or "active" }} | {{ "Active" if franchise.active else "Suspended" }}</p>
         </div>
 
-        <!-- ONE CLICK ENTRY POINT -->
+        <!-- ONE-CLICK ENTRY POINT (UNCHANGED) -->
         <a class="button alt"
            href="{{ url_for('meta_signup_start', franchise_id=franchise.id) }}">
-            One-Click Meta Setup
+            Start Meta Signup
         </a>
+
     </div>
 
-    <!-- METRICS -->
     <div class="metrics">
+
         <div class="metric"><span>Branches</span><strong>{{ item.branches }}</strong></div>
         <div class="metric"><span>Users</span><strong>{{ item.users }}</strong></div>
         <div class="metric"><span>Customers</span><strong>{{ item.customers }}</strong></div>
         <div class="metric"><span>Messages</span><strong>{{ item.messages }}</strong></div>
-        <div class="metric"><span>Failed</span><strong>{{ item.failed_messages }}</strong></div>
+        <div class="metric"><span>Failed Messages</span><strong>{{ item.failed_messages }}</strong></div>
+
     </div>
 
-    <!-- META ACCOUNTS -->
+
     <div class="grid two" style="margin-top:18px;">
 
         <section>
-            <h3
+
+            <h3>Meta & Messaging Audit</h3>
+
+            <div class="table-wrap">
+                <table>
+
+                    <tr>
+                        <th>Provider</th>
+                        <th>Business</th>
+                        <th>WABA</th>
+                        <th>Phone ID</th>
+                        <th>Signup</th>
+                        <th>Token</th>
+                        <th>Version</th>
+                        <th>Age</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+
+                    {% for account in item.messaging_accounts or [] %}
+
+                    <tr>
+                        <td>{{ account.provider }}</td>
+                        <td>{{ account.business_account_id or "-" }}</td>
+                        <td>{{ account.whatsapp_business_account_id or "-" }}</td>
+                        <td>{{ account.phone_number_id or "-" }}</td>
+                        <td>{{ account.embedded_signup_state or "not_started" }}</td>
+                        <td>{{ "Configured" if account.access_token else "Missing" }}</td>
+                        <td>{{ account.token_encryption_version or "legacy" }}</td>
+                        <td>{{ account.token_age_days if account.token_age_days is not none else "-" }} days</td>
+                        <td>{{ "Active" if account.is_active else "Disabled" }}</td>
+
+                        <td>
+                            {% if account.is_active %}
+                            <form method="post"
+                                  action="{{ url_for('disable_messaging_account', franchise_id=franchise.id, account_id=account.id) }}">
+                                <button type="submit" class="danger">Disable</button>
+                            </form>
+                            {% endif %}
+                        </td>
+
+                    </tr>
+
+                    {% else %}
+                    <tr><td colspan="10">No messaging account configured.</td></tr>
+                    {% endfor %}
+
+                </table>
+            </div>
+
+        </section>
+
+
+        <!-- KEEP MANUAL FALLBACK (but no longer primary flow) -->
+        <section>
+
+            <h3>Create Messaging Account (Fallback Only)</h3>
+
+            <form method="post"
+                  action="{{ url_for('save_messaging_account', franchise_id=franchise.id) }}"
+                  class="grid-form">
+
+                <label>Business Account ID<input name="business_account_id"></label>
+                <label>WABA ID<input name="whatsapp_business_account_id"></label>
+                <label>Phone Number ID<input name="phone_number_id"></label>
+                <label>Access Token<input name="access_token" type="password"></label>
+                <label>Webhook Verify Token<input name="webhook_verify_token"></label>
+                <label>Webhook Secret<input name="webhook_secret" type="password"></label>
+
+                <input type="hidden" name="embedded_signup_state" value="manual">
+
+                <button type="submit">Create Meta Account</button>
+
+            </form>
+
+        </section>
+
+    </div>
+
+
+    {% if item.messaging_accounts %}
+
+    <section style="margin-top:18px;">
+
+        <h3>Edit / Rotate Messaging Accounts</h3>
+
+        <div class="grid two">
+
+            {% for account in item.messaging_accounts or [] %}
+
+            <form method="post"
+                  action="{{ url_for('save_messaging_account', franchise_id=franchise.id) }}"
+                  class="grid-form panel">
+
+                <input type="hidden" name="account_id" value="{{ account.id }}">
+
+                <label>Business Account ID
+                    <input name="business_account_id" value="{{ account.business_account_id or '' }}">
+                </label>
+
+                <label>WABA ID
+                    <input name="whatsapp_business_account_id" value="{{ account.whatsapp_business_account_id or '' }}">
+                </label>
+
+                <label>Phone Number ID
+                    <input name="phone_number_id" value="{{ account.phone_number_id or '' }}">
+                </label>
+
+                <label>Rotate Token
+                    <input name="access_token" type="password">
+                </label>
+
+                <label>Webhook Verify Token
+                    <input name="webhook_verify_token" value="{{ account.webhook_verify_token or '' }}">
+                </label>
+
+                <label>Webhook Secret
+                    <input name="webhook_secret" type="password">
+                </label>
+
+                <label>Signup State
+                    <input name="embedded_signup_state" value="{{ account.embedded_signup_state or 'manual' }}">
+                </label>
+
+                <label>Status
+                    <select name="is_active">
+                        <option value="true" {% if account.is_active %}selected{% endif %}>Active</option>
+                        <option value="false" {% if not account.is_active %}selected{% endif %}>Disabled</option>
+                    </select>
+                </label>
+
+                <button type="submit" class="alt">Save Account</button>
+
+            </form>
+
+            {% endfor %}
+
+        </div>
+
+    </section>
+
+    {% endif %}
+
+
+    <div class="grid two" style="margin-top:18px;">
+
+        <section>
+            <h3>Paystack Audit</h3>
+            {% if item.last_payment %}
+            <p>Status: {{ item.last_payment.status }} | Period: {{ item.last_payment.billing_period }} | Last payment: {{ item.last_payment.paid_at or "-" }}</p>
+            {% else %}
+            <p class="small">No billing record found.</p>
+            {% endif %}
+        </section>
+
+        <section>
+            <h3>Webhook Status</h3>
+            <p>Meta webhook route requires franchise slug, branch slug, and inbound token.</p>
+        </section>
+
+    </div>
+
+</section>
+
+{% endfor %}
+
+
+<!-- GLOBAL AUDITS -->
+
+<div class="grid two">
+
+    <section class="panel">
+
+        <h3>Webhook Replay History</h3>
+
+        <div class="table-wrap">
+            <table>
+
+                <tr><th>Provider</th><th>Event</th><th>Phone</th><th>Type</th><th>Received</th></tr>
+
+                {% for event in webhook_events or [] %}
+                <tr>
+                    <td>{{ event.provider }}</td>
+                    <td>{{ event.event_id }}</td>
+                    <td>{{ event.phone_number_id or "-" }}</td>
+                    <td>{{ event.event_type or "-" }}</td>
+                    <td>{{ event.created_at }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5">No webhook events found.</td></tr>
+                {% endfor %}
+
+            </table>
+        </div>
+
+    </section>
+
+
+    <section class="panel">
+
+        <h3>Paystack Webhooks</h3>
+
+        <div class="table-wrap">
+            <table>
+
+                <tr><th>Event</th><th>Reference</th><th>Status</th><th>Received</th><th>Processed</th></tr>
+
+                {% for event in paystack_events or [] %}
+                <tr>
+                    <td>{{ event.event_type }}</td>
+                    <td>{{ event.reference }}</td>
+                    <td>{{ event.status }}</td>
+                    <td>{{ event.received_at }}</td>
+                    <td>{{ event.processed_at or "-" }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5">No Paystack webhook events found.</td></tr>
+                {% endfor %}
+
+            </table>
+        </div>
+
+    </section>
+
+</div>
+
+
+<section class="panel" style="margin-top:18px;">
+
+    <h3>System Audit</h3>
+
+    <div class="table-wrap">
+        <table>
+
+            <tr><th>When</th><th>Franchise</th><th>Action</th><th>Entity</th><th>Actor</th></tr>
+
+            {% for log in audit_logs or [] %}
+            <tr>
+                <td>{{ log.created_at }}</td>
+                <td>{{ log.franchise_name or "-" }}</td>
+                <td>{{ log.action }}</td>
+                <td>{{ log.entity_type }} {{ log.entity_id or "" }}</td>
+                <td>{{ log.actor_username or "System" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">No audit logs found.</td></tr>
+            {% endfor %}
+
+        </table>
+    </div>
+
+</section>
+
+{% endblock %}
