@@ -9,6 +9,12 @@
     Connect WhatsApp
 </button>
 
+    <div id="status"></div>
+
+    <input id="waba_id" placeholder="WABA ID" readonly>
+    <input id="phone_number_id" placeholder="Phone Number ID" readonly>
+    
+
 <script>
 
 window.fbAsyncInit = function() {
@@ -48,13 +54,19 @@ window.addEventListener("message", function(event) {
             ? JSON.parse(event.data)
             : event.data;
 
-        if(data.waba_id)
-            currentWabaId = data.waba_id;
-
-        if(data.phone_number_id)
+        if(data.waba_id) {
+            currentWabaId = data.waba.id;
+            document.getElementById("waba_id").value = data.waba.id;
+        }
+        if (data.phone_number_id) {
             currentPhoneId = data.phone_number_id;
-
+            document.getElementById("phone_number_id").value = data.phone_number_id;
+        }
+         document.getElementById("status").innerText = 
+             "WABA: + (currentWabaId || "none") +
+             " | Phone :" + (currentPhoneId || "none");
     }
+        
     catch(err) {
         console.error("Meta event parse failed:", err);
     }
@@ -81,6 +93,12 @@ function launchWhatsAppSignup() {
             code: response.authResponse.code,
             waba_id: currentWabaId,
             phone_number_id: currentPhoneId
+
+        alert(
+            "WABA: " + currentWabaId +
+            "\nPhone: " + currentPhoneId
+      );
+        
     });
     fetch("/meta/v4/callback", {
         method: "POST",
@@ -112,10 +130,10 @@ function launchWhatsAppSignup() {
         config_id: "1585425766261252",
         response_type: "code",
         override_default_response_type: true,
-            version: "v23.0"
-       });
-
-}
+            extras: {
+            version: "v4"
+        }
+       }
 
 </script>
 
