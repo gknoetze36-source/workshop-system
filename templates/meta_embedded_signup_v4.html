@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Meta Signup</title>
+    <title>Meta WhatsApp Signup</title>
 </head>
+
 <body>
 
 <button onclick="launchWhatsAppSignup()">
@@ -32,84 +33,75 @@ src="https://connect.facebook.net/en_US/sdk.js"></script>
 
 let currentWabaId = null;
 let currentPhoneId = null;
+let currentCode = null;
 
+// -------------------------------------------------
+// META EMBEDDED SIGNUP EVENT LISTENER (FIXED)
+// -------------------------------------------------
 window.addEventListener("message", function (event) {
-    console.log("Meta event received");
-    console.log("Origin:", event.origin);
-    console.log("Data:", event.data);
 
     if (event.origin !== "https://www.facebook.com") return;
 
+    let data;
     try {
-        const data =
-            typeof event.data === "string"
-                ? JSON.parse(event.data)
-                : event.data;
+        data = typeof event.data === "string"
+            ? JSON.parse(event.data)
+            : event.data;
+    } catch (e) {
+        console.error("Invalid Meta payload:", e);
+        return;
+    }
 
-        if (data.waba_id) {
-            currentWabaId = data.waba_id;
-            document.getElementById("waba_id").value = data.waba_id;
-        }
+    if (!data || data.type !== "WA_EMBEDDED_SIGNUP") return;
 
-        if (data.phone_number_id) {
-            currentPhoneId = data.phone_number_id;
-            document.getElementById("phone_number_id").value = data.phone_number_id;
-        }
+    const payload = data.data || data;
 
-        document.getElementById("status").innerText =
-            "WABA: " + (currentWabaId || "none") +
-            " | Phone: " + (currentPhoneId || "none");
+    console.log("META PAYLOAD:", payload);
 
-    } catch (err) {
-        console.error("Meta event parse failed:", err);
+    // ❌ Ignore cancelled or incomplete flows
+    if (payload.event === "CANCEL") {
+        console.warn("Signup cancelled by user");
+        return;
+    }
+
+    // -----------------------------
+    // STORE VALUES SAFELY
+    // -----------------------------
+    if (payload.waba_id) {
+        currentWabaId = payload.waba_id;
+        document.getElementById("waba_id").value = payload.waba_id;
+    }
+
+    if (payload.phone_number_id) {
+        currentPhoneId = payload.phone_number_id;
+        document.getElementById("phone_number_id").value = payload.phone_number_id;
+    }
+
+    if (payload.code) {
+        currentCode = payload.code;
+    }
+
+    document.getElementById("status").innerText =
+        "WABA: " + (currentWabaId || "pending") +
+        " | Phone: " + (currentPhoneId || "pending");
+
+    // -------------------------------------------------
+    // ONLY SEND WHEN EVERYTHING IS READY
+    // -------------------------------------------------
+    if (currentWabaId && currentPhoneId && currentCode) {
+        sendToFlask();
     }
 });
 
+
+// -------------------------------------------------
+// LAUNCH SIGNUP (FIXED - TRIGGER ONLY)
+// -------------------------------------------------
 function launchWhatsAppSignup() {
     console.log("=== META SIGNUP STARTED ===");
 
     FB.login(function (response) {
-        console.log("FB Login response:", response);
-
-        if (!response.authResponse) {
-            console.error("No authResponse returned from Meta");
-            return;
-        }
-
-        const payload = {
-            franchise_id: "{{ franchise.id }}",
-            code: response.authResponse.code,
-            waba_id: currentWabaId,
-            phone_number_id: currentPhoneId
-        };
-
-        console.log("Sending callback to Flask:", payload);
-
-        alert(
-            "WABA: " + currentWabaId +
-            "\nPhone: " + currentPhoneId
-        );
-
-        fetch("/meta/v4/callback", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(payload)
-        })
-        .then(r => {
-            console.log("Flask HTTP status:", r.status);
-            return r.json();
-        })
-        .then(data => {
-            console.log("Flask response:", data);
-
-            if (data.success) {
-                window.location =
-                    "/admin/franchises/{{ franchise.id }}/audit";
-            }
-        });
-
+        console.log("FB login triggered (ignore data):", response);
     }, {
         config_id: "1585425766261252",
         response_type: "code",
@@ -119,6 +111,45 @@ function launchWhatsAppSignup() {
         }
     });
 }
+
+
+// -------------------------------------------------
+// FLASK CALLBACK (ONLY WHEN COMPLETE)
+// -------------------------------------------------
+function sendToFlask() {
+
+    const payload = {
+        franchise_id: "{{ franchise.id }}",
+        code: currentCode,
+        waba_id: currentWabaId,
+        phone_number_id: currentPhoneId
+    };
+
+    console.log("SENDING COMPLETE PAYLOAD TO FLASK:", payload);
+
+    fetch("/meta/v4/callback", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(data => {
+        console.log("FLASK RESPONSE:", data);
+
+        if (data.success) {
+            window.location =
+                "/admin/franchises/{{ franchise.id }}/audit";
+        } else {
+            console.error("Backend rejected payload:", data);
+        }
+    })
+    .catch(err => {
+        console.error("Flask error:", err);
+    });
+}
+
 </script>
 
 </body>
