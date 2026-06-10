@@ -63,7 +63,7 @@ window.addEventListener("message", function(event) {
             document.getElementById("phone_number_id").value = data.phone_number_id;
         }
          document.getElementById("status").innerText = 
-             "WABA: + (currentWabaId || "none") +
+             "WABA: " + (currentWabaId || "none") +
              " | Phone :" + (currentPhoneId || "none");
     }
         
@@ -110,7 +110,7 @@ function launchWhatsAppSignup() {
             code: response.authResponse.code,
             waba_id: currentWabaId,
             phone_number_id: currentPhoneId
-         })
+                             })
 })
         
     .then(r => {
