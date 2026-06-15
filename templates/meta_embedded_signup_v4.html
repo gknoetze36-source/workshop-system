@@ -2,20 +2,18 @@
 <html>
 <head>
     <title>Meta WhatsApp Signup</title>
+    <!-- Optional CSRF support -->
+    <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
-
 <body>
-
 <button onclick="launchWhatsAppSignup()">
     Connect WhatsApp
 </button>
-
-<div id="status"></div>
-
+<div id="status">Ready</div>
 <input id="waba_id" placeholder="WABA ID" readonly>
 <input id="phone_number_id" placeholder="Phone Number ID" readonly>
-
 <script>
+let fbReady = false;
 window.fbAsyncInit = function () {
     FB.init({
         appId: "1549270700101851",
@@ -23,134 +21,199 @@ window.fbAsyncInit = function () {
         xfbml: true,
         version: "v23.0"
     });
+    fbReady = true;
+    console.log("Facebook SDK ready");
 };
 </script>
-
-<script async defer crossorigin="anonymous"
-src="https://connect.facebook.net/en_US/sdk.js"></script>
-
+<script
+    async
+    defer
+    crossorigin="anonymous"
+    src="https://connect.facebook.net/en_US/sdk.js">
+</script>
 <script>
-
+// -------------------------------------------------
+// CONFIG
+// -------------------------------------------------
+const ALLOWED_ORIGINS = [
+    "https://www.facebook.com",
+    "https://web.facebook.com",
+    "https://business.facebook.com"
+];
+const csrfToken =
+    document
+        .querySelector('meta[name="csrf-token"]')
+        ?.getAttribute("content");
 // -------------------------------------------------
 // STATE
 // -------------------------------------------------
+let signupTimeout = null;
 let state = {
     waba_id: null,
     phone_number_id: null,
-    phone_number: null,   // NEW (some Meta flows return raw number)
+    phone_number: null,
     code: null,
     cancelled: false,
     committed: false
 };
-
+// -------------------------------------------------
+// STATUS HELPER
+// -------------------------------------------------
+function updateStatus() {
+    document.getElementById("status").innerText =
+        "WABA: " + (state.waba_id || "pending") +
+        " | Phone ID: " + (state.phone_number_id || "pending") +
+        " | Phone: " + (state.phone_number || "n/a");
+}
 // -------------------------------------------------
 // MESSAGE LISTENER
 // -------------------------------------------------
 window.addEventListener("message", function (event) {
-
-    if (event.origin !== "https://www.facebook.com") return;
-
+    if (!ALLOWED_ORIGINS.includes(event.origin)) {
+        console.warn("Rejected origin:", event.origin);
+        return;
+    }
     let data;
-
     try {
-        if (typeof event.data === "string" && event.data.trim().startsWith("{")) {
+        if (
+            typeof event.data === "string" &&
+            event.data.trim().startsWith("{")
+        ) {
             data = JSON.parse(event.data);
-        } else if (typeof event.data === "object") {
+        }
+        else if (typeof event.data === "object") {
             data = event.data;
-        } else {
+        }
+        else {
             return;
         }
     } catch (e) {
+        console.error("Unable to parse Meta payload");
         return;
     }
-
-    if (!data || data.type !== "WA_EMBEDDED_SIGNUP") return;
-
+    if (!data || data.type !== "WA_EMBEDDED_SIGNUP") {
+        return;
+    }
     const payload = data.data || data;
-
-    console.log("META PAYLOAD:", payload);
-
+    console.log("Embedded signup event received");
     // -------------------------------------------------
     // CANCEL
     // -------------------------------------------------
     if (payload.event === "CANCEL") {
         state.cancelled = true;
+        clearTimeout(signupTimeout);
+        document.getElementById("status").innerText =
+            "Signup cancelled";
         console.warn("Signup cancelled");
         return;
     }
-
     // -------------------------------------------------
-    // WABA ID
+    // WABA
     // -------------------------------------------------
     if (payload.waba_id) {
         state.waba_id = payload.waba_id;
-        document.getElementById("waba_id").value = payload.waba_id;
+        document.getElementById("waba_id").value =
+            payload.waba_id;
     }
-
     // -------------------------------------------------
-    // PHONE NUMBER ID (PRIMARY)
+    // PHONE NUMBER ID
     // -------------------------------------------------
     if (payload.phone_number_id) {
-        state.phone_number_id = payload.phone_number_id;
-        document.getElementById("phone_number_id").value = payload.phone_number_id;
+        state.phone_number_id =
+            payload.phone_number_id;
+        document.getElementById("phone_number_id").value =
+            payload.phone_number_id;
     }
-
     // -------------------------------------------------
-    // ALT PHONE FIELD (SOME META FLOWS USE THIS)
+    // PHONE NUMBER
     // -------------------------------------------------
     if (payload.phone_number) {
-        state.phone_number = payload.phone_number;
+        state.phone_number =
+            payload.phone_number;
     }
-
     // -------------------------------------------------
-    // CODE
+    // AUTH CODE
     // -------------------------------------------------
     if (payload.code) {
         state.code = payload.code;
     }
-
-    // -------------------------------------------------
-    // UI
-    // -------------------------------------------------
-    document.getElementById("status").innerText =
-        "WABA: " + (state.waba_id || "pending") +
-        " | Phone ID: " + (state.phone_number_id || "pending") +
-        " | Phone: " + (state.phone_number || "n/a");
-
+    updateStatus();
     tryCommit();
 });
-
 // -------------------------------------------------
 // COMMIT GUARD
 // -------------------------------------------------
 function tryCommit() {
-
-    if (state.committed) return;
-    if (state.cancelled) return;
-
-    // REQUIRE WABA + PHONE ID (not just one)
-    if (!state.waba_id || !state.phone_number_id) {
+    if (state.committed) {
         return;
     }
-
-    // code optional depending on Meta flow stage
+    if (state.cancelled) {
+        return;
+    }
+    if (!state.waba_id) {
+        return;
+    }
+    if (!state.phone_number_id) {
+        return;
+    }
+    /*
+     * We require the authorization code because
+     * the backend exchanges it for Meta tokens.
+     */
     if (!state.code) {
+        console.log(
+            "Waiting for authorization code..."
+        );
         return;
     }
-
     state.committed = true;
     sendToFlask();
 }
-
 // -------------------------------------------------
-// LAUNCH
+// START SIGNUP
 // -------------------------------------------------
 function launchWhatsAppSignup() {
-
-    console.log("=== META SIGNUP STARTED ===");
-
+    if (!fbReady || !window.FB) {
+        alert(
+            "Facebook SDK is still loading. Please try again."
+        );
+        return;
+    }
+    console.log("Starting WhatsApp signup");
+    document.getElementById("status").innerText =
+        "Launching Meta signup...";
+    signupTimeout = setTimeout(() => {
+        if (!state.committed) {
+            console.warn(
+                "Signup timed out"
+            );
+            document.getElementById("status").innerText =
+                "Signup timeout. Please retry.";
+        }
+    }, 180000);
     FB.login(function (response) {
-        console.log("FB login trigger only:", response);
+        console.log("FB login callback received");
+        if (!response) {
+            console.error(
+                "No response from Meta"
+            );
+            return;
+        }
+        if (!response.authResponse) {
+            console.error(
+                "User cancelled or auth failed"
+            );
+            return;
+        }
+        /*
+         * Some Meta configurations
+         * return the code here.
+         */
+        if (response.authResponse.code) {
+            state.code =
+                response.authResponse.code;
+            tryCommit();
+        }
     }, {
         config_id: "1585425766261252",
         response_type: "code",
@@ -160,49 +223,71 @@ function launchWhatsAppSignup() {
         }
     });
 }
-
 // -------------------------------------------------
 // SEND TO BACKEND
 // -------------------------------------------------
 function sendToFlask() {
-
     const payload = {
-        franchise_id: "{{ franchise.id }}",
-        waba_id: state.waba_id,
-        phone_number_id: state.phone_number_id,
-        phone_number: state.phone_number,
-        code: state.code
+        franchise_id:
+            "{{ franchise.id }}",
+        waba_id:
+            state.waba_id,
+        phone_number_id:
+            state.phone_number_id,
+        phone_number:
+            state.phone_number,
+        code:
+            state.code
     };
-
-    console.log("FINAL PAYLOAD:", payload);
-
+    console.log(
+        "Submitting signup payload"
+    );
     fetch("/meta/v4/callback", {
         method: "POST",
         headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            ...(csrfToken
+                ? { "X-CSRFToken": csrfToken }
+                : {})
         },
         body: JSON.stringify(payload)
     })
-    .then(r => r.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(
+                "Backend returned HTTP " +
+                response.status
+            );
+        }
+        return response.json();
+    })
     .then(data => {
-
-        console.log("FLASK RESPONSE:", data);
-
+        console.log(
+            "Backend response received"
+        );
         if (data.success) {
+            clearTimeout(signupTimeout);
             window.location =
                 "/admin/franchises/{{ franchise.id }}/audit";
-        } else {
-            state.committed = false;
-            console.error("Backend rejected payload:", data);
+            return;
         }
-    })
-    .catch(err => {
         state.committed = false;
-        console.error("Flask error:", err);
+        console.error(
+            "Backend rejected signup"
+        );
+        document.getElementById("status").innerText =
+            "Backend rejected signup";
+    })
+    .catch(error => {
+        state.committed = false;
+        console.error(
+            "Signup error:",
+            error
+        );
+        document.getElementById("status").innerText =
+            "Signup failed";
     });
 }
-
 </script>
-
 </body>
 </html>
