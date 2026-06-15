@@ -1757,229 +1757,429 @@ def _render_meta_selection(franchise_id, state, access_token, businesses, select
 @app.route("/meta/v4/callback", methods=["POST"])
 @roles_required("super_admin")
 def meta_v4_callback():
-
-    payload = request.get_json() or {}
-
-    code = payload.get("code")
-    waba_id = payload.get("waba_id")
-    phone_number_id = payload.get("phone_number_id")
-    franchise_id = payload.get("franchise_id")
-
-    if not code:
-        return {"success": False, "error": "missing_code"}, 400
-
-    app_id = os.environ.get("META_APP_ID")
-    app_secret = os.environ.get("META_APP_SECRET")
-
+    import os
     import requests
-
-    token_response = requests.get(
-        "https://graph.facebook.com/v25.0/oauth/access_token",
-        params={
-            "client_id": app_id,
-            "client_secret": app_secret,
-            "code": code
-        },
-        timeout=20
-    )
-
-    token_response.raise_for_status()
-
-    access_token = token_response.json()["access_token"]
-
-    franchise = _franchise_required(franchise_id)
-
-    encrypted_token = encrypt_access_token(access_token)
-
-    existing = fetch_one(
-        """
-        SELECT id
-        FROM messaging_accounts
-        WHERE workshop_id=%s
-        AND provider='meta'
-        AND is_active=TRUE
-        """,
-        (franchise["workshop_id"],)
-    )
-
-    if existing:
-
-        execute_db(
-            """
-            UPDATE messaging_accounts
-            SET
-                whatsapp_business_account_id=%s,
-                phone_number_id=%s,
-                access_token=%s,
-                token_rotated_at=%s,
-                embedded_signup_state='completed',
-                updated_at=%s
-            WHERE id=%s
-            """,
-            (
-                waba_id,
-                phone_number_id,
-                encrypted_token,
-                utc_now(),
-                utc_now(),
-                existing["id"]
-            )
-        )
-
-    else:
-
-        execute_db(
-            """
-            INSERT INTO messaging_accounts
-            (
-                workshop_id,
-                provider,
-                channel,
-                whatsapp_business_account_id,
-                phone_number_id,
-                access_token,
-                embedded_signup_state,
-                is_active,
-                created_at,
-                updated_at
-            )
-            VALUES
-            (
-                %s,
-                'meta',
-                'whatsapp',
-                %s,
-                %s,
-                %s,
-                'completed',
-                TRUE,
-                %s,
-                %s
-            )
-            """,
-            (
-                franchise["workshop_id"],
-                waba_id,
-                phone_number_id,
-                encrypted_token,
-                utc_now(),
-                utc_now()
-            )
-        )
-
-    return {"success": True}
-    
-def meta_signup_callback():
-    state = request.args.get("state") or ""
-    if not state or state != session.get("meta_signup_state"):
-        abort(403)
-    franchise_id = int(state.split(":", 1)[0])
+    payload = request.get_json() or {}
+    code = (payload.get("code") or "").strip()
+    franchise_id = payload.get("franchise_id")
+    if not code:
+        return {
+            "success": False,
+            "error": "missing_code"
+        }, 400
     franchise = _franchise_required(franchise_id)
     app_id = os.environ.get("META_APP_ID")
     app_secret = os.environ.get("META_APP_SECRET")
-    redirect_uri = os.environ.get("META_EMBEDDED_SIGNUP_REDIRECT_URI") or url_for("meta_signup_callback", _external=True)
     if not app_id or not app_secret:
-        return _meta_signup_fail(franchise_id, "Meta app credentials are not configured.", "missing_meta_credentials")
-    encrypted_session_token = session.get("meta_signup_access_token")
-    code = request.args.get("code") or ""
-
-    print("CALLBACK ARGS:", dict(request.args))
-    print("QUERY STRINGS:", request.query_string.decode("utf-8", errors="ignore"))
-    flash(f"CALLBACK ARGS: {dict(request.args)}", "info")
-    flash(f"QUERY STRINGS: {request.query_string.decode('utf-8', errors='ignore')}", "info")
-    
-    if encrypted_session_token:
-        access_token = decrypt_access_token(encrypted_session_token)
-    else:
-        if not code:
-            return _meta_signup_fail(franchise_id, "Meta signup did not return an authorization code.", "missing_code")
-        import requests
-
-        try:
-            token_response = requests.get(
-                "https://graph.facebook.com/v20.0/oauth/access_token",
-                params={"client_id": app_id, "client_secret": app_secret, "redirect_uri": redirect_uri, "code": code},
-                timeout=15,
+        return {
+            "success": False,
+            "error": "missing_meta_credentials"
+        }, 500
+    try:
+        # ----------------------------------
+        # EXCHANGE AUTH CODE
+        # ----------------------------------
+        token_response = requests.get(
+            "https://graph.facebook.com/v25.0/oauth/access_token",
+            params={
+                "client_id": app_id,
+                "client_secret": app_secret,
+                "code": code
+            },
+            timeout=20
+        )
+        token_response.raise_for_status()
+        access_token = token_response.json()["access_token"]
+        # ----------------------------------
+        # DISCOVER BUSINESSES
+        # ----------------------------------
+        businesses_response = requests.get(
+            "https://graph.facebook.com/v25.0/me/businesses",
+            params={
+                "access_token": access_token
+            },
+            timeout=20
+        )
+        businesses_response.raise_for_status()
+        businesses = (
+            businesses_response.json()
+            .get("data", [])
+        )
+        if not businesses:
+            return {
+                "success": False,
+                "error": "no_businesses"
+            }, 400
+        business_id = businesses[0]["id"]
+        # ----------------------------------
+        # DISCOVER WABAS
+        # ----------------------------------
+        waba_response = requests.get(
+            f"https://graph.facebook.com/v25.0/{business_id}/owned_whatsapp_business_accounts",
+            params={
+                "access_token": access_token
+            },
+            timeout=20
+        )
+        waba_response.raise_for_status()
+        wabas = (
+            waba_response.json()
+            .get("data", [])
+        )
+        if not wabas:
+            return {
+                "success": False,
+                "error": "no_wabas"
+            }, 400
+        waba_id = wabas[0]["id"]
+        # ----------------------------------
+        # DISCOVER PHONE NUMBERS
+        # ----------------------------------
+        phones_response = requests.get(
+            f"https://graph.facebook.com/v25.0/{waba_id}/phone_numbers",
+            params={
+                "access_token": access_token
+            },
+            timeout=20
+        )
+        phones_response.raise_for_status()
+        phones = (
+            phones_response.json()
+            .get("data", [])
+        )
+        if not phones:
+            return {
+                "success": False,
+                "error": "no_phone_numbers"
+            }, 400
+        phone_number_id = phones[0]["id"]
+        encrypted_token = encrypt_access_token(
+            access_token
+        )
+        existing = fetch_one(
+            """
+            SELECT id
+            FROM messaging_accounts
+            WHERE workshop_id=%s
+            AND provider='meta'
+            AND is_active=TRUE
+            """,
+            (franchise["workshop_id"],)
+        )
+        if existing:
+            execute_db(
+                """
+                UPDATE messaging_accounts
+                SET
+                    business_account_id=%s,
+                    whatsapp_business_account_id=%s,
+                    phone_number_id=%s,
+                    access_token=%s,
+                    token_encryption_version='v2',
+                    token_rotated_at=%s,
+                    embedded_signup_state='completed',
+                    updated_at=%s
+                WHERE id=%s
+                """,
+                (
+                    business_id,
+                    waba_id,
+                    phone_number_id,
+                    encrypted_token,
+                    utc_now(),
+                    utc_now(),
+                    existing["id"]
+                )
             )
-            token_response.raise_for_status()
-            access_token = token_response.json().get("access_token") or ""
-        except Exception as exc:
-            return _meta_signup_fail(franchise_id, "Meta authorization failed. Please retry Embedded Signup.", f"token_exchange:{exc}")
-    try:
-        businesses = _meta_graph_get("me/businesses", access_token)
-    except Exception as exc:
-        flash(f"Meta discovery warning: {exc}", "warning")
-        businesses = []
-    
-    if not businesses:
-        business_id = request.args.get("business_id")
-        
-        if business_id:
-            businesses = [{"id":business_id}]
-            
-    if not businesses:
-        return _meta_signup_fail(
-            franchise_id,
-            "No Meta business assets were found for this login.",
-            "no_businesses"
+        else:
+            execute_db(
+                """
+                INSERT INTO messaging_accounts
+                (
+                    workshop_id,
+                    provider,
+                    channel,
+                    business_account_id,
+                    whatsapp_business_account_id,
+                    phone_number_id,
+                    access_token,
+                    token_encryption_version,
+                    token_rotated_at,
+                    embedded_signup_state,
+                    is_active,
+                    created_at,
+                    updated_at
+                )
+                VALUES
+                (
+                    %s,
+                    'meta',
+                    'whatsapp',
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    'v2',
+                    %s,
+                    'completed',
+                    TRUE,
+                    %s,
+                    %s
+                )
+                """,
+                (
+                    franchise["workshop_id"],
+                    business_id,
+                    waba_id,
+                    phone_number_id,
+                    encrypted_token,
+                    utc_now(),
+                    utc_now(),
+                    utc_now()
+                )
+            )
+        record_audit(
+            "meta_embedded_signup_completed",
+            "messaging_account",
+            phone_number_id,
+            current_user(),
+            franchise_id=franchise_id,
+            details={
+                "business_id": business_id,
+                "waba_id": waba_id
+            }
         )
-
-    business_id = request.args.get("business_id") or (businesses[0].get("id") if len(businesses) == 1 else "")
-    if not business_id:
-        return _render_meta_selection(franchise_id, state, access_token, businesses)
-
-    try:
-        wabas = _meta_graph_get(f"{business_id}/owned_whatsapp_business_accounts", access_token)
+        return {
+            "success": True,
+            "business_id": business_id,
+            "waba_id": waba_id,
+            "phone_number_id": phone_number_id
+        }
+    except requests.HTTPError as exc:
+        return {
+            "success": False,
+            "error": "meta_http_error",
+            "details": str(exc)
+        }, 500
     except Exception as exc:
-        return _meta_signup_fail(franchise_id, "Could not read WhatsApp Business Accounts. Please retry.", f"waba_discovery:{exc}")
-    if not wabas:
-        return _meta_signup_fail(franchise_id, "No WhatsApp Business Account was found for the selected business.", "no_wabas")
-
-    waba_id = request.args.get("waba_id") or (wabas[0].get("id") if len(wabas) == 1 else "")
-    if not waba_id:
-        return _render_meta_selection(franchise_id, state, access_token, businesses, selected_business_id=business_id, wabas=wabas)
-
+        return {
+            "success": False,
+            "error": "meta_signup_failed",
+            "details": str(exc)
+        }, 500@csrf.exempt
+@app.route("/meta/v4/callback", methods=["POST"])
+@roles_required("super_admin")
+def meta_v4_callback():
+    import os
+    import requests
+    payload = request.get_json() or {}
+    code = (payload.get("code") or "").strip()
+    franchise_id = payload.get("franchise_id")
+    if not code:
+        return {
+            "success": False,
+            "error": "missing_code"
+        }, 400
+    franchise = _franchise_required(franchise_id)
+    app_id = os.environ.get("META_APP_ID")
+    app_secret = os.environ.get("META_APP_SECRET")
+    if not app_id or not app_secret:
+        return {
+            "success": False,
+            "error": "missing_meta_credentials"
+        }, 500
     try:
-        phones = _meta_graph_get(f"{waba_id}/phone_numbers", access_token)
-    except Exception as exc:
-        return _meta_signup_fail(franchise_id, "Could not read WhatsApp phone numbers. Please retry.", f"phone_discovery:{exc}")
-    if not phones:
-        return _meta_signup_fail(franchise_id, "No WhatsApp phone numbers were found for the selected WABA.", "no_phone_numbers")
-
-    phone_number_id = request.args.get("phone_number_id") or (phones[0].get("id") if len(phones) == 1 else "")
-    if not phone_number_id:
-        return _render_meta_selection(franchise_id, state, access_token, businesses, selected_business_id=business_id, wabas=wabas, selected_waba_id=waba_id, phones=phones)
-
-    encrypted_token = encrypt_access_token(access_token)
-    existing = fetch_one("SELECT id FROM messaging_accounts WHERE workshop_id=%s AND provider='meta' AND is_active=TRUE", (franchise["workshop_id"],))
-    if existing:
-        execute_db(
+        # ----------------------------------
+        # EXCHANGE AUTH CODE
+        # ----------------------------------
+        token_response = requests.get(
+            "https://graph.facebook.com/v25.0/oauth/access_token",
+            params={
+                "client_id": app_id,
+                "client_secret": app_secret,
+                "code": code
+            },
+            timeout=20
+        )
+        token_response.raise_for_status()
+        access_token = token_response.json()["access_token"]
+        # ----------------------------------
+        # DISCOVER BUSINESSES
+        # ----------------------------------
+        businesses_response = requests.get(
+            "https://graph.facebook.com/v25.0/me/businesses",
+            params={
+                "access_token": access_token
+            },
+            timeout=20
+        )
+        businesses_response.raise_for_status()
+        businesses = (
+            businesses_response.json()
+            .get("data", [])
+        )
+        if not businesses:
+            return {
+                "success": False,
+                "error": "no_businesses"
+            }, 400
+        business_id = businesses[0]["id"]
+        # ----------------------------------
+        # DISCOVER WABAS
+        # ----------------------------------
+        waba_response = requests.get(
+            f"https://graph.facebook.com/v25.0/{business_id}/owned_whatsapp_business_accounts",
+            params={
+                "access_token": access_token
+            },
+            timeout=20
+        )
+        waba_response.raise_for_status()
+        wabas = (
+            waba_response.json()
+            .get("data", [])
+        )
+        if not wabas:
+            return {
+                "success": False,
+                "error": "no_wabas"
+            }, 400
+        waba_id = wabas[0]["id"]
+        # ----------------------------------
+        # DISCOVER PHONE NUMBERS
+        # ----------------------------------
+        phones_response = requests.get(
+            f"https://graph.facebook.com/v25.0/{waba_id}/phone_numbers",
+            params={
+                "access_token": access_token
+            },
+            timeout=20
+        )
+        phones_response.raise_for_status()
+        phones = (
+            phones_response.json()
+            .get("data", [])
+        )
+        if not phones:
+            return {
+                "success": False,
+                "error": "no_phone_numbers"
+            }, 400
+        phone_number_id = phones[0]["id"]
+        encrypted_token = encrypt_access_token(
+            access_token
+        )
+        existing = fetch_one(
             """
-            UPDATE messaging_accounts
-            SET business_account_id=%s, whatsapp_business_account_id=%s, phone_number_id=%s,
-                access_token=%s, token_encryption_version='v2', token_rotated_at=%s,
-                embedded_signup_state='completed', updated_at=%s
-            WHERE id=%s
+            SELECT id
+            FROM messaging_accounts
+            WHERE workshop_id=%s
+            AND provider='meta'
+            AND is_active=TRUE
             """,
-            (business_id, waba_id, phone_number_id, encrypted_token, utc_now(), utc_now(), existing["id"]),
+            (franchise["workshop_id"],)
         )
-    else:
-        execute_db(
-            """
-            INSERT INTO messaging_accounts (
-                workshop_id, provider, channel, business_account_id, whatsapp_business_account_id,
-                phone_number_id, access_token, token_encryption_version, token_rotated_at,
-                embedded_signup_state, is_active, created_at, updated_at
-            ) VALUES (%s, 'meta', 'whatsapp', %s, %s, %s, %s, 'v2', %s, 'completed', %s, %s, %s)
-            """,
-            (franchise["workshop_id"], business_id, waba_id, phone_number_id, encrypted_token, utc_now(), db_bool(True), utc_now(), utc_now()),
+        if existing:
+            execute_db(
+                """
+                UPDATE messaging_accounts
+                SET
+                    business_account_id=%s,
+                    whatsapp_business_account_id=%s,
+                    phone_number_id=%s,
+                    access_token=%s,
+                    token_encryption_version='v2',
+                    token_rotated_at=%s,
+                    embedded_signup_state='completed',
+                    updated_at=%s
+                WHERE id=%s
+                """,
+                (
+                    business_id,
+                    waba_id,
+                    phone_number_id,
+                    encrypted_token,
+                    utc_now(),
+                    utc_now(),
+                    existing["id"]
+                )
+            )
+        else:
+            execute_db(
+                """
+                INSERT INTO messaging_accounts
+                (
+                    workshop_id,
+                    provider,
+                    channel,
+                    business_account_id,
+                    whatsapp_business_account_id,
+                    phone_number_id,
+                    access_token,
+                    token_encryption_version,
+                    token_rotated_at,
+                    embedded_signup_state,
+                    is_active,
+                    created_at,
+                    updated_at
+                )
+                VALUES
+                (
+                    %s,
+                    'meta',
+                    'whatsapp',
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    'v2',
+                    %s,
+                    'completed',
+                    TRUE,
+                    %s,
+                    %s
+                )
+                """,
+                (
+                    franchise["workshop_id"],
+                    business_id,
+                    waba_id,
+                    phone_number_id,
+                    encrypted_token,
+                    utc_now(),
+                    utc_now(),
+                    utc_now()
+                )
+            )
+        record_audit(
+            "meta_embedded_signup_completed",
+            "messaging_account",
+            phone_number_id,
+            current_user(),
+            franchise_id=franchise_id,
+            details={
+                "business_id": business_id,
+                "waba_id": waba_id
+            }
         )
-    record_audit("meta_embedded_signup_completed", "messaging_account", phone_number_id, current_user(), franchise_id=franchise_id, details={"waba_id": waba_id})
-    session.pop("meta_signup_state", None)
-    session.pop("meta_signup_access_token", None)
-    flash("Meta Embedded Signup completed and messaging account was saved.", "success")
-    return redirect(url_for("admin_client_audit", franchise_id=franchise_id))
-
+        return {
+            "success": True,
+            "business_id": business_id,
+            "waba_id": waba_id,
+            "phone_number_id": phone_number_id
+        }
+    except requests.HTTPError as exc:
+        return {
+            "success": False,
+            "error": "meta_http_error",
+            "details": str(exc)
+        }, 500
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": "meta_signup_failed",
+            "details": str(exc)
+        }, 500
 
 @app.route("/manage/branches", methods=["GET", "POST"])
 @roles_required("franchise_admin", "super_admin")
