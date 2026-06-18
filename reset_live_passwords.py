@@ -2,9 +2,13 @@ from werkzeug.security import generate_password_hash
 
 from database import execute_db, initialize_database, utc_now
 
-
-TEMP_PASSWORD = "password1234"
-TARGET_USERS = ("superadmin", "demo.franchise")
+import os
+import secrets
+def generate_secure_temp_password():
+    """Generate a cryptographically secure temporary password."""
+    return secrets.token_urlsafe(18)
+TEMP_PASSWORD = os.environ.get("TEMP_PASSWORD") or generate_secure_temp_password()
+TARGET_USERS = tuple(u.strip() for u in (os.environ.get("TARGET_USERS", "superadmin,demo.franchise").split(",")))
 
 
 def main():

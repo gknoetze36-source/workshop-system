@@ -375,6 +375,29 @@ def _create_tables(connection, backend):
         )
         """,
         f"""
+        CREATE TABLE IF NOT EXISTS vehicles (
+            id {primary_key},
+            franchise_id INTEGER,
+            customer_id INTEGER,
+            make TEXT NOT NULL,
+            model TEXT NOT NULL,
+            year INTEGER,
+            vehicle_vin TEXT UNIQUE,
+            license_plate TEXT,
+            current_mileage INTEGER,
+            fuel_type TEXT,
+            last_service_date TEXT,
+            last_service_mileage INTEGER,
+            next_service_due_date TEXT,
+            next_service_due_mileage INTEGER,
+            service_notes TEXT,
+            metadata_json TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+
+        f"""
         CREATE TABLE IF NOT EXISTS services (
             id {primary_key},
             franchise_id INTEGER,
@@ -795,6 +818,62 @@ def _create_tables(connection, backend):
             question_key TEXT,
             answer_value TEXT,
             created_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS service_requirements (
+            id {primary_key},
+            vehicle_make TEXT NOT NULL,
+            vehicle_type TEXT,
+            mileage_range_min INTEGER,
+            mileage_range_max INTEGER,
+            service_name TEXT NOT NULL,
+            service_category TEXT,
+            description TEXT,
+            estimated_duration_minutes INTEGER,
+            base_price REAL,
+            is_recommended {integer_boolean} DEFAULT TRUE,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS service_requirements (
+            id {primary_key},
+            vehicle_make TEXT,
+            vehicle_type TEXT,
+            mileage_range_min INTEGER,
+            mileage_range_max INTEGER,
+            service_name TEXT NOT NULL,
+            service_category TEXT,
+            description TEXT,
+            estimated_duration_minutes INTEGER,
+            base_price REAL,
+            is_recommended {integer_boolean} DEFAULT TRUE,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS vehicles (
+            id {primary_key},
+            franchise_id INTEGER,
+            customer_id INTEGER,
+            make TEXT NOT NULL,
+            model TEXT NOT NULL,
+            year INTEGER,
+            vehicle_vin TEXT UNIQUE,
+            license_plate TEXT,
+            current_mileage INTEGER,
+            fuel_type TEXT,
+            last_service_date TEXT,
+            last_service_mileage INTEGER,
+            next_service_due_date TEXT,
+            next_service_due_mileage INTEGER,
+            service_notes TEXT,
+            metadata_json TEXT,
+            created_at TEXT,
+            updated_at TEXT
         )
         """,
         f"""

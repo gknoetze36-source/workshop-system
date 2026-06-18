@@ -118,8 +118,6 @@ def decrypt_access_token(token):
         return Fernet(key).decrypt(text[7:].encode("utf-8")).decode("utf-8")
     if text.startswith("enc:v1:"):
         return _decrypt_legacy_access_token(text)
-    if os.environ.get("ALLOW_PLAINTEXT_MESSAGING_TOKENS", "").lower() == "true":
-        return text
     raise RuntimeError("Messaging access token is not encrypted.")
 
 
@@ -1020,6 +1018,33 @@ def send_missed_booking_followups():
             sent += 1
     return sent
 
+def track_message_usage(franchise_id, channel="whatsapp"):
+    """Track message usage for billing"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    month_key = datetime.now().strftime("%Y-%m")
+    
+    # Update daily usage
+    daily = fetch_one(
+        "SELECT * FROM chatbot_usage_daily WHERE franchise_id=%s AND usage_date=%s",
+        (franchise_id, today)
+    )
+    
+    if daily:
+        execute_db(
+            "UPDATE chatbot_usage_daily SET message_count=message_count+1, updated_at=%s WHERE id=%s",
+            (utc_now(), daily["id"])
+        )
+    else:
+        execute_db(
+            "INSERT INTO chatbot_usage_daily (franchise_id, usage_date, message_count, created_at, updated_at) VALUES (%s, %s, 1, %s, %s)",
+            (franchise_id, today, utc_now(), utc_now())
+        )
+    
+    # Update franchise's total usage
+    execute_db(
+        "UPDATE franchises SET messages_used=messages_used+1, updated_at=%s WHERE id=%s",
+        (utc_now(), franchise_id)
+    )
 
 def send_inquiry_followups(as_of=None):
     now = as_of or datetime.utcnow()

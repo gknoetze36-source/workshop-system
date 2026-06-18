@@ -148,6 +148,16 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), handlers=[handler
 logger = logging.getLogger("vanta")
 logger.info("startup_environment_validated")
 csrf = CSRFProtect(app)
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
+
 limiter = Limiter(get_remote_address, app=app, default_limits=[os.environ.get("DEFAULT_RATE_LIMIT", "300 per hour")], storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"))
 
 DATABASE_INIT_ERROR = None
@@ -290,6 +300,34 @@ def _active_franchise_required():
         if franchise and not subscription_is_active(franchise):
             flash("This client account is unpaid or expired. Dashboard access remains available, but new bookings, automations, and outbound messages are disabled.", "error")
     return None
+
+@app.route("/api/vehicles/<int:vehicle_id>/recommended-services", methods=["GET"])
+@csrf.exempt
+def api_vehicle_recommended_services(vehicle_id):
+    """Get recommended services based on vehicle mileage"""
+    user = _frontend_api_authorized()
+    
+    vehicle = fetch_one("""
+        SELECT * FROM vehicles WHERE id = %s AND franchise_id = %s
+    """, (vehicle_id, user["franchise_id"]))
+    
+    if not vehicle:
+        return jsonify({"error": "Vehicle not found"}), 404
+    
+    from service_knowledge import get_services_for_vehicle_mileage, get_next_service_due_for_vehicle
+    
+    mileage = vehicle.get("current_mileage", 0)
+    recommended = get_services_for_vehicle_mileage(vehicle.get("make"), mileage)
+    next_due = get_next_service_due_for_vehicle(mileage, vehicle.get("last_service_mileage", 0))
+    
+    return jsonify({
+        "vehicleId": vehicle["id"],
+        "make": vehicle["make"],
+        "model": vehicle["model"],
+        "currentMileage": mileage,
+        "nextServiceDue": next_due,
+        "recommendedServices": recommended
+    })
 
 
 @app.route("/health")
@@ -1297,12 +1335,195 @@ def _render_customer_history(phone):
             ORDER BY b.id DESC
             """,
             tuple(args),
-        )
+        )    
     except Exception:
         app.logger.exception("Unable to load customer history")
         flash("Customer history could not be loaded yet. Please check the deployment logs for the database error.", "error")
         bookings = []
     return render_template("customer_history.html", phone=phone, bookings=bookings)
+
+@app.route("/api/vehicles", methods=["GET"])
+@csrf.exempt
+def api_vehicles_list():
+    """Get all vehicles for authenticated user"""
+    user = _frontend_api_authorized()
+    
+    vehicles = fetch_all("""
+        SELECT v.*, c.full_name as customer_name
+        FROM vehicles v
+        JOIN customers c ON v.customer_id = c.id
+        WHERE v.franchise_id = %s
+        ORDER BY v.updated_at DESC
+    """, (user["franchise_id"],))
+    
+    return jsonify({
+        "data": [
+            {
+                "id": v["id"],
+                "make": v["make"],
+                "model": v["model"],
+                "year": v["year"],
+                "vin": v["vehicle_vin"],
+                "licensePlate": v["license_plate"],
+                "currentMileage": v["current_mileage"],
+                "customerName": v["customer_name"],
+                "lastServiceDate": v["last_service_date"],
+                "nextServiceDue": v["next_service_due_date"],
+            }
+            for v in vehicles
+        ]
+    })
+
+@app.route("/api/vehicles/<int:vehicle_id>", methods=["GET"])
+@csrf.exempt
+def api_vehicle_detail(vehicle_id):
+    """Get single vehicle and service history"""
+    user = _frontend_api_authorized()
+    
+    vehicle = fetch_one("""
+        SELECT v.*, c.full_name as customer_name, c.phone, c.email
+        FROM vehicles v
+        JOIN customers c ON v.customer_id = c.id
+        WHERE v.id = %s AND v.franchise_id = %s
+    """, (vehicle_id, user["franchise_id"]))
+    
+    if not vehicle:
+        return jsonify({"error": "Vehicle not found"}), 404
+    
+    # Get service history
+    services = fetch_all("""
+        SELECT b.id, b.service, b.scheduled_date, b.status, 
+               b.current_mileage, b.work_to_be_done
+        FROM bookings b
+        WHERE b.vehicle_vin = %s AND b.franchise_id = %s
+        ORDER BY b.scheduled_date DESC
+    """, (vehicle["vehicle_vin"], user["franchise_id"]))
+    
+    return jsonify({
+        "vehicle": {
+            "id": vehicle["id"],
+            "make": vehicle["make"],
+            "model": vehicle["model"],
+            "year": vehicle["year"],
+            "vin": vehicle["vehicle_vin"],
+            "licensePlate": vehicle["license_plate"],
+            "currentMileage": vehicle["current_mileage"],
+            "fuelType": vehicle["fuel_type"],
+            "customerName": vehicle["customer_name"],
+            "customerPhone": vehicle["phone"],
+            "customerEmail": vehicle["email"],
+            "lastServiceDate": vehicle["last_service_date"],
+            "nextServiceDue": vehicle["next_service_due_date"],
+            "serviceNotes": vehicle["service_notes"],
+        },
+        "serviceHistory": [
+            {
+                "id": s["id"],
+                "service": s["service"],
+                "date": s["scheduled_date"],
+                "status": s["status"],
+                "mileage": s["current_mileage"],
+                "workDone": s["work_to_be_done"],
+            }
+            for s in services
+        ]
+    })
+
+@app.route("/api/vehicles/<int:vehicle_id>/recommended-services", methods=["GET"])
+@csrf.exempt
+def api_vehicle_recommended_services(vehicle_id):
+    """Get recommended services based on vehicle mileage"""
+    user = _frontend_api_authorized()
+    
+    vehicle = fetch_one("""
+        SELECT * FROM vehicles WHERE id = %s AND franchise_id = %s
+    """, (vehicle_id, user["franchise_id"]))
+    
+    if not vehicle:
+        return jsonify({"error": "Vehicle not found"}), 404
+    
+    mileage = vehicle.get("current_mileage", 0)
+    recommended = get_services_for_vehicle_mileage(mileage)
+    
+    return jsonify({
+        "vehicleId": vehicle["id"],
+        "currentMileage": mileage,
+        "recommendedServices": recommended
+    })
+
+@app.route("/api/vehicles", methods=["POST"])
+@csrf.exempt
+def api_vehicles_create():
+    """Create new vehicle"""
+    user = _frontend_api_authorized()
+    data = request.json
+    
+    # Validate
+    if not all(data.get(f) for f in ["make", "model", "customer_id"]):
+        return jsonify({"error": "Missing required fields"}), 400
+    
+    # Ensure customer belongs to franchise
+    customer = fetch_one(
+        "SELECT id FROM customers WHERE id=%s AND franchise_id=%s",
+        (data["customer_id"], user["franchise_id"])
+    )
+    if not customer:
+        return jsonify({"error": "Customer not found"}), 404
+    
+    # Create vehicle
+    vehicle_id = execute_db("""
+        INSERT INTO vehicles 
+        (franchise_id, customer_id, make, model, year, vehicle_vin, 
+         license_plate, current_mileage, fuel_type, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (
+        user["franchise_id"],
+        data["customer_id"],
+        data["make"],
+        data["model"],
+        data.get("year"),
+        data.get("vin"),
+        data.get("licensePlate"),
+        data.get("currentMileage", 0),
+        data.get("fuelType"),
+        utc_now(),
+        utc_now()
+    ))
+    
+    return jsonify({"id": vehicle_id}), 201
+
+@app.route("/api/vehicles/<int:vehicle_id>", methods=["PUT"])
+@csrf.exempt
+def api_vehicles_update(vehicle_id):
+    """Update vehicle info"""
+    user = _frontend_api_authorized()
+    data = request.json
+    
+    vehicle = fetch_one(
+        "SELECT id FROM vehicles WHERE id=%s AND franchise_id=%s",
+        (vehicle_id, user["franchise_id"])
+    )
+    if not vehicle:
+        return jsonify({"error": "Vehicle not found"}), 404
+    
+    # Update mileage
+    if "currentMileage" in data:
+        execute_db("""
+            UPDATE vehicles 
+            SET current_mileage=%s, updated_at=%s
+            WHERE id=%s
+        """, (data["currentMileage"], utc_now(), vehicle_id))
+    
+    # Update service due dates
+    if "nextServiceDueDate" in data:
+        execute_db("""
+            UPDATE vehicles 
+            SET next_service_due_date=%s, updated_at=%s
+            WHERE id=%s
+        """, (data["nextServiceDueDate"], utc_now(), vehicle_id))
+    
+    return jsonify({"success": True})
+
 
 
 @app.route("/reports")
@@ -2423,7 +2644,7 @@ def manage_prices():
 
 
 @app.route("/chatbot/inbox", methods=["GET", "POST"])
-@roles_required("franchise_admin", "super_admin")
+@login_required
 def chatbot_inbox():
     if request.method == "POST":
         franchise_id = request.form.get("franchise_id") or current_user().get("franchise_id")
@@ -2505,6 +2726,28 @@ def _record_chatbot_usage(franchise_id):
             "INSERT INTO chatbot_usage_monthly (franchise_id, usage_month, message_count, message_limit, extra_messages, base_price, overage_price, overage_cost, total_due, created_at, updated_at) VALUES (%s, %s, 1, %s, 0, %s, %s, 0, %s, %s, %s)",
             (franchise_id, month_key, limit, base_price, overage_price, base_price, utc_now(), utc_now()),
         )
+    if request.method == "POST":
+        customer_name = request.form.get("customer_name")
+        customer_phone = request.form.get("customer_phone")
+        message_text = request.form.get("message_text")
+        
+        # NEW: Try to extract vehicle info from message
+        vehicle_make = extract_vehicle_make(message_text)  # Use NLP or simple parsing
+        mileage = extract_mileage(message_text)
+        
+        # NEW: Get recommended services if we have vehicle info
+        suggested_services = []
+        if vehicle_make and mileage:
+            from service_knowledge import get_services_for_vehicle_mileage
+            suggested_services = get_services_for_vehicle_mileage(vehicle_make, mileage)
+        
+        # Store message with suggestions
+        execute_db("""
+            INSERT INTO chatbot_messages 
+            (..., suggested_services_json)
+            VALUES (..., %s)
+        """, (..., json.dumps(suggested_services)))
+    
 
 
 @app.route("/billing/close-month", methods=["POST"])

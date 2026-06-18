@@ -154,3 +154,8 @@ if __name__ == "__main__":
 
     else:
         print("No valid job provided")
+
+    if len(sys.argv) > 1 and sys.argv[1] == "billing":
+        from billing_scheduler import process_monthly_billing
+        process_monthly_billing()
+    
