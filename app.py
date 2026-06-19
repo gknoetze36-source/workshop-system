@@ -301,35 +301,6 @@ def _active_franchise_required():
             flash("This client account is unpaid or expired. Dashboard access remains available, but new bookings, automations, and outbound messages are disabled.", "error")
     return None
 
-@app.route("/api/vehicles/<int:vehicle_id>/recommended-services", methods=["GET"])
-@csrf.exempt
-def api_vehicle_recommended_services(vehicle_id):
-    """Get recommended services based on vehicle mileage"""
-    user = _frontend_api_authorized()
-    
-    vehicle = fetch_one("""
-        SELECT * FROM vehicles WHERE id = %s AND franchise_id = %s
-    """, (vehicle_id, user["franchise_id"]))
-    
-    if not vehicle:
-        return jsonify({"error": "Vehicle not found"}), 404
-    
-    from service_knowledge import get_services_for_vehicle_mileage, get_next_service_due_for_vehicle
-    
-    mileage = vehicle.get("current_mileage", 0)
-    recommended = get_services_for_vehicle_mileage(vehicle.get("make"), mileage)
-    next_due = get_next_service_due_for_vehicle(mileage, vehicle.get("last_service_mileage", 0))
-    
-    return jsonify({
-        "vehicleId": vehicle["id"],
-        "make": vehicle["make"],
-        "model": vehicle["model"],
-        "currentMileage": mileage,
-        "nextServiceDue": next_due,
-        "recommendedServices": recommended
-    })
-
-
 @app.route("/health")
 def health():
     return {"status": "ok"}
