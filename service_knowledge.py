@@ -139,15 +139,26 @@ def get_services_for_vehicle_mileage(make=None, mileage=0):
     # Try specific make first, fall back to "all"
     services_by_make = CAR_SERVICE_REQUIREMENTS.get(make) or CAR_SERVICE_REQUIREMENTS.get("all")
     
-    # Find matching mileage range
-    for range_key in sorted(services_by_make.keys()):
+        # Find matching mileage range
+    for range_key in sorted(services_by_make.keys(), key=lambda x: int(x.split("-")[0]) if "-" in x else int(x.split("+")[0])):
         if "-" in range_key:
-            min_km, max_km = map(int, range_key.split("-"))
-            if min_km <= mileage <= max_km:
-                return services_by_make[range_key]
+            try:
+                min_km, max_km = map(int, range_key.split("-"))
+                if min_km <= mileage <= max_km:
+                    return services_by_make[range_key]
+            except (ValueError, IndexError):
+                continue
+        elif "+" in range_key:
+            try:
+                min_km = int(range_key.split("+")[0])
+                if mileage >= min_km:
+                    return services_by_make[range_key]
+            except (ValueError, IndexError):
+                continue
     
     # Return highest mileage services if over max
     return services_by_make.get("150000+", [])
+
 
 def get_next_service_due_for_vehicle(current_mileage, last_service_mileage=0):
     """
