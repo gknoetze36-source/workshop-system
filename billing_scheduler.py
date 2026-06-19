@@ -144,7 +144,7 @@ def reset_monthly_usage():
     logger.info("Usage counters reset")
 
 if __name__ == "__main__":
-    logger.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO)
     initialize_database()
     process_monthly_billing()
     
