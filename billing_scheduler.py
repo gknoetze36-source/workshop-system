@@ -5,10 +5,9 @@ Run daily: checks if franchises need billing and charges them
 
 import os
 from datetime import datetime, timedelta
-from database import fetch_all, fetch_one, execute_db, utc_now, initialize_database
-from services.paystack import create_invoice, verify_payment
-import logging
-
+from database import execute_db, utc_now, initialize_database
+from platform_helpers import fetch_all, fetch_one
+from services.paystack import create_invoice, verify_paymentimport logging
 logger = logging.getLogger(__name__)
 
 def get_franchises_due_for_billing():
