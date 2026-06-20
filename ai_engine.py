@@ -35,7 +35,7 @@ Classify into ONE:
 Message: "{text}"
 """
     response = client.chat.completions.create(
-        model="gpt-4.1-mini",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
     )
     return response.choices[0].message.content.strip().lower()
