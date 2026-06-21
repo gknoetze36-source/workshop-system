@@ -604,29 +604,6 @@ def api_customers():
         }
     return jsonify({"data": list(customers_by_key.values())})
 
-
-@app.route("/api/vehicles")
-@csrf.exempt
-def api_vehicles():
-    user = _frontend_api_authorized()
-    rows = fetch_visible_bookings(user)
-    vehicles = []
-    seen = set()
-    for row in rows:
-        key = (row.get("make"), row.get("model"), row.get("vehicle_vin"))
-        if key in seen or not any(key):
-            continue
-        seen.add(key)
-        vehicles.append({
-            "make": row.get("make"),
-            "model": row.get("model"),
-            "vin": row.get("vehicle_vin"),
-            "customer": " ".join(part for part in [row.get("first_name"), row.get("surname")] if part).strip(),
-            "lastBooking": row.get("scheduled_date") or row.get("date"),
-        })
-    return jsonify({"data": vehicles})
-
-
 @app.route("/api/automations")
 @csrf.exempt
 def api_automations():

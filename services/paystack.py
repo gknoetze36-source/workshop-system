@@ -78,3 +78,97 @@ def mark_webhook_event_processed(event_id, status="processed"):
         "UPDATE paystack_webhook_events SET processed_at=%s, status=%s WHERE event_id=%s",
         (utc_now(), status, event_id),
     )
+def create_invoice(franchise_email, amount, description, reference):
+    """
+    Create an invoice in Paystack (requires invoice plugin)
+    
+    Args:
+        franchise_email: Email to send invoice to
+        amount: Amount in kobo (smallest currency unit)
+        description: Invoice description
+        reference: Unique invoice reference
+    
+    Returns:
+        Dictionary with 'reference' key containing invoice reference
+    """
+    payload = {
+        "customer": {
+            "email": franchise_email,
+        },
+        "amount": int(round(float(amount or 0))),  # Already in kobo
+        "due_date": (datetime.now() + timedelta(days=14)).isoformat(),
+        "description": description,
+        "reference": reference,
+        "line_items": [
+            {
+                "name": description,
+                "amount": int(round(float(amount or 0))),
+                "quantity": 1,
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(
+            f"{PAYSTACK_BASE_URL}/invoice",
+            json=payload,
+            headers=_headers(),
+            timeout=15
+        )
+        response.raise_for_status()
+        return response.json()["data"]
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Paystack invoice creation failed: {e}")
+        raise
+
+
+def create_invoice(franchise_email, amount, description, reference):
+    """
+    Create a Paystack invoice for franchise billing
+    
+    Args:
+        franchise_email: Email to send invoice to
+        amount: Amount in kobo (smallest currency unit)
+        description: Invoice description
+        reference: Unique invoice reference
+    
+    Returns:
+        Dictionary with 'reference' key containing invoice reference
+    """
+    from datetime import datetime, timedelta
+    
+    payload = {
+        "customer": {
+            "email": franchise_email,
+        },
+        "amount": int(round(float(amount or 0))),  # Already in kobo
+        "due_date": (datetime.now() + timedelta(days=14)).isoformat(),
+        "description": description,
+        "reference": reference,
+        "line_items": [
+            {
+                "name": description,
+                "amount": int(round(float(amount or 0))),
+                "quantity": 1,
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(
+            f"{PAYSTACK_BASE_URL}/invoice",
+            json=payload,
+            headers=_headers(),
+            timeout=15
+        )
+        response.raise_for_status()
+        result = response.json()
+        if result.get("status"):
+            return result.get("data", {})
+        raise RuntimeError(f"Paystack error: {result.get('message', 'Unknown error')}")
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Paystack invoice creation failed: {e}")
+        raise
