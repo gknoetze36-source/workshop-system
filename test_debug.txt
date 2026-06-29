@@ -1,0 +1,1 @@
+This is a test debug file created using the Write tool to verify that file writing works in this directory.
