@@ -5,14 +5,7 @@ This service contains all business logic for the Owner entity.
 It depends only on the Owner Repository.
 """
 
-from repositories.owner_repository import (
-    get_owner_by_id,
-    get_owner_by_slug,
-    list_owners,
-    create_owner,
-    update_owner,
-    delete_owner,
-)
+from platform_helpers import visible_franchises
 
 
 def get_owner_by_id(owner_id):
@@ -43,3 +36,11 @@ def update_owner(owner_id, owner_data):
 def delete_owner(owner_id):
     """Delete an owner by ID."""
     raise NotImplementedError("TODO: Implement delete_owner")
+
+
+def get_visible_owners(user=None, include_inactive=False):
+    """
+    Return a list of visible owners (franchises) based on user and include_inactive flag.
+    This method delegates directly to the existing visible_franchises helper.
+    """
+    return visible_franchises(user=user, include_inactive=include_inactive)
