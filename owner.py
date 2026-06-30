@@ -75,7 +75,7 @@ class Owner:
             created_at: Timestamp when the owner was created
             updated_at: Timestamp when the owner was last updated
             ai_settings: AI configuration (optional): Meta Business Account ID)
-        service_catalogue_id: Reference to the service catalogue (if separated)
+            service_catalogue_id: Reference to the service catalogue (if separated)
         """
         self.id = id
         self.name = name
