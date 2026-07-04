@@ -2219,7 +2219,7 @@ def manage_users():
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
         role = request.form.get("role") or "reception"
-        if role in available_roles_for_creator(current_user()) and username and password and not get_user_by_username(username):
+        if role in get_allowed_roles_for_creator(current_user()) and username and password and not get_user_by_username(username):
             franchise_id = request.form.get("franchise_id") or current_user().get("franchise_id")
             if current_user()["role"] != "super_admin":
                 franchise_id = current_user()["franchise_id"]
@@ -2230,7 +2230,7 @@ def manage_users():
                 flash(f"{franchise['name']} has reached its user limit for the {plan_label(franchise.get('plan_code'))} plan.", "error")
                 scope_sql, args = user_scope_clause(current_user())
                 users = get_users_with_filters(scope_sql, args)
-                return render_template("manage_users.html", users=users, roles=available_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
+                return render_template("manage_users.html", users=users, roles=get_allowed_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
             if role == "reception" and not branch:
                 flash("Reception users must be linked to a visible branch.", "error")
             else:
@@ -2242,7 +2242,7 @@ def manage_users():
             flash("Please provide a unique username, a password, and a valid role.", "error")
     scope_sql, args = user_scope_clause(current_user())
             users = get_users_with_filters(scope_sql, args)
-    return render_template("manage_users.html", users=users, roles=available_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
+    return render_template("manage_users.html", users=users, roles=get_allowed_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
 
 
 @app.route("/manage/users/<int:user_id>/assign", methods=["POST"])
@@ -2255,7 +2255,7 @@ def assign_user(user_id):
         abort(403)
 
     role = request.form.get("role") or candidate["role"]
-    if role not in available_roles_for_creator(current_user()) and role != candidate["role"]:
+    if role not in get_allowed_roles_for_creator(current_user()) and role != candidate["role"]:
         flash("That role is not available for your account.", "error")
         return redirect(url_for("manage_users"))
 
