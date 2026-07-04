@@ -6,6 +6,7 @@ from flask import has_request_context, url_for
 
 from database import classify_service_level, execute_db, iso_date, parse_any_date, query_db, transaction, utc_now
 from validators.phone_validator import normalize_phone
+from services.customer_service import get_customer_by_phone_and_franchise, get_customer_by_email_and_franchise
 
 ROLE_LABELS = {
     "reception": "Reception",
@@ -935,11 +936,9 @@ def upsert_customer(franchise_id, form_data):
     full_name = " ".join(part for part in [first_name, surname] if part).strip() or (form_data.get("customer_name") or "").strip()
     customer = None
     if phone:
-        customer = fetch_one("SELECT * FROM customers WHERE franchise_id=%s AND phone=%s ORDER BY id DESC LIMIT 1", (franchise_id, phone))
+        customer = get_customer_by_phone_and_franchise(phone, franchise_id)
     if not customer and email:
-        customer = fetch_one("SELECT * FROM customers WHERE franchise_id=%s AND lower(COALESCE(email, ''))=lower(%s) ORDER BY id DESC LIMIT 1", (franchise_id, email))
-    if customer:
-        execute_db(
+        customer = get_customer_by_email_and_franchise(email, franchise_id)
             """
             UPDATE customers
             SET first_name=COALESCE(NULLIF(%s, ''), first_name),
@@ -964,9 +963,9 @@ def upsert_customer(franchise_id, form_data):
         (franchise_id, first_name, surname, full_name, phone, email, db_bool(form_data.get("whatsapp_opt_in", "true")), utc_now(), utc_now()),
     )
     if phone:
-        row = fetch_one("SELECT id FROM customers WHERE franchise_id=%s AND phone=%s ORDER BY id DESC LIMIT 1", (franchise_id, phone))
+        row = get_customer_by_phone_and_franchise(phone, franchise_id)
     else:
-        row = fetch_one("SELECT id FROM customers WHERE franchise_id=%s AND lower(COALESCE(email, ''))=lower(%s) ORDER BY id DESC LIMIT 1", (franchise_id, email))
+        row = get_customer_by_email_and_franchise(email, franchise_id)
     return row["id"] if row else None
 
 

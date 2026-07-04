@@ -63,9 +63,21 @@ from platform_helpers import (
     user_scope_clause,
     utc_today,
     fetch_inquiries_for_user,
-    visible_branches,
     visible_franchises,
     FUTURE_ROLE_LABELS,
+)
+from services.owner_service import get_visible_owners
+from services.location_service import get_visible_branches
+from services.user_service import (
+    get_user_by_username_or_email,
+    get_user_by_username,
+    get_user_by_id,
+    get_user_count_by_franchise,
+    get_user_counts_by_franchise,
+    get_users_with_filters,
+    get_non_superadmin_excluding_current,
+    get_all_users_ordered_by_franchise_name,
+    user_exists,
 )
 from platform_messaging import (
     auto_send_reminder,
@@ -376,7 +388,7 @@ def api_auth_login():
     if not username or not password:
         return jsonify({"ok": False, "error": "username_and_password_required"}), 400
 
-    user = fetch_one("SELECT * FROM users WHERE lower(username)=lower(%s) OR lower(email)=lower(%s)", (username, username))
+    user = get_user_by_username_or_email(username)
     valid = False
     if user:
         if user.get("password_hash"):
@@ -481,7 +493,7 @@ def _dashboard_payload(user):
     pending_reminders = fetch_all(
         "SELECT COUNT(*) AS total FROM reminder_campaigns WHERE status='Pending'"
     )
-    workspace_rows = visible_franchises(user=user, include_inactive=True)
+    workspace_rows = get_visible_owners(user=user, include_inactive=True)
     automation_clause, automation_args = scope_clause(user, alias="ar")
     automation_rows = fetch_all(
         f"""
@@ -657,7 +669,7 @@ def api_billing():
 @csrf.exempt
 def api_settings():
     user = _frontend_api_authorized()
-    return jsonify({"workspaces": [_serialize_workspace(row) for row in visible_franchises(user=user, include_inactive=True)], "branches": visible_branches(user=user, include_inactive=True)})
+    return jsonify({"workspaces": [_serialize_workspace(row) for row in get_visible_owners(user=user, include_inactive=True)], "branches": get_visible_branches(user=user, include_inactive=True)})
 
 
 @app.route("/")
@@ -696,8 +708,8 @@ def _render_public_booking(preselected_branch=None):
 
     return render_template(
         "public_booking.html",
-        franchises=visible_franchises(),
-        branches=visible_branches(public_only=True),
+        franchises=get_visible_owners(),
+        branches=get_visible_branches(public_only=True),
         preselected_branch=preselected_branch,
     )
 
@@ -783,7 +795,7 @@ def login():
         require_fields(request.form, ("username", "password"))
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
-        user = fetch_one("SELECT * FROM users WHERE lower(username)=lower(%s)", (username,))
+        user = get_user_by_username(username)
         valid = False
         if user:
             if user.get("password_hash"):
@@ -894,7 +906,7 @@ def dashboard():
             "completed": len([item for item in bookings if item.get("status") in DONE_STATUSES]),
             "reminders": len([item for item in reminders if item.get("status") == "Pending"]),
         },
-        branch_summaries=visible_branches(user=current_user()),
+        branch_summaries=get_visible_branches(user=current_user()),
         franchise=franchise,
         plan_features_list=plan_features(franchise) if franchise else [],
         latest_monthly=latest_monthly,
@@ -998,7 +1010,7 @@ def new_client():
         roles = request.form.getlist("staff_role")
         assigned_branches = request.form.getlist("staff_branch_index")
         for index, username in enumerate(user_names):
-            if fetch_one("SELECT id FROM users WHERE lower(username)=lower(%s)", (username,)):
+            if get_user_by_username(username) is not None:
                 continue
             role = roles[index] if index < len(roles) and roles[index] in {"franchise_admin", "reception"} else "reception"
             branch_id = None
@@ -1066,8 +1078,8 @@ def bookings():
         "bookings.html",
         bookings=fetch_visible_bookings(current_user(), filters),
         filters=filters,
-        branch_options=visible_branches(user=current_user()),
-        franchise_options=visible_franchises(user=current_user()),
+        branch_options=get_visible_branches(user=current_user()),
+        franchise_options=get_visible_owners(user=current_user()),
     )
 
 
@@ -1165,7 +1177,7 @@ def add_booking():
             flash(f"Reception booking {reference} created.", "success")
             return redirect(url_for("booking_detail", reference=reference))
         flash("Please choose a valid branch.", "error")
-    return render_template("booking_form.html", page_title="Reception Booking", submit_label="Save Booking", source_label="Reception booking", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=fetch_service_prices(current_user()))
+    return render_template("booking_form.html", page_title="Reception Booking", submit_label="Save Booking", source_label="Reception booking", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=get_visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=fetch_service_prices(current_user()))
 
 
 @app.route("/walkin", methods=["GET", "POST"])
@@ -1188,7 +1200,7 @@ def walkin():
             flash(f"Walk-in {reference} recorded.", "success")
             return redirect(url_for("booking_detail", reference=reference))
         flash("Please choose a valid branch.", "error")
-    return render_template("booking_form.html", page_title="Workshop Walk-In", submit_label="Save Walk-In", source_label="Walk-in", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=fetch_service_prices(current_user()))
+    return render_template("booking_form.html", page_title="Workshop Walk-In", submit_label="Save Walk-In", source_label="Walk-in", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=get_visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=fetch_service_prices(current_user()))
 
 
 @app.route("/customers")
@@ -1601,7 +1613,7 @@ def manage_franchises():
             flash(f"Franchise {name} created.", "success")
         else:
             flash("Please use a unique franchise name.", "error")
-    franchises = visible_franchises(include_inactive=True)
+    franchises = get_visible_owners(include_inactive=True)
     counts = {item["id"]: franchise_counts(item["id"]) for item in franchises}
     industries = fetch_all("SELECT * FROM industry_templates WHERE active=TRUE ORDER BY name")
     return render_template("manage_franchises.html", franchises=franchises, franchise_counts=counts, industries=industries, monthly_usage=monthly_usage_summary(), daily_usage=daily_usage_summary())
@@ -1723,7 +1735,7 @@ def _client_audit_payload(franchise_id=None):
             {
                 "franchise": franchise,
                 "branches": fetch_one("SELECT COUNT(*) AS total FROM branches WHERE franchise_id=%s", (fid,)).get("total", 0),
-                "users": fetch_one("SELECT COUNT(*) AS total FROM users WHERE franchise_id=%s", (fid,)).get("total", 0),
+            "users": get_user_count_by_franchise(fid),
                 "customers": fetch_one("SELECT COUNT(*) AS total FROM customers WHERE franchise_id=%s", (fid,)).get("total", 0),
                 "messages": fetch_one("SELECT COUNT(*) AS total FROM communication_logs WHERE franchise_id=%s", (fid,)).get("total", 0),
                 "failed_messages": fetch_one("SELECT COUNT(*) AS total FROM communication_logs WHERE franchise_id=%s AND status LIKE 'failed%%'", (fid,)).get("total", 0),
@@ -1737,19 +1749,12 @@ def _client_audit_payload(franchise_id=None):
 @app.route("/admin/organization")
 @roles_required("super_admin")
 def admin_organization():
-    franchises = visible_franchises(include_inactive=True)
-    branch_counts = {row["franchise_id"]: row["total"] for row in fetch_all("SELECT franchise_id, COUNT(*) AS total FROM branches GROUP BY franchise_id")}
-    user_counts = {row["franchise_id"]: row["total"] for row in fetch_all("SELECT franchise_id, COUNT(*) AS total FROM users GROUP BY franchise_id")}
-    branches = visible_branches(include_inactive=True)
-    users = fetch_all(
-        """
-        SELECT u.*, f.name AS franchise_name, b.name AS branch_name
-        FROM users u
-        LEFT JOIN franchises f ON f.id = u.franchise_id
-        LEFT JOIN branches b ON b.id = u.branch_id
-        ORDER BY f.name, b.name, u.username
-        """
-    )
+    franchises = get_visible_owners(include_inactive=True)
+    user_counts = get_user_counts_by_franchise()
+    user_counts = get_user_counts_by_franchise()
+    scope_sql = "1=1"
+    args = ()
+    users = get_users_with_filters(scope_sql, args)
     return render_template(
         "admin_organization.html",
         franchises=franchises,
@@ -1772,7 +1777,7 @@ def admin_client_audit():
     return render_template(
         "admin_client_audit.html",
         summaries=payload,
-        franchises=visible_franchises(include_inactive=True),
+        franchises=get_visible_owners(include_inactive=True),
         selected_franchise_id=int(franchise_id) if franchise_id else None,
         audit_logs=audit_logs,
         webhook_events=webhook_events,
@@ -2161,7 +2166,7 @@ def manage_branches():
     return render_template(
         "manage_branches.html",
         branches=visible_branches(user=current_user(), include_inactive=True),
-        franchises=visible_franchises(user=current_user(), include_inactive=True),
+        franchises=get_visible_owners(user=current_user(), include_inactive=True),
         branch_counts=branch_counts,
     )
 
@@ -2198,7 +2203,7 @@ def manage_users():
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
         role = request.form.get("role") or "reception"
-        if role in available_roles_for_creator(current_user()) and username and password and not fetch_one("SELECT id FROM users WHERE lower(username)=lower(%s)", (username,)):
+        if role in get_allowed_roles_for_creator(current_user()) and username and password and not get_user_by_username(username):
             franchise_id = request.form.get("franchise_id") or current_user().get("franchise_id")
             if current_user()["role"] != "super_admin":
                 franchise_id = current_user()["franchise_id"]
@@ -2208,8 +2213,8 @@ def manage_users():
             if franchise and not can_add_user(franchise):
                 flash(f"{franchise['name']} has reached its user limit for the {plan_label(franchise.get('plan_code'))} plan.", "error")
                 scope_sql, args = user_scope_clause(current_user())
-                users = fetch_all("SELECT u.*, f.name AS franchise_name, b.name AS branch_name FROM users u LEFT JOIN franchises f ON f.id = u.franchise_id LEFT JOIN branches b ON b.id = u.branch_id WHERE " + scope_sql + " ORDER BY u.role, u.username", tuple(args))
-                return render_template("manage_users.html", users=users, roles=available_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=visible_franchises(user=current_user(), include_inactive=True))
+                users = get_users_with_filters(scope_sql, args)
+                return render_template("manage_users.html", users=users, roles=get_allowed_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
             if role == "reception" and not branch:
                 flash("Reception users must be linked to a visible branch.", "error")
             else:
@@ -2220,21 +2225,21 @@ def manage_users():
         else:
             flash("Please provide a unique username, a password, and a valid role.", "error")
     scope_sql, args = user_scope_clause(current_user())
-    users = fetch_all("SELECT u.*, f.name AS franchise_name, b.name AS branch_name FROM users u LEFT JOIN franchises f ON f.id = u.franchise_id LEFT JOIN branches b ON b.id = u.branch_id WHERE " + scope_sql + " ORDER BY u.role, u.username", tuple(args))
-    return render_template("manage_users.html", users=users, roles=available_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=visible_franchises(user=current_user(), include_inactive=True))
+    users = get_users_with_filters(scope_sql, args)
+    return render_template("manage_users.html", users=users, roles=get_allowed_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
 
 
 @app.route("/manage/users/<int:user_id>/assign", methods=["POST"])
 @roles_required("franchise_admin", "super_admin")
 def assign_user(user_id):
-    candidate = fetch_one("SELECT * FROM users WHERE id=%s", (user_id,))
+    candidate = get_user_by_id(user_id)
     if not candidate:
         abort(404)
     if current_user()["role"] != "super_admin" and candidate.get("franchise_id") != current_user().get("franchise_id"):
         abort(403)
 
     role = request.form.get("role") or candidate["role"]
-    if role not in available_roles_for_creator(current_user()) and role != candidate["role"]:
+    if role not in get_allowed_roles_for_creator(current_user()) and role != candidate["role"]:
         flash("That role is not available for your account.", "error")
         return redirect(url_for("manage_users"))
 
@@ -2286,7 +2291,7 @@ def assign_user(user_id):
 @app.route("/manage/users/<int:user_id>/toggle", methods=["POST"])
 @roles_required("franchise_admin", "super_admin")
 def toggle_user(user_id):
-    candidate = fetch_one("SELECT * FROM users WHERE id=%s", (user_id,))
+    candidate = get_user_by_id(user_id)
     if not candidate:
         abort(404)
     if current_user()["role"] != "super_admin" and candidate.get("franchise_id") != current_user().get("franchise_id"):
@@ -2301,7 +2306,7 @@ def toggle_user(user_id):
 @roles_required("franchise_admin", "super_admin")
 @limiter.limit("20 per hour")
 def reset_user_password(user_id):
-    candidate = fetch_one("SELECT * FROM users WHERE id=%s", (user_id,))
+    candidate = get_user_by_id(user_id)
     if not candidate:
         abort(404)
     if current_user()["role"] != "super_admin" and candidate.get("franchise_id") != current_user().get("franchise_id"):
@@ -2323,7 +2328,7 @@ def reset_user_password(user_id):
 @app.route("/manage/credentials")
 @roles_required("super_admin")
 def manage_credentials():
-    users = fetch_all("SELECT u.*, f.name AS franchise_name, b.name AS branch_name FROM users u LEFT JOIN franchises f ON f.id = u.franchise_id LEFT JOIN branches b ON b.id = u.branch_id ORDER BY f.name, u.username")
+    users = get_all_users_ordered_by_franchise_name()
     return render_template("manage_credentials.html", users=users, audit=fetch_credential_audit(), temporary_password="login1234")
 
 
@@ -2331,7 +2336,7 @@ def manage_credentials():
 @roles_required("super_admin")
 @limiter.limit("3 per hour")
 def reset_all_passwords():
-    users = fetch_all("SELECT * FROM users WHERE role <> 'super_admin' OR username <> %s", (current_user()["username"],))
+    users = get_non_superadmin_excluding_current(current_user()["username"])
     for user in users:
         execute_db(
             "UPDATE users SET password_hash=%s, password=%s, must_reset_password=%s, updated_at=%s WHERE id=%s",
@@ -2375,7 +2380,7 @@ def manage_prices():
         )
         record_audit("service_price_created", "service_price", request.form.get("service_name"), current_user(), franchise_id=franchise_id, branch_id=branch["id"] if branch else None, details={"price_amount": request.form.get("price_amount") or 0})
         flash("Service price saved.", "success")
-    return render_template("manage_prices.html", prices=fetch_service_prices(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=visible_franchises(user=current_user(), include_inactive=True))
+    return render_template("manage_prices.html", prices=fetch_service_prices(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
 
 
 @app.route("/chatbot/inbox", methods=["GET", "POST"])
@@ -2430,7 +2435,7 @@ def chatbot_inbox():
         + " ORDER BY cm.created_at DESC",
         (current_user()["franchise_id"],) if current_user()["role"] != "super_admin" else (),
     )
-    return render_template("chatbot_inbox.html", messages=messages, branches=visible_branches(user=current_user(), include_inactive=True), franchises=visible_franchises(user=current_user(), include_inactive=True), daily_usage=daily_usage_summary(current_user()), monthly_usage=monthly_usage_summary(current_user()))
+    return render_template("chatbot_inbox.html", messages=messages, branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True), daily_usage=daily_usage_summary(current_user()), monthly_usage=monthly_usage_summary(current_user()))
 
 
 def _record_chatbot_usage(franchise_id):
