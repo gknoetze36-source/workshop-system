@@ -42,9 +42,7 @@ from platform_helpers import (
     fetch_credential_audit,
     fetch_audit_logs,
     fetch_one,
-    fetch_service_prices,
     fetch_visible_bookings,
-    find_service_price,
     franchise_counts,
     inquiry_metrics,
     human_date,
@@ -79,6 +77,49 @@ from services.user_service import (
     get_all_users_ordered_by_franchise_name,
     user_exists,
 )
+from services.vehicle_service import get_vehicles_by_franchise, get_vehicle_by_id
+from services.communication_service import (
+    get_communication_logs_count_by_date,
+    get_communication_logs_count_by_franchise,
+    get_communication_logs_failed_count_by_franchise,
+    get_communication_logs_by_booking_id,
+    get_messaging_accounts_whatsapp_connected,
+    get_reminders_for_user,
+    get_reminder_by_id,
+    get_whatsapp_messages,
+    get_email_messages,
+    get_sms_messages,
+    get_notifications,
+    get_notification_by_id,
+    get_templates,
+    get_template_by_id,
+    get_delivery_status,
+    get_conversation,
+    get_conversations,
+    get_chat_history,
+    get_messages_for_booking,
+    get_messages_for_customer,
+    get_messages_for_vehicle,
+    get_failed_messages,
+    get_retry_queue,
+    get_sent_reminders,
+    get_pending_reminders,
+    get_communication_dashboard,
+    get_chatbot_messages_daily,
+    get_chatbot_messages_monthly,
+    get_chatbot_message_by_id,
+    get_chatbot_messages_inbox,
+)
+from services.financial_service import (
+    fetch_service_prices,
+    find_service_price,
+    plan_features,
+    plan_label,
+    subscription_is_active,
+    refresh_subscription_status,
+    mark_billing_paid,
+)
+
 from platform_messaging import (
     auto_send_reminder,
     build_booking_message,
@@ -309,7 +350,7 @@ def _active_franchise_required():
             session.clear()
             flash("This client account is inactive. Please contact the platform administrator.", "error")
             return redirect(url_for("login"))
-        if franchise and not subscription_is_active(franchise):
+        if franchise and not financial_service.subscription_is_active(franchise):
             flash("This client account is unpaid or expired. Dashboard access remains available, but new bookings, automations, and outbound messages are disabled.", "error")
     return None
 
@@ -449,7 +490,7 @@ def _serialize_workspace(row):
     return {
         "id": str(row.get("id")),
         "name": row.get("name") or "Workspace",
-        "plan": plan_label(row.get("plan_code") or "basic"),
+        "plan": financial_service.plan_label(row.get("plan_code") or "basic"),
         "role": "owner",
     }
 
@@ -485,7 +526,7 @@ def _serialize_automation(row):
 
 
 def _dashboard_payload(user):
-    bookings = fetch_visible_bookings(user)
+    bookings = get_visible_bookings(user)
     today = utc_today()
     open_bookings = [item for item in bookings if item.get("status") not in DONE_STATUSES]
     today_bookings = [item for item in bookings if item.get("scheduled_date") == today]
@@ -561,7 +602,7 @@ def api_dashboard():
 @csrf.exempt
 def api_jobs():
     user = _frontend_api_authorized()
-    return jsonify({"data": [_serialize_job(row) for row in fetch_visible_bookings(user)]})
+    return jsonify({"data": [_serialize_job(row) for row in get_visible_bookings(user)]})
 
 
 @app.route("/api/bookings", methods=["GET", "POST"])
@@ -569,7 +610,7 @@ def api_jobs():
 def api_bookings():
     user = _frontend_api_authorized()
     if request.method == "GET":
-        return jsonify({"data": [_serialize_job(row) for row in fetch_visible_bookings(user)]})
+        return jsonify({"data": [_serialize_job(row) for row in get_visible_bookings(user)]})
 
     payload = request.get_json(silent=True) or request.form.to_dict()
     branch = selected_branch_for_user(user, payload.get("branch_id"))
@@ -600,7 +641,7 @@ def api_bookings():
 def api_customers():
     user = _frontend_api_authorized()
     customers_by_key = {}
-    for booking in fetch_visible_bookings(user):
+    for booking in get_visible_bookings(user):
         key = str(booking.get("phone") or booking.get("customer_email") or booking.get("booking_reference") or booking.get("id") or "").strip()
         if not key or key in customers_by_key:
             continue
@@ -648,7 +689,7 @@ def api_staff():
 @csrf.exempt
 def api_inventory():
     user = _frontend_api_authorized()
-    return jsonify({"data": fetch_service_prices(user)})
+    return jsonify({"data": financial_service.fetch_service_prices(user)})
 
 
 @app.route("/api/reports")
@@ -767,16 +808,7 @@ def booking_webhook(franchise_slug, branch_slug, token):
 
 @app.route("/booking-success/<reference>")
 def booking_success(reference):
-    booking = fetch_one(
-        """
-        SELECT b.*, br.name AS branch_name, f.name AS franchise_name
-        FROM bookings b
-        LEFT JOIN branches br ON br.id = b.branch_id
-        LEFT JOIN franchises f ON f.id = b.franchise_id
-        WHERE b.booking_reference=%s
-        """,
-        (reference,),
-    )
+    booking = get_booking_by_reference_raw(reference)
     if not booking:
         abort(404)
     return render_template("booking_success.html", booking=booking)
@@ -877,8 +909,8 @@ def dashboard():
     inactive_redirect = _active_franchise_required()
     if inactive_redirect:
         return inactive_redirect
-    bookings = fetch_visible_bookings(current_user())
-    reminders = fetch_reminders_for_user(current_user())
+    bookings = get_visible_bookings(current_user())
+    reminders = communication_service.get_reminders_for_user(current_user())
     inquiries = fetch_inquiries_for_user(current_user(), limit=8)
     today = utc_today()
     franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (current_user().get("franchise_id"),)) if current_user()["role"] != "super_admin" else None
@@ -889,8 +921,8 @@ def dashboard():
         onboarding = {
             "total_clients": (fetch_one("SELECT COUNT(*) AS total FROM franchises") or {}).get("total", 0),
             "total_branches": (fetch_one("SELECT COUNT(*) AS total FROM branches") or {}).get("total", 0),
-            "whatsapp_connected": (fetch_one("SELECT COUNT(*) AS total FROM messaging_accounts WHERE provider='meta' AND is_active=TRUE") or {}).get("total", 0),
-            "messages_today": (fetch_one("SELECT COUNT(*) AS total FROM communication_logs WHERE substr(created_at, 1, 10)=%s", (today,)) or {}).get("total", 0),
+            "whatsapp_connected": communication_service.get_messaging_accounts_whatsapp_connected(),
+            "messages_today": communication_service.get_communication_logs_count_by_date(today),
             "failed_jobs": (fetch_one("SELECT COUNT(*) AS total FROM failed_jobs WHERE resolved=FALSE") or {}).get("total", 0),
             "pending_setups": (fetch_one("SELECT COUNT(*) AS total FROM franchises f WHERE active=TRUE AND NOT EXISTS (SELECT 1 FROM messaging_accounts ma WHERE ma.workshop_id=f.workshop_id AND ma.provider='meta' AND ma.is_active=TRUE)") or {}).get("total", 0),
             "recent_activity": fetch_all("SELECT al.*, f.name AS franchise_name FROM audit_logs al LEFT JOIN franchises f ON f.id=al.franchise_id ORDER BY al.created_at DESC LIMIT 6"),
@@ -908,7 +940,7 @@ def dashboard():
         },
         branch_summaries=get_visible_branches(user=current_user()),
         franchise=franchise,
-        plan_features_list=plan_features(franchise) if franchise else [],
+        plan_features_list=financial_service.plan_features(franchise) if franchise else [],
         latest_monthly=latest_monthly,
         monthly_usage=monthly_rows,
         inquiry_rows=inquiries,
@@ -1076,7 +1108,7 @@ def bookings():
     }
     return render_template(
         "bookings.html",
-        bookings=fetch_visible_bookings(current_user(), filters),
+        bookings=get_visible_bookings(current_user(), filters),
         filters=filters,
         branch_options=get_visible_branches(user=current_user()),
         franchise_options=get_visible_owners(user=current_user()),
@@ -1086,17 +1118,17 @@ def bookings():
 @app.route("/bookings/<reference>")
 @login_required
 def booking_detail(reference):
-    booking = fetch_booking_for_user(reference, current_user())
+    booking = get_booking_by_reference(reference, current_user())
     if not booking:
         abort(404)
-    history = fetch_all("SELECT * FROM communication_logs WHERE booking_id=%s ORDER BY created_at DESC", (booking["id"],))
+    history = communication_service.get_communication_logs_by_booking_id(booking["id"])
     return render_template("booking_detail.html", booking=booking, communication_history=history, branch_options=visible_branches(user=current_user()))
 
 
 @app.route("/bookings/<reference>/quick-update", methods=["POST"])
 @login_required
 def quick_update_booking(reference):
-    booking = fetch_booking_for_user(reference, current_user())
+    booking = get_booking_by_reference(reference, current_user())
     if not booking:
         abort(404)
     previous_status = booking.get("status")
@@ -1109,7 +1141,7 @@ def quick_update_booking(reference):
     service_due_date = __import__("platform_helpers").compute_service_due_date(booking.get("service_level"), completed_at)
     execute_db("UPDATE bookings SET status=%s, quote_declined=%s, completed_at=%s, service_due_date=%s, updated_at=%s WHERE id=%s", (status, quote_declined, completed_at, service_due_date, utc_now(), booking["id"]))
     if status == "Done" and previous_status != "Done":
-        send_vehicle_ready_notification(fetch_booking_for_user(reference, current_user()) or {**booking, "status": status}, actor_user_id=current_user().get("id"))
+        send_vehicle_ready_notification(get_booking_by_reference(reference, current_user()) or {**booking, "status": status}, actor_user_id=current_user().get("id"))
     flash(f"Booking {reference} updated.", "success")
     return redirect(request.referrer or url_for("bookings"))
 
@@ -1117,7 +1149,7 @@ def quick_update_booking(reference):
 @app.route("/bookings/<reference>/update", methods=["POST"])
 @login_required
 def update_booking(reference):
-    booking = fetch_booking_for_user(reference, current_user())
+    booking = get_booking_by_reference(reference, current_user())
     if not booking:
         abort(404)
     previous_status = booking.get("status")
@@ -1152,7 +1184,7 @@ def update_booking(reference):
         ),
     )
     if status == "Done" and previous_status != "Done":
-        send_vehicle_ready_notification(fetch_booking_for_user(reference, current_user()) or {**booking, "status": status}, actor_user_id=current_user().get("id"))
+        send_vehicle_ready_notification(get_booking_by_reference(reference, current_user()) or {**booking, "status": status}, actor_user_id=current_user().get("id"))
     flash(f"Booking {reference} saved.", "success")
     return redirect(url_for("booking_detail", reference=reference))
 
@@ -1177,7 +1209,7 @@ def add_booking():
             flash(f"Reception booking {reference} created.", "success")
             return redirect(url_for("booking_detail", reference=reference))
         flash("Please choose a valid branch.", "error")
-    return render_template("booking_form.html", page_title="Reception Booking", submit_label="Save Booking", source_label="Reception booking", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=get_visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=fetch_service_prices(current_user()))
+    return render_template("booking_form.html", page_title="Reception Booking", submit_label="Save Booking", source_label="Reception booking", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=get_visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=financial_service.fetch_service_prices(current_user()))
 
 
 @app.route("/walkin", methods=["GET", "POST"])
@@ -1200,7 +1232,7 @@ def walkin():
             flash(f"Walk-in {reference} recorded.", "success")
             return redirect(url_for("booking_detail", reference=reference))
         flash("Please choose a valid branch.", "error")
-    return render_template("booking_form.html", page_title="Workshop Walk-In", submit_label="Save Walk-In", source_label="Walk-in", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=get_visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=fetch_service_prices(current_user()))
+    return render_template("booking_form.html", page_title="Workshop Walk-In", submit_label="Save Walk-In", source_label="Walk-in", default_values={"scheduled_date": utc_today(), "preferred_contact_method": "WhatsApp"}, branch_options=get_visible_branches(user=current_user()), lock_branch=current_user()["role"] == "reception", prices=financial_service.fetch_service_prices(current_user()))
 
 
 @app.route("/customers")
@@ -1273,29 +1305,15 @@ def customer_history(phone):
 
 def _render_customer_history(phone):
     user = current_user()
-    clause, args = ("1=1", [])
     if user["role"] == "franchise_admin":
         clause, args = ("b.franchise_id=%s", [user["franchise_id"]])
     elif user["role"] == "reception":
         clause, args = ("b.branch_id=%s", [user["branch_id"]])
-    args.append(phone)
+    else:  # super_admin
+        clause, args = "1=1", []
+    # Do NOT append phone to args here
     try:
-        bookings = fetch_all(
-            f"""
-            SELECT
-                b.booking_reference,
-                b.scheduled_date,
-                b.service,
-                b.status,
-                br.name AS branch_name
-            FROM bookings b
-            LEFT JOIN branches br ON br.id = b.branch_id
-            WHERE {clause}
-              AND COALESCE(b.phone, '')=%s
-            ORDER BY b.id DESC
-            """,
-            tuple(args),
-        )    
+        bookings = get_bookings_for_customer_history(clause, args, phone)
     except Exception:
         app.logger.exception("Unable to load customer history")
         flash("Customer history could not be loaded yet. Please check the deployment logs for the database error.", "error")
@@ -1308,13 +1326,7 @@ def api_vehicles_list():
     """Get all vehicles for authenticated user"""
     user = _frontend_api_authorized()
     
-    vehicles = fetch_all("""
-        SELECT v.*, c.full_name as customer_name
-        FROM vehicles v
-        JOIN customers c ON v.customer_id = c.id
-        WHERE v.franchise_id = %s
-        ORDER BY v.updated_at DESC
-    """, (user["franchise_id"],))
+    vehicles = get_vehicles_by_franchise(user["franchise_id"])
     
     return jsonify({
         "data": [
@@ -1340,12 +1352,7 @@ def api_vehicle_detail(vehicle_id):
     """Get single vehicle and service history"""
     user = _frontend_api_authorized()
     
-    vehicle = fetch_one("""
-        SELECT v.*, c.full_name as customer_name, c.phone, c.email
-        FROM vehicles v
-        JOIN customers c ON v.customer_id = c.id
-        WHERE v.id = %s AND v.franchise_id = %s
-    """, (vehicle_id, user["franchise_id"]))
+    vehicle = get_vehicle_by_id(vehicle_id, user["franchise_id"])
     
     if not vehicle:
         return jsonify({"error": "Vehicle not found"}), 404
@@ -1395,9 +1402,7 @@ def api_vehicle_recommended_services(vehicle_id):
     """Get recommended services based on vehicle mileage"""
     user = _frontend_api_authorized()
     
-    vehicle = fetch_one("""
-        SELECT * FROM vehicles WHERE id = %s AND franchise_id = %s
-    """, (vehicle_id, user["franchise_id"]))
+    vehicle = get_vehicle_by_id(vehicle_id, user["franchise_id"])
     
     if not vehicle:
         return jsonify({"error": "Vehicle not found"}), 404
@@ -1459,10 +1464,7 @@ def api_vehicles_update(vehicle_id):
     user = _frontend_api_authorized()
     data = request.json
     
-    vehicle = fetch_one(
-        "SELECT id FROM vehicles WHERE id=%s AND franchise_id=%s",
-        (vehicle_id, user["franchise_id"])
-    )
+    vehicle = get_vehicle_by_id(vehicle_id, user["franchise_id"])
     if not vehicle:
         return jsonify({"error": "Vehicle not found"}), 404
     
@@ -1492,12 +1494,12 @@ def reports():
     inactive_redirect = _active_franchise_required()
     if inactive_redirect:
         return inactive_redirect
-    bookings = fetch_visible_bookings(current_user())
+    bookings = get_visible_bookings(current_user())
     by_status = {status: len([item for item in bookings if item.get("status") == status]) for status in STATUS_OPTIONS}
     by_service = {"Major": 0, "Minor": 0, "General": 0}
     for item in bookings:
         by_service[item.get("service_level") or "General"] = by_service.get(item.get("service_level") or "General", 0) + 1
-    return render_template("reports.html", total=len(bookings), by_status=by_status, by_service=by_service, reminders=fetch_reminders_for_user(current_user()))
+    return render_template("reports.html", total=len(bookings), by_status=by_status, by_service=by_service, reminders=communication_service.get_reminders_for_user(current_user()))
 
 
 @app.route("/reminders")
@@ -1521,7 +1523,7 @@ def run_reminders():
     created = generate_due_reminders(current_user(), force=boolish(request.form.get("force")))
     missed = send_missed_booking_followups()
     sent = 0
-    for reminder in fetch_reminders_for_user(current_user()) if boolish(request.form.get("send_now")) else []:
+    for reminder in communication_service.get_reminders_for_user(current_user()) if boolish(request.form.get("send_now")) else []:
         if reminder.get("status") == "Pending":
             success, _message = auto_send_reminder(reminder, current_user())
             if success:
@@ -1539,10 +1541,10 @@ def run_reminders():
 @app.route("/reminders/<int:reminder_id>/send/<channel>", methods=["POST"])
 @login_required
 def send_reminder(reminder_id, channel):
-    reminder = fetch_reminder(reminder_id)
+    reminder = communication_service.get_reminder_by_id(reminder_id)
     if channel not in {"whatsapp", "sms"} or not reminder or not reminder_in_scope(reminder, current_user()):
         abort(404)
-    booking = fetch_one("SELECT b.*, f.name AS franchise_name, f.slug AS franchise_slug, br.name AS branch_name, br.slug AS branch_slug, br.contact_email AS branch_contact_email, br.contact_phone AS branch_contact_phone FROM bookings b LEFT JOIN franchises f ON f.id = b.franchise_id LEFT JOIN branches br ON br.id = b.branch_id WHERE b.id=%s", (reminder["booking_id"],))
+    booking = get_booking_by_id(reminder["booking_id"])
     subject, body = build_booking_message(booking, reminder)
     recipient = booking.get("phone")
     if not recipient:
@@ -1737,9 +1739,9 @@ def _client_audit_payload(franchise_id=None):
                 "branches": fetch_one("SELECT COUNT(*) AS total FROM branches WHERE franchise_id=%s", (fid,)).get("total", 0),
             "users": get_user_count_by_franchise(fid),
                 "customers": fetch_one("SELECT COUNT(*) AS total FROM customers WHERE franchise_id=%s", (fid,)).get("total", 0),
-                "messages": fetch_one("SELECT COUNT(*) AS total FROM communication_logs WHERE franchise_id=%s", (fid,)).get("total", 0),
-                "failed_messages": fetch_one("SELECT COUNT(*) AS total FROM communication_logs WHERE franchise_id=%s AND status LIKE 'failed%%'", (fid,)).get("total", 0),
-                "last_payment": fetch_one("SELECT * FROM billing_records WHERE franchise_id=%s ORDER BY paid_at DESC, updated_at DESC LIMIT 1", (fid,)),
+                "messages": "messages": communication_service.get_communication_logs_count_by_franchise(fid),,
+                "failed_messages": "failed_messages": communication_service.get_communication_logs_failed_count_by_franchise(fid),,
+                "last_payment": get_last_payment(fid),
                 "messaging_accounts": messaging_accounts,
             }
         )
@@ -2152,17 +2154,14 @@ def manage_branches():
         franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,))
         name = (request.form.get("name") or "").strip()
         if franchise and not can_add_branch(franchise):
-            flash(f"{franchise['name']} has reached its branch limit for the {plan_label(franchise.get('plan_code'))} plan.", "error")
+            flash(f"{franchise['name']} has reached its branch limit for the {financial_service.plan_label(franchise.get('plan_code'))} plan.", "error")
         elif franchise and name and not fetch_one("SELECT id FROM branches WHERE franchise_id=%s AND lower(name)=lower(%s)", (franchise["id"], name)):
             execute_db("INSERT INTO branches (franchise_id, name, slug, code, location, contact_email, contact_phone, public_booking_enabled, active, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (franchise["id"], name, __import__('database').slugify(name), (request.form.get("code") or "").strip(), (request.form.get("location") or "").strip(), (request.form.get("contact_email") or "").strip(), (request.form.get("contact_phone") or "").strip(), db_bool(request.form.get("public_booking_enabled", "true")), db_bool(True), utc_now(), utc_now()))
             record_audit("branch_created", "branch", name, current_user(), franchise_id=franchise["id"], details={"name": name})
             flash(f"Branch {name} created.", "success")
         else:
             flash("Please provide a unique branch name for that franchise.", "error")
-    branch_counts = {
-        row["branch_id"]: row["total"]
-        for row in fetch_all("SELECT branch_id, COUNT(*) AS total FROM bookings GROUP BY branch_id")
-    }
+    branch_counts = {row["branch_id"]: row["total"] for row in get_booking_count_per_branch()}
     return render_template(
         "manage_branches.html",
         branches=visible_branches(user=current_user(), include_inactive=True),
@@ -2211,7 +2210,7 @@ def manage_users():
             branch = selected_branch_for_user(current_user(), branch_id) if role == "reception" else None
             franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (branch["franchise_id"] if branch else franchise_id,))
             if franchise and not can_add_user(franchise):
-                flash(f"{franchise['name']} has reached its user limit for the {plan_label(franchise.get('plan_code'))} plan.", "error")
+                flash(f"{franchise['name']} has reached its user limit for the {financial_service.plan_label(franchise.get('plan_code'))} plan.", "error")
                 scope_sql, args = user_scope_clause(current_user())
                 users = get_users_with_filters(scope_sql, args)
                 return render_template("manage_users.html", users=users, roles=get_allowed_roles_for_creator(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
@@ -2380,7 +2379,7 @@ def manage_prices():
         )
         record_audit("service_price_created", "service_price", request.form.get("service_name"), current_user(), franchise_id=franchise_id, branch_id=branch["id"] if branch else None, details={"price_amount": request.form.get("price_amount") or 0})
         flash("Service price saved.", "success")
-    return render_template("manage_prices.html", prices=fetch_service_prices(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
+    return render_template("manage_prices.html", prices=financial_service.fetch_service_prices(current_user()), branches=visible_branches(user=current_user(), include_inactive=True), franchises=get_visible_owners(user=current_user(), include_inactive=True))
 
 
 @app.route("/chatbot/inbox", methods=["GET", "POST"])
@@ -2401,7 +2400,7 @@ def chatbot_inbox():
         service_name = (request.form.get("suggested_service") or "").strip()
         matched_price = None
         if branch and franchise:
-            price_match = find_service_price(franchise["id"], branch["id"], service_name)
+            price_match = financial_service.find_service_price(franchise["id"], branch["id"], service_name)
             matched_price = (price_match or {}).get("price_amount")
         execute_db(
             "INSERT INTO chatbot_messages (franchise_id, branch_id, customer_name, customer_phone, customer_email, channel, direction, message_text, suggested_service, matched_price, status, processed, privacy_notice_sent, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, 'inbound', %s, %s, %s, 'Saved', %s, %s, %s, %s)",
@@ -2524,7 +2523,7 @@ def update_billing_payment(billing_id):
 @limiter.limit("20 per hour")
 def generate_payment_link(billing_id):
     link = create_payment_link(billing_id)
-    billing = fetch_one("SELECT * FROM billing_records WHERE id=%s", (billing_id,))
+    billing = financial_service.get_billing_record_by_id(bidding_id)
     record_audit("billing_payment_link_generated", "billing_record", billing_id, current_user(), franchise_id=(billing or {}).get("franchise_id"), details={"created": bool(link)})
     flash("Payment link generated." if link is not None else "Billing record not found.", "success" if link is not None else "error")
     return redirect(url_for("manage_franchises"))
@@ -2800,13 +2799,7 @@ def meta_webhook(franchise_slug, branch_slug, token):
 
 def is_date_available(branch_id, date):
     capacity = fetch_one("SELECT daily_capacity FROM branches WHERE id=%s", (branch_id,))["daily_capacity"]
-
-    count = fetch_one("""
-        SELECT COUNT(*) as total 
-        FROM bookings 
-        WHERE branch_id=%s AND scheduled_date=%s
-    """, (branch_id, date))["total"]
-
+    count = get_booking_count_by_branch_and_date(branch_id, date)
     return count < capacity
 
 @app.route("/privacy")
