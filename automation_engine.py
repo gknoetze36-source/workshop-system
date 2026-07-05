@@ -56,22 +56,11 @@ def emit_event(franchise_id, event_type, payload=None):
     if not franchise_id or not event_type:
         return 0
 
-    franchise = fetch_one("SELECT * FROM franchises WHERE id=%s", (franchise_id,))
+    franchise = automation_service.get_franchise_by_id(franchise_id)
     if not can_run_automation(franchise):
         return 0
 
-    rules = fetch_all(
-        """
-        SELECT ar.*, at.name AS template_name, at.default_delay_minutes, at.default_message
-        FROM automation_rules ar
-        LEFT JOIN automation_templates at ON at.id = ar.template_id
-        WHERE ar.franchise_id=%s
-          AND ar.event_type=%s
-          AND COALESCE(ar.active, TRUE)=TRUE
-        ORDER BY ar.id
-        """,
-        (franchise_id, event_type),
-    )
+    rules = automation_service.get_automation_rules_by_franchise_and_event(franchise_id, event_type)
     created = 0
     for rule in rules:
         if not _conditions_match(_json_loads(rule.get("conditions_json"), {}), payload or {}):
@@ -109,18 +98,7 @@ def _default_job_type(event_type):
 
 
 def process_due_jobs(limit=50):
-    jobs = fetch_all(
-        """
-        SELECT sj.*, ar.event_type
-        FROM scheduled_jobs sj
-        LEFT JOIN automation_rules ar ON ar.id = sj.automation_rule_id
-        WHERE sj.status='pending'
-          AND sj.scheduled_for <= %s
-        ORDER BY sj.scheduled_for ASC, sj.id ASC
-        LIMIT %s
-        """,
-        (utc_now(), limit),
-    )
+    jobs = automation_service.get_pending_scheduled_jobs(limit)
     processed = 0
     for job in jobs:
         locked_at = utc_now()
@@ -128,7 +106,7 @@ def process_due_jobs(limit=50):
             "UPDATE scheduled_jobs SET status='running', locked_at=%s, attempts=COALESCE(attempts, 0) + 1, updated_at=%s WHERE id=%s AND status='pending'",
             (locked_at, locked_at, job["id"]),
         )
-        claimed = fetch_one("SELECT * FROM scheduled_jobs WHERE id=%s AND status='running' AND locked_at=%s", (job["id"], locked_at))
+        claimed = automation_service.get_scheduled_job_by_id_and_status_running_and_locked_at(job["id"], locked_at)
         if not claimed:
             continue
         job = {**job, **claimed}
@@ -165,16 +143,7 @@ def _execute_job(job):
         booking_reference = (payload.get("payload") or {}).get("booking_reference")
         if not booking_reference:
             raise ValueError("booking_reference missing from job payload")
-        booking = fetch_one(
-            """
-            SELECT b.*, f.name AS franchise_name, br.name AS branch_name
-            FROM bookings b
-            LEFT JOIN franchises f ON f.id = b.franchise_id
-            LEFT JOIN branches br ON br.id = b.branch_id
-            WHERE b.booking_reference=%s
-            """,
-            (booking_reference,),
-        )
+        booking = booking_service.get_booking_by_reference(booking_reference)
         if not booking:
             raise ValueError(f"Booking {booking_reference} not found")
         subject, body = _message_for_job(booking, payload)
@@ -197,7 +166,7 @@ def _message_for_job(booking, payload):
 
 
 def retry_failed_job(failed_job_id):
-    failed = fetch_one("SELECT * FROM failed_jobs WHERE id=%s AND COALESCE(resolved, 0)=0", (failed_job_id,))
+    failed = automation_service.get_failed_job_by_id(failed_job_id)
     if not failed:
         return False
     execute_db(

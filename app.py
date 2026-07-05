@@ -1739,8 +1739,8 @@ def _client_audit_payload(franchise_id=None):
                 "branches": fetch_one("SELECT COUNT(*) AS total FROM branches WHERE franchise_id=%s", (fid,)).get("total", 0),
             "users": get_user_count_by_franchise(fid),
                 "customers": fetch_one("SELECT COUNT(*) AS total FROM customers WHERE franchise_id=%s", (fid,)).get("total", 0),
-                "messages": "messages": communication_service.get_communication_logs_count_by_franchise(fid),,
-                "failed_messages": "failed_messages": communication_service.get_communication_logs_failed_count_by_franchise(fid),,
+                "messages": communication_service.get_communication_logs_count_by_franchise(fid),
+                "failed_messages": communication_service.get_communication_logs_failed_count_by_franchise(fid),
                 "last_payment": get_last_payment(fid),
                 "messaging_accounts": messaging_accounts,
             }
