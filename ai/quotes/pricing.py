@@ -1,0 +1,2 @@
+class PricingService:
+    pass

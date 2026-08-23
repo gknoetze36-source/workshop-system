@@ -1,0 +1,5 @@
+{
+  "DATABASE_URL": "<Railway reference or secret - never commit the real value>",
+  "RAILWAY_ENVIRONMENT": "production",
+  "RAILWAY_SERVICE_NAME": "Postgres"
+}

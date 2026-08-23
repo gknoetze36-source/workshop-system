@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block title %}Walk-In Vehicle{% endblock %}
+
+{% block content %}
+
+<div class="topbar">
+
+    <div class="heading">
+
+        <h1>Walk-In Vehicle</h1>
+
+        <p>
+            Register a customer who arrived without a booking.
+        </p>
+
+    </div>
+
+    <div class="actions">
+
+        <a
+            href="{{ url_for('bookings') }}"
+            class="btn btn-outline"
+        >
+            ← Back
+        </a>
+
+    </div>
+
+</div>
+
+<!-- ========================================================= -->
+<!-- Overview -->
+<!-- ========================================================= -->
+
+<section class="dashboard-grid">
+
+    <div class="v-card metric-card">
+
+        <span class="metric-label">
+
+            Walk-Ins Today
+
+        </span>
+
+        <h2>
+
+            {{ walkin_stats.today if walkin_stats else "—" }}
+
+        </h2>
+
+    </div>
+
+    <div class="v-card metric-card">
+
+        <span class="metric-label">
+
+            Waiting
+
+        </span>
+
+        <h2>
+
+            {{ walkin_stats.waiting if walkin_stats else "—" }}
+
+        </h2>
+
+    </div>
+
+    <div class="v-card metric-card">
+
+        <span class="metric-label">
+
+            In Workshop
+
+        </span>
+
+        <h2>
+
+            {{ walkin_stats.progress if walkin_stats else "—" }}
+
+        </h2>
+
+    </div>
+
+    <div class="v-card metric-card">
+
+        <span class="metric-label">
+
+            Ready
+
+        </span>
+
+        <h2>
+
+            {{ walkin_stats.ready if walkin_stats else "—" }}
+
+        </h2>
+
+    </div>
+
+</section>
+
+<!-- ========================================================= -->
+<!-- Walk-In Form -->
+<!-- ========================================================= -->
+
+<section class="panel">
+
+<form method="post">
+
+<h2>Customer</h2>
+
+<div class="grid two">
+
+<label>
+
+First Name
+
+<input
+name="first_name"
+required>
+
+</label>
+
+<label>
+
+Surname
+
+<input
+name="surname"
+required>
+
+</label>
+
+<label>
+
+Phone
+
+<input
+name="phone"
+required>
+
+</label>
+
+<label>
+
+Email
+
+<input
+name="email">
+
+</label>
+
+</div>
+
+<hr>
+
+<h2>Vehicle</h2>
+
+<div class="grid two">
+
+<label>
+
+Registration
+
+<input
+name="registration_number"
+required>
+
+</label>
+
+<label>
+
+Make
+
+<input
+name="make"
+required>
+
+</label>
+
+<label>
+
+Model
+
+<input
+name="model"
+required>
+
+</label>
+
+<label>
+
+Year
+
+<input
+name="vehicle_year">
+
+</label>
+
+<label>
+
+Mileage
+
+<input
+name="current_mileage">
+
+</label>
+
+<label>
+
+Fuel Type
+
+<input
+name="fuel_type">
+
+</label>
+
+</div>
+
+<hr>
+
+<h2>Workshop</h2>
+
+<div class="grid two">
+
+<label>
+
+Service Required
+
+<input
+name="service">
+
+</label>
+
+<label>
+
+Preferred Contact
+
+<select
+name="preferred_contact_method">
+
+<option>WhatsApp</option>
+
+<option>Phone Call</option>
+
+<option>SMS</option>
+
+</select>
+
+</label>
+
+</div>
+
+<label>
+
+Work To Be Done
+
+<textarea
+name="work_to_be_done"></textarea>
+
+</label>
+
+<div class="actions">
+
+<button
+class="btn btn-primary">
+
+Register Walk-In
+
+</button>
+
+</div>
+
+</form>
+
+</section>
+
+{% endblock %}

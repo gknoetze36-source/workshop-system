@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}Services Configuration - PHANTA Workshop Platform{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading"><h1>Services Configuration</h1><p>Configure the services your workshop offers</p></div>
+    <div class="actions">
+        <a class="button" href="{{ url_for('onboarding.onboarding') }}">&larr; Back to Onboarding</a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <section class="flash-messages">
+      {% for category, message in messages %}
+        <div class="flash-message {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </section>
+  {% endif %}
+{% endwith %}
+
+<div class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Your Services</h2><p>Manage the services your workshop offers to customers</p></div>
+    </div>
+
+    {% if services %}
+    <div class="services-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Service Name</th>
+                    <th>Description</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for service in services %}
+                <tr class="service-row" data-service-id="{{ service.id }}">
+                    <td>
+                        <div class="service-info">
+                            <span class="service-icon">🔧</span>
+                            <span>{{ service.name }}</span>
+                        </div>
+                    </td>
+                    <td class="service-description">
+                        {{ service.description or '-' }}
+                    </td>
+                    <td>{{ service.duration_minutes }} min</td>
+                    <td>
+                        <span class="status-badge status-{{ 'active' if service.is_enabled else 'inactive' }}">
+                            {% if service.is_enabled %}Active{% else %}Inactive{% endif %}
+                        </span>
+                    </td>
+                    <td class="actions-cell">
+                        <div class="action-buttons">
+                            <button class="btn-icon btn-edit" title="Edit Service" onclick="editService({{ service.id }})">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M14.06 9l1.41 1.41L12 14.17l-1.41-1.41L10.83 12l2.12 2.12zM20.71 5.63l-2.34-2.34a1 1 0 00-1.42 0l-1.83 1.83 3.75 3.75 1.83-1.83a1 1 0 000-1.42z" fill="currentColor"/>
+                                </svg>
+                            </button>
+                            <form method="POST" action="{{ url_for('onboarding.onboarding_services') }}" style="display: inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="service_id" value="{{ service.id }}">
+                                <input type="hidden" name="action" value="delete">
+                                <button type="submit" class="btn-icon btn-delete" title="Delete Service" onclick="return confirm('Are you sure you want to delete this service? This action cannot be undone.');">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM8 9h8v10H8V9zm7.5-5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
+                                    </svg>
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="no-data">No services have been configured for your workshop yet. Add some services below to get started.</p>
+    {% endif %}
+</div>
+
+<div class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Add New Service</h2><p>Create a new service offering for your workshop</p></div>
+    </div>
+    <form id="serviceForm" method="POST" action="{{ url_for('onboarding.onboarding_services') }}">
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="service_name">Service Name *</label>
+                <input type="text" id="service_name" name="name" required>
+                <p class="help">The name of the service as it will appear to customers.</p>
+            </div>
+
+            <div class="form-field">
+                <label for="service_description">Description</label>
+                <textarea id="service_description" name="description" rows="3"></textarea>
+                <p class="help">Detailed description of what the service includes.</p>
+            </div>
+
+            <div class="form-field">
+                <label for="service_duration">Duration (minutes) *</label>
+                <input type="number" id="service_duration" name="duration" required min="5" step="5">
+                <p class="help">Estimated time to complete this service.</p>
+            </div>
+
+            <div class="form-field">
+                <label for="service_status">Status</label>
+                <select id="service_status" name="is_enabled">
+                    <option value="1">Active</option>
+                    <option value="0">Inactive</option>
+                </select>
+                <p class="help">Whether this service is currently available for booking.</p>
+            </div>
+
+            <div class="form-field">
+                <label for="service_order">Display Order</label>
+                <input type="number" id="service_order" name="display_order" value="0" min="0">
+                <p class="help">Controls the order in which services appear in lists (lower numbers first).</p>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="button primary">Add Service</button>
+            <button type="button" class="button" onclick="document.getElementById('serviceForm').reset()">Clear Form</button>
+        </div>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle service actions
+    window.editService = function(serviceId) {
+        // Find the service row
+        const row = document.querySelector(`tr[data-service-id="${serviceId}"]`);
+        if (!row) return;
+
+        // Get the data from the row
+        const name = row.querySelector('.service-info span:nth-child(2)').textContent;
+        const description = row.querySelector('.service-description').textContent;
+        const duration = row.querySelector('td:nth-child(3)').textContent.replace(' min', '');
+        const status = row.querySelector('.status-badge').textContent === 'Active' ? '1' : '0';
+        const order = row.querySelector('td:nth-child(6)').textContent;
+
+        // Populate the form
+        document.getElementById('service_name').value = name;
+        document.getElementById('service_description').value = description;
+        document.getElementById('service_duration').value = duration;
+        document.getElementById('service_status').value = status;
+        document.getElementById('service_order').value = order;
+
+        // Change submit button text and behavior
+        const submitBtn = document.querySelector('#serviceForm button[type="submit"]');
+        submitBtn.textContent = 'Update Service';
+        submitBtn.onclick = function(e) {
+            e.preventDefault();
+            // Update the form action to include the service ID for update
+            const form = document.getElementById('serviceForm');
+            form.action = "{{ url_for('onboarding.onboarding_services') }}?service_id=" + serviceId;
+            form.method = "POST";
+            form.submit();
+        };
+
+        // Add hidden input for service_id
+        const form = document.getElementById('serviceForm');
+        let serviceIdInput = form.querySelector('input[name="service_id"]');
+        if (!serviceIdInput) {
+            serviceIdInput = document.createElement('input');
+            serviceIdInput.type = 'hidden';
+            serviceIdInput.name = 'service_id';
+            form.appendChild(serviceIdInput);
+        }
+        serviceIdInput.value = serviceId;
+
+        // Add cancel button
+        const formActions = document.querySelector('#serviceForm .form-actions');
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'button';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.onclick = function() {
+            document.getElementById('serviceForm').reset();
+            document.querySelector('#serviceForm button[type="submit"]').textContent = 'Add Service';
+            document.querySelector('#serviceForm button[type="submit"]').onclick = null;
+            // Reset form action
+            document.getElementById('serviceForm').action = "{{ url_for('onboarding.onboarding_services') }}";
+            document.getElementById('serviceForm').method = "POST";
+            // Remove service_id input
+            const serviceIdInput = document.getElementById('serviceForm').querySelector('input[name="service_id"]');
+            if (serviceIdInput) {
+                serviceIdInput.remove();
+            }
+            // Remove cancel button
+            if (formActions.contains(cancelBtn)) {
+                formActions.removeChild(cancelBtn);
+            }
+        };
+        formActions.appendChild(cancelBtn);
+
+        // Scroll to form
+        document.getElementById('serviceForm').scrollIntoView({ behavior: 'smooth' });
+    };
+});
+</script>
+{% endblock %}

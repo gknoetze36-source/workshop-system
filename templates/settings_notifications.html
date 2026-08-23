@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+{% block title %}Notification Settings - PHANTA Workshop Platform{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading"><h1>Notification Settings</h1><p>Configure how and when your workshop sends notifications to customers.</p></div>
+    <div class="actions"><a class="button" href="{{ url_for('settings.settings_overview') }}">&larr; Back to Settings</a></div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <section class="flash-messages">
+      {% for category, message in messages %}
+        <div class="flash-message {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </section>
+  {% endif %}
+{% endwith %}
+
+{% if notifications %}
+<section class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Notification Channels</h2><p>Enable or disable communication channels for your workshop.</p></div>
+    </div>
+    <form method="POST" action="{{ url_for('settings.settings_notifications') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-section">
+            <h3>Communication Methods</h3>
+
+            <div class="form-field">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="email_enabled" {% if notifications.email_enabled %}checked{% endif %}>
+                    <span class="slider"></span>
+                </label>
+                <span>Email Notifications</span>
+                <p class="help">Send notifications via email to customers.</p>
+            </div>
+
+            <div class="form-field">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="whatsapp_enabled" {% if notifications.whatsapp_enabled %}checked{% endif %}>
+                    <span class="slider"></span>
+                </label>
+                <span>WhatsApp Notifications</span>
+                <p class="help">Send notifications via WhatsApp to customers.</p>
+            </div>
+
+            <div class="form-field">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="sms_enabled" {% if notifications.sms_enabled %}checked{% endif %}>
+                    <span class="slider"></span>
+                </label>
+                <span>SMS Notifications</span>
+                <p class="help">Send notifications via SMS to customers (may incur additional charges).</p>
+            </div>
+        </div>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Notification Types</h2><p>Choose which types of notifications to send for each communication channel.</p></div>
+    </div>
+    <form method="POST" action="{{ url_for('settings.settings_notifications') }}">
+        <div class="form-section">
+            <h3>Booking Notifications</h3>
+
+            <div class="notification-group">
+                <div class="form-field">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="booking_confirmation" {% if notifications.booking_confirmation %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Booking Confirmation</span>
+                    <p class="help">Send when a new booking is made.</p>
+                </div>
+
+                <div class="form-field">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="reminder_24h" {% if notifications.reminder_24h %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Booking confirmations</span>
+                </div>
+
+                <div class="form-field">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="whatsapp_booking_reminder" {% if notifications.whatsapp_booking_reminder %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Booking reminders</span>
+                </div>
+
+                <div class="form-field">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="whatsapp_service_update" {% if notifications.whatsapp_service_update %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Service status updates</span>
+                </div>
+
+                <div class="form-field">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="whatsapp_promotional" {% if notifications.whatsapp_promotional %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Promotional offers</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>System Alerts</h3>
+            <div class="form-field">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="system_alerts_enabled" {% if notifications.system_alerts_enabled %}checked{% endif %}>
+                    <span class="slider"></span>
+                </label>
+                <span>Enable system notifications</span>
+            </div>
+
+            <div class="notification-group">
+                <div class="form-field">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="alert_automation_failure" {% if notifications.alert_automation_failure %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Automation failures</span>
+                </div>
+
+                <div class="form-field">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="alert_whatsapp_disconnect" {% if notifications.alert_whatsapp_disconnect %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>WhatsApp disconnection</span>
+                </div>
+
+                <div class="form-field">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="alert_low_inventory" {% if notifications.alert_low_inventory %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Low inventory warnings</span>
+                </div>
+
+                <div class="form-field">
+                    <label class="toggle-switch">
+                        <input type="checkbox" name="alert_system_update" {% if notifications.alert_system_update %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>System maintenance alerts</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h3>Digest Notifications</h3>
+            <div class="form-field">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="daily_summary" {% if notifications.daily_summary %}checked{% endif %}>
+                    <span class="slider"></span>
+                </label>
+                <span>Daily activity summary</span>
+            </div>
+
+            <div class="form-field">
+                <label for="delivery_time">Delivery Time</label>
+                <input type="time" id="delivery_time" name="notification_delivery_time"
+                       value="{{ notifications.notification_delivery_time or '08:00' }}">
+                <p class="help">Time of day to send daily summary emails.</p>
+            </div>
+
+            <div class="form-field">
+                <label class="toggle-switch">
+                    <input type="checkbox" name="weekly_summary" {% if notifications.weekly_summary %}checked{% endif %}>
+                    <span class="slider"></span>
+                </label>
+                <span>Weekly performance summary</span>
+            </div>
+
+            <div class="form-field">
+                <label for="weekly_day">Weekly Summary Day</label>
+                <select id="weekly_day" name="weekly_summary_day">
+                    <option value="monday" {% if notifications.weekly_summary_day == 'monday' %}selected{% endif %}>Monday</option>
+                    <option value="tuesday" {% if notifications.weekly_summary_day == 'tuesday' %}selected{% endif %}>Tuesday</option>
+                    <option value="wednesday" {% if notifications.weekly_summary_day == 'wednesday' %}selected{% endif %}>Wednesday</option>
+                    <option value="thursday" {% if notifications.weekly_summary_day == 'thursday' %}selected{% endif %}>Thursday</option>
+                    <option value="friday" {% if notifications.weekly_summary_day == 'friday' %}selected{% endif %}>Friday</option>
+                    <option value="saturday" {% if notifications.weekly_summary_day == 'saturday' %}selected{% endif %}>Saturday</option>
+                    <option value="sunday" {% if notifications.weekly_summary_day == 'sunday' %}selected{% endif %}>Sunday</option>
+                </select>
+                <p class="help">Which day of the week to send the weekly summary.</p>
+            </div>
+        </div>
+    </form>
+
+    <div class="form-actions">
+        <button type="submit" class="button primary">Save Notification Settings</button>
+        <button type="button" class="button" onclick="window.location.href='{{ url_for('settings.settings_overview') }}'">Cancel</button>
+    </div>
+</section>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Toggle notification groups based on master switches
+        const emailEnabled = document.querySelector('input[name="email_enabled"]');
+        const whatsappEnabled = document.querySelector('input[name="whatsapp_enabled"]');
+        const systemAlertsEnabled = document.querySelector('input[name="system_alerts_enabled"]');
+
+        const toggleGroup = (checkbox, selector) => {
+            const group = document.querySelector(selector);
+            const inputs = group.querySelectorAll('input[type="checkbox"]');
+            inputs.forEach(input => {
+                input.disabled = !checkbox.checked;
+            });
+            // Initialize state
+            if (!checkbox.checked) {
+                inputs.forEach(input => {
+                    input.checked = false;
+                });
+            }
+        };
+
+        if (emailEnabled) {
+            toggleGroup(emailEnabled, '.notification-group:nth-of-type(1)');
+            emailEnabled.addEventListener('change', function() {
+                toggleGroup(this, '.notification-group:nth-of-type(1)');
+            });
+        }
+
+        if (whatsappEnabled) {
+            toggleGroup(whatsappEnabled, '.notification-group:nth-of-type(2)');
+            whatsappEnabled.addEventListener('change', function() {
+                toggleGroup(this, '.notification-group:nth-of-type(2)');
+            });
+        }
+
+        if (systemAlertsEnabled) {
+            toggleGroup(systemAlertsEnabled, '.notification-group:nth-of-type(3)');
+            systemAlertsEnabled.addEventListener('change', function() {
+                toggleGroup(this, '.notification-group:nth-of-type(3)');
+            });
+        }
+    });
+</script>
+
+<style>
+    .form-section {
+        background: var(--panel);
+        padding: 24px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+        box-shadow: var(--shadow);
+    }
+
+    .form-section h3 {
+        margin-top: 0;
+    }
+
+    .form-field {
+        margin-bottom: 16px;
+    }
+
+    .form-field label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .form-field input,
+    .form-field select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: var(--bg);
+        transition: border-color 0.2s;
+    }
+
+    .form-field input:focus,
+    .form-field select:focus {
+        outline: none;
+        border-color: var(--brand);
+        box-shadow: 0 0 0 2px rgba(11, 122, 117, 0.2);
+    }
+
+    .form-field textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: var(--bg);
+        resize: vertical;
+        min-height: 80px;
+        transition: border-color 0.2s;
+    }
+
+    .form-field textarea:focus {
+        outline: none;
+        border-color: var(--brand);
+        box-shadow: 0 0 0 2px rgba(11, 122, 117, 0.2);
+    }
+
+    .help {
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-top: 4px;
+        display: block;
+    }
+
+    .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 24px;
+        margin-right: 12px;
+    }
+
+    .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ccc;
+        transition: .4s;
+        border-radius: 24px;
+    }
+
+    .slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: .4s;
+        border-radius: 50%;
+    }
+
+    input:checked + .slider {
+        background-color: var(--brand);
+    }
+
+    input:checked + .slider:before {
+        transform: translateX(20px);
+    }
+
+    .notification-group {
+        background: rgba(23, 49, 59, 0.03);
+        padding: 16px;
+        border-radius: 8px;
+        margin-top: 12px;
+        border: 1px solid var(--line);
+    }
+
+    .notification-group .form-field {
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .notification-group .form-field label {
+        margin-bottom: 0;
+        margin-right: 12px;
+        flex-shrink: 0;
+    }
+
+    .notification-group .form-field span {
+        flex-grow: 1;
+    }
+
+    .form-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 24px;
+    }
+
+    .button.primary {
+        background: var(--brand);
+        color: white;
+    }
+
+    .button.primary:hover {
+        background: var(--brand-dark);
+    }
+</style>
+{% endif %}
+{% endblock %}

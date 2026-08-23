@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}PHANTA · Client Audit Centre{% endblock %}
+{% block content %}
+<div class="topbar"><div class="heading"><h1>Client Audit Centre</h1><p>Read-only operational evidence supplied by PHANTA's backend. Missing records are left blank; nothing is guessed.</p></div><a class="button secondary" href="{{ url_for('platform_dashboard.platform_dashboard') }}">Back to Platform Overview</a></div>
+<div class="card"><input id="client-filter" class="input" placeholder="Search by client name or email" aria-label="Search clients"></div>
+<div class="grid" id="client-list">
+{% for c in clients %}<article class="card audit-client" data-search="{{ (c.name ~ ' ' ~ (c.support_email or ''))|lower }}"><div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start"><div><h2>{{ c.name }}</h2><p class="muted">Location {{ c.location_id }}{% if c.legal_name %} · {{ c.legal_name }}{% endif %}</p></div><a class="button primary" href="{{ url_for('platform_dashboard.client_audit_detail', location_id=c.location_id) }}">View evidence</a></div><div class="metrics">{% if c.whatsapp %}<div class="metric"><span class="metric-label">WhatsApp</span><strong>{{ c.whatsapp.status }}</strong></div>{% endif %}{% if c.flyer_lady %}<div class="metric"><span class="metric-label">Flyer Lady</span><strong>{{ c.flyer_lady.status }}</strong></div>{% endif %}{% if c.billing %}<div class="metric"><span class="metric-label">Billing</span><strong>{{ c.billing.status }}</strong></div>{% endif %}</div></article>{% else %}<div class="card"><p>No client records were returned by the backend.</p></div>{% endfor %}
+</div>
+<script>const filter=document.getElementById('client-filter');filter.addEventListener('input',()=>{const q=filter.value.trim().toLowerCase();document.querySelectorAll('.audit-client').forEach(el=>el.hidden=q&&!el.dataset.search.includes(q));});</script>
+{% endblock %}

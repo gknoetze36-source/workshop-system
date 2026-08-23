@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}PHANTA · Platform Overview{% endblock %}
+{% block content %}
+{% set has_connections = connection_health is mapping and connection_health|length > 0 %}
+{% set has_billing = billing_state is mapping and billing_state|length > 0 %}
+{% set has_ai = ai_usage is mapping and ('requests' in ai_usage or 'input_tokens' in ai_usage or 'output_tokens' in ai_usage) %}
+{% set has_errors = integration_errors is not none %}
+{% set meta_total = connection_health.values()|sum if has_connections else none %}
+{% set billing_total = billing_state.values()|sum if has_billing else none %}
+{% set error_count = integration_errors|length if has_errors else none %}
+{% set admin_identity = (session.get('user') or {}).get('email') or (session.get('user') or {}).get('username') %}
+{% set admin_name = admin_identity.split('@')[0]|replace('.', ' ')|title if admin_identity else none %}
+{% set has_error_location_ids = integration_errors|selectattr('location_id', 'ne', none)|list|length > 0 if has_errors else false %}
+{% set has_error_times = integration_errors|selectattr('at', 'ne', none)|list|length > 0 if has_errors else false %}
+
+<div class="phanta-admin-page">
+  <header class="phanta-admin-hero">
+    <div>
+      <div class="phanta-admin-eyebrow">PHANTA / PLATFORM OPERATIONS</div>
+      {% if admin_name %}<h1>Good to see you, {{ admin_name }}.</h1>{% else %}<h1>Platform Operations</h1>{% endif %}
+      <p>This page displays only platform information that the current backend actually supplies.</p>
+    </div>
+    <div class="phanta-admin-actions">
+      <button class="button primary" type="button" id="platform-refresh">Refresh status</button>
+    </div>
+  </header>
+
+  <section class="phanta-admin-alert" id="platform-alert" hidden aria-live="polite"></section>
+
+  {% if has_connections or has_billing or has_ai or has_errors %}
+  <section class="phanta-admin-metrics" aria-label="Available platform data">
+    {% if has_connections %}
+    <article class="admin-metric">
+      <span class="metric-label">Meta connections</span>
+      <strong class="metric-value" data-admin-metric="meta-total">{{ meta_total }}</strong>
+      <span class="metric-sub">Connection records returned by the backend</span>
+    </article>
+    {% endif %}
+    {% if has_errors %}
+    <article class="admin-metric {% if error_count %}danger{% endif %}">
+      <span class="metric-label">Integration errors</span>
+      <strong class="metric-value" data-admin-metric="errors">{{ error_count }}</strong>
+      <span class="metric-sub">Errors returned by the platform audit feed</span>
+    </article>
+    {% endif %}
+    {% if has_ai and ai_usage.requests is defined %}
+    <article class="admin-metric">
+      <span class="metric-label">AI requests</span>
+      <strong class="metric-value" data-admin-metric="ai-requests">{{ ai_usage.requests }}</strong>
+      <span class="metric-sub">Requests in the backend's reported usage window</span>
+    </article>
+    {% endif %}
+    {% if has_ai and ai_usage.input_tokens is defined and ai_usage.output_tokens is defined %}
+    <article class="admin-metric">
+      <span class="metric-label">AI tokens</span>
+      <strong class="metric-value">{{ ai_usage.input_tokens + ai_usage.output_tokens }}</strong>
+      <span class="metric-sub">Input + output tokens returned by the backend</span>
+    </article>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if has_connections or has_billing %}
+  <section class="admin-section" id="integration-data">
+    <div class="admin-section-heading">
+      <div>
+        <div class="admin-section-kicker">AVAILABLE INTEGRATION DATA</div>
+        <h2>Integration data</h2>
+        <p>These are aggregate states returned by PHANTA. No client names, health claims or per-workshop statuses are invented here.</p>
+      </div>
+      <span class="admin-live"><i></i> Backend data</span>
+    </div>
+
+    <div class="admin-grid-2">
+      {% if has_connections %}
+      <article class="admin-panel">
+        <div class="admin-panel-head">
+          <div><h3>WhatsApp / Meta connections</h3><p>Connection states currently reported by PHANTA.</p></div>
+          <span class="admin-count">{{ meta_total }}</span>
+        </div>
+        <div class="admin-status-list" id="connection-status-list">
+          {% for status, count in connection_health.items() %}
+          <div class="admin-status-row">
+            <span class="status-dot {% if status in ['connected', 'active', 'healthy'] %}ok{% elif status in ['reconnect_required','error','failed'] %}bad{% else %}warn{% endif %}"></span>
+            <span class="status-name">{{ status|replace('_', ' ')|title }}</span>
+            <strong>{{ count }}</strong>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="admin-panel-foot">
+          <span>Aggregate connection records only.</span>
+          <a href="{{ url_for('platform_dashboard.platform_dashboard_data') }}">View raw platform data →</a>
+        </div>
+      </article>
+      {% endif %}
+
+      {% if has_billing %}
+      <article class="admin-panel">
+        <div class="admin-panel-head">
+          <div><h3>Billing states</h3><p>Subscription states currently reported by PHANTA.</p></div>
+          <span class="admin-count">{{ billing_total }}</span>
+        </div>
+        <div class="admin-status-list" id="billing-status-list">
+          {% for status, count in billing_state.items() %}
+          <div class="admin-status-row">
+            <span class="status-dot {% if status in ['active','trialing'] %}ok{% elif status in ['past_due','unpaid','cancelled'] %}bad{% else %}warn{% endif %}"></span>
+            <span class="status-name">{{ status|replace('_', ' ')|title }}</span>
+            <strong>{{ count }}</strong>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="admin-panel-foot">
+          <span>PHANTA billing is separate from workshop repair pricing.</span>
+        </div>
+      </article>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if has_ai %}
+  <section class="admin-section" id="ai-usage">
+    <div class="admin-section-heading">
+      <div>
+        <div class="admin-section-kicker">AI USAGE</div>
+        <h2>AI usage data</h2>
+        <p>Only token/request values returned by the existing usage query are shown. No currency is assumed when the backend does not provide one.</p>
+      </div>
+    </div>
+    <div class="admin-grid-3">
+      {% if ai_usage.requests is defined %}<article class="admin-health-card"><div class="health-icon ai">AI</div><div><h3>Requests</h3><p>Backend-reported AI requests.</p></div><div class="health-state">{{ ai_usage.requests }}</div></article>{% endif %}
+      {% if ai_usage.input_tokens is defined %}<article class="admin-health-card"><div class="health-icon ai">IN</div><div><h3>Input tokens</h3><p>Backend-reported input tokens.</p></div><div class="health-state">{{ ai_usage.input_tokens }}</div></article>{% endif %}
+      {% if ai_usage.output_tokens is defined %}<article class="admin-health-card"><div class="health-icon ai">OUT</div><div><h3>Output tokens</h3><p>Backend-reported output tokens.</p></div><div class="health-state">{{ ai_usage.output_tokens }}</div></article>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if has_errors %}
+  <section class="admin-section" id="integration-errors">
+    <div class="admin-section-heading">
+      <div>
+        <div class="admin-section-kicker">INTEGRATION AUDIT</div>
+        <h2>Integration errors</h2>
+        <p>Recent failed events returned by the existing platform audit data.</p>
+      </div>
+      <span class="admin-error-count {% if error_count == 0 %}clear{% endif %}">{{ error_count }} returned</span>
+    </div>
+    <article class="admin-panel admin-errors-panel">
+      {% if integration_errors %}
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead><tr><th>Provider</th><th>Event</th>{% if has_error_location_ids %}<th>Location ID</th>{% endif %}{% if has_error_times %}<th>Time</th>{% endif %}</tr></thead>
+            <tbody>
+            {% for error in integration_errors %}
+              <tr>
+                <td><span class="provider-pill {{ error.provider }}">{{ error.provider|upper }}</span></td>
+                <td><strong>{{ error.type }}</strong></td>
+                {% if has_error_location_ids %}<td>{% if error.location_id is not none %}{{ error.location_id }}{% endif %}</td>{% endif %}
+                {% if has_error_times %}<td class="muted">{% if error.at %}{{ error.at }}{% endif %}</td>{% endif %}
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="admin-clear-state">
+          <div class="clear-check">✓</div>
+          <div><strong>No errors were returned by the current audit query.</strong><span>This is an empty result from the backend query, not a claim that every PHANTA subsystem is healthy.</span></div>
+        </div>
+      {% endif %}
+    </article>
+  </section>
+  {% endif %}
+
+  <section class="admin-section" id="architecture">
+    <div class="admin-section-heading">
+      <div>
+        <div class="admin-section-kicker">PHANTA ARCHITECTURE</div>
+        <h2>System boundaries</h2>
+        <p>These are documented product boundaries, not live health claims.</p>
+      </div>
+    </div>
+    <div class="admin-architecture-grid">
+      <article class="admin-arch-card"><span>01</span><h3>WhatsApp Messages</h3><p>Customer communication through the Meta WhatsApp integration. It remains separate from Flyer Lady and Service Advisor.</p></article>
+      <article class="admin-arch-card"><span>02</span><h3>Service Advisor</h3><p>Vehicle/service intelligence and deterministic maintenance guidance. It does not become the workshop pricing or repair-authorisation engine.</p></article>
+      <article class="admin-arch-card"><span>03</span><h3>Flyer Lady</h3><p>Public promotion and publishing. It must not alter, replace or interfere with WhatsApp messaging or Service Advisor.</p></article>
+      <article class="admin-arch-card"><span>04</span><h3>Location isolation</h3><p>Workshop data and credentials remain location-scoped.</p></article>
+    </div>
+  </section>
+
+  {% if not has_connections and not has_billing and not has_ai and not has_errors %}
+  <section class="admin-section">
+    <div class="admin-clear-state">
+      <div class="clear-check">i</div>
+      <div><strong>No platform data is currently available to display.</strong><span>The dashboard will not invent placeholders or health statuses.</span></div>
+    </div>
+  </section>
+  {% endif %}
+</div>
+
+<script>
+window.PHANTA_GHOST_DATA = {
+  admin: true,
+  metaConnections: {{ meta_total|tojson }},
+  connectionHealth: {{ connection_health|tojson }},
+  billingState: {{ billing_state|tojson }},
+  aiUsage: {{ ai_usage|tojson }},
+  integrationErrorsCount: {{ error_count|tojson }}
+};
+
+(() => {
+  const refresh = document.getElementById('platform-refresh');
+  const alertBox = document.getElementById('platform-alert');
+  if (!refresh) return;
+  refresh.addEventListener('click', async () => {
+    refresh.disabled = true;
+    refresh.textContent = 'Refreshing…';
+    try {
+      const response = await fetch('{{ url_for("platform_dashboard.platform_dashboard_data") }}', {headers: {'Accept': 'application/json'}});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const metaTotal = Object.values(data.connection_health || {}).reduce((sum, n) => sum + Number(n || 0), 0);
+      const errors = Array.isArray(data.integration_errors) ? data.integration_errors.length : null;
+      const ai = data.ai_usage || {};
+      const metaNode = document.querySelector('[data-admin-metric="meta-total"]');
+      const errorNode = document.querySelector('[data-admin-metric="errors"]');
+      const aiNode = document.querySelector('[data-admin-metric="ai-requests"]');
+      if (metaNode && data.connection_health && Object.keys(data.connection_health).length) metaNode.textContent = metaTotal;
+      if (errorNode && errors !== null) errorNode.textContent = errors;
+      if (aiNode && Object.prototype.hasOwnProperty.call(ai, 'requests')) aiNode.textContent = ai.requests;
+      alertBox.hidden = false;
+      alertBox.className = 'phanta-admin-alert success';
+      alertBox.textContent = 'Platform data refreshed successfully.';
+      window.setTimeout(() => { alertBox.hidden = true; }, 2600);
+    } catch (error) {
+      alertBox.hidden = false;
+      alertBox.className = 'phanta-admin-alert error';
+      alertBox.textContent = `Unable to refresh platform data: ${error.message}`;
+    } finally {
+      refresh.disabled = false;
+      refresh.textContent = 'Refresh status';
+    }
+  });
+})();
+</script>
+{% endblock %}

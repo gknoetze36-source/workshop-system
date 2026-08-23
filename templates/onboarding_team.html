@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Team Setup - PHANTA Workshop Platform{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading"><h1>Team Setup</h1><p>Invite team members and assign roles for your workshop</p></div>
+    <div class="actions"><a class="button" href="{{ url_for('onboarding.onboarding') }}">&larr; Back to Onboarding</a></div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <section class="flash-messages">
+      {% for category, message in messages %}
+        <div class="flash-message {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </section>
+  {% endif %}
+{% endwith %}
+
+{% if current_user.role in ['owner', 'admin'] %}
+<div class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Invite Team Member</h2><p>Add new team members to your workshop</p></div>
+    </div>
+
+    <form id="teamForm" method="POST" action="{{ url_for('onboarding.onboarding_team') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="invite">
+
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="email">Email Address *</label>
+                <input type="email" id="email" name="email" required>
+                <p class="help">The email address for the team member's account</p>
+            </div>
+
+            <div class="form-field">
+                <label for="role">Role *</label>
+                <select id="role" name="role" required>
+                    <option value="owner">Owner</option>
+                    <option value="manager">Manager</option>
+                    <option value="reception">Reception</option>
+                    <option value="technician">Technician</option>
+                    <option value="readonly">Read Only</option>
+                </select>
+                <p class="help">The role determines what the team member can access and do</p>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="button primary">Send Invitation</button>
+            <button type="button" class="button" onclick="document.getElementById('teamForm').reset()">Clear Form</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<div class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Current Team Members</h2><p>View and manage your workshop's team members</p></div>
+    </div>
+
+    {% if team_members %}
+    <div class="team-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for member in team_members %}
+                <tr class="team-member">
+                    <td>
+                        {{ member.username or member.email.split('@')[0] }}
+                        {% if member.full_name %}<br><small>{{ member.full_name }}</small>{% endif %}
+                    </td>
+                    <td>{{ member.email }}</td>
+                    <td>
+                        <span class="role-badge role-{{ member.role }}">
+                            {{ member.role|title }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="status-badge status-{{ 'active' if member.is_active else 'inactive' }}">
+                            {{ 'Active' if member.is_active else 'Inactive' }}
+                        </span>
+                    </td>
+                    <td class="team-actions">
+                        {% if current_user.role in ['owner', 'admin'] and member.id != current_user.id %}
+                        <div class="action-group">
+                            {% if member.is_active %}
+                            <form method="POST" action="{{ url_for('onboarding.onboarding_team') }}" style="display: inline;">
+                                <input type="hidden" name="action" value="toggle_status">
+                                <input type="hidden" name="user_id" value="{{ member.id }}">
+                                <button type="submit" class="button-icon btn-deactivate" title="Deactivate User">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM8 9h8v10H8V9zm7.5-5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
+                                    </svg>
+                                </button>
+                            </form>
+                            {% else %}
+                            <form method="POST" action="{{ url_for('onboarding.onboarding_team') }}" style="display: inline;">
+                                <input type="hidden" name="action" value="toggle_status">
+                                <input type="hidden" name="user_id" value="{{ member.id }}">
+                                <button type="submit" class="button-icon btn-activate" title="Activate User">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M5 13l4 4L19 7" fill="currentColor"/>
+                                    </svg>
+                                </button>
+                            </form>
+                            {% endif %}
+                            <form method="POST" action="{{ url_for('onboarding.onboarding_team') }}" style="display: inline;">
+                                <input type="hidden" name="action" value="change_role">
+                                <input type="hidden" name="user_id" value="{{ member.id }}">
+                                <select name="new_role" class="role-select">
+                                    <option value="owner">Owner</option>
+                                    <option value="manager">Manager</option>
+                                    <option value="reception">Reception</option>
+                                    <option value="technician">Technician</option>
+                                    <option value="readonly">Read Only</option>
+                                </select>
+                                <button type="submit" class="button-icon btn-change-role" title="Change Role">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M4 21h16l2-3-9-9-9 9 2 3z" fill="currentColor"/>
+                                    </svg>
+                                </button>
+                            </form>
+                        </div>
+                        {% else %}
+                        <span class="view-only">You</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="no-data">
+        <p>No team members have been added yet. Use the form above to invite your first team member.</p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Role Descriptions</h2><p>Understanding the different roles and their permissions</p></div>
+    </div>
+
+    <div class="roles-explanation">
+        <div class="role-description">
+            <h3>Owner</h3>
+            <p>Full access to all settings, billing, and team management. Can transfer ownership.</p>
+        </div>
+        <div class="role-description">
+            <h3>Manager</h3>
+            <p>Can manage appointments, services, and team members. Has access to most settings except billing and ownership transfer.</p>
+        </div>
+        <div class="role-description">
+            <h3>Reception</h3>
+            <p>Can manage appointments and customers. Limited access to settings and reports.</p>
+        </div>
+        <div class="role-description">
+            <h3>Technician</h3>
+            <p>Can view and update job statuses. Limited customer and scheduling access.</p>
+        </div>
+        <div class="role-description">
+            <h3>Read Only</h3>
+            <p>Can view appointments, customers, and reports. Cannot make any changes.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

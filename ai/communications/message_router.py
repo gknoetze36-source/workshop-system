@@ -1,0 +1,2 @@
+class MessageRouter:
+    pass

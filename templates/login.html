@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}
+Login
+<p style="margin-top:16px;">New to PHANTA? <a href="{{ url_for("auth.register") }}">Create an owner account</a></p>
+{% endblock %}
+
+{% block content %}
+
+<div class="auth-container">
+
+    <div class="auth-card">
+
+        <div class="auth-logo">
+
+            <img
+                src="{{ url_for('static', filename='images/phanta-logo.svg') }}"
+                alt="PHANTA Logo"
+                class="logo">
+
+        </div>
+
+        <h1>
+
+            Welcome Back
+
+        </h1>
+
+        <p>
+
+            Sign in to your PHANTA account.
+
+        </p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+
+            {% if messages %}
+
+                {% for category, message in messages %}
+
+                    <div class="alert {{ category }}">
+
+                        {{ message }}
+
+                    </div>
+
+                {% endfor %}
+
+            {% endif %}
+
+        {% endwith %}
+
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <label>
+
+                Email Address
+
+                <input
+                    type="email"
+                    name="email"
+                    placeholder="name@company.co.za"
+                    required>
+
+            </label>
+
+            <label>
+
+                Password
+
+                <input
+                    type="password"
+                    name="password"
+                    required>
+
+            </label>
+
+            <div class="remember-row">
+
+                <label>
+
+                    <input
+                        type="checkbox"
+                        name="remember">
+
+                    Remember Me
+
+                </label>
+
+                
+
+            </div>
+
+            <button
+                type="submit"
+                class="btn btn-primary btn-full">
+
+                Sign In
+
+            </button>
+
+        </form>
+
+        <div class="login-footer">
+
+            <p>
+
+                Need help?
+
+                
+
+            </p>
+
+        </div>
+
+    </div>
+
+</div>
+
+<style>
+
+.auth-container{
+
+display:flex;
+
+justify-content:center;
+
+align-items:center;
+
+min-height:80vh;
+
+padding:40px;
+
+}
+
+.auth-card{
+
+width:100%;
+
+max-width:460px;
+
+background:var(--panel);
+
+border:1px solid var(--line);
+
+border-radius:18px;
+
+padding:40px;
+
+box-shadow:var(--shadow);
+
+}
+
+.auth-logo{
+
+text-align:center;
+
+margin-bottom:25px;
+
+}
+
+.logo{
+
+width:90px;
+
+}
+
+.auth-card h1{
+
+text-align:center;
+
+margin-bottom:10px;
+
+}
+
+.auth-card p{
+
+text-align:center;
+
+color:var(--muted);
+
+margin-bottom:30px;
+
+}
+
+.auth-card label{
+
+display:block;
+
+margin-bottom:18px;
+
+font-weight:600;
+
+}
+
+.auth-card input[type=email],
+
+.auth-card input[type=password]{
+
+width:100%;
+
+margin-top:8px;
+
+}
+
+.remember-row{
+
+display:flex;
+
+justify-content:space-between;
+
+align-items:center;
+
+margin:20px 0;
+
+font-size:.9rem;
+
+}
+
+.btn-full{
+
+width:100%;
+
+}
+
+.login-footer{
+
+margin-top:30px;
+
+text-align:center;
+
+font-size:.9rem;
+
+color:var(--muted);
+
+}
+
+.alert{
+
+margin-bottom:20px;
+
+padding:12px;
+
+border-radius:10px;
+
+}
+
+.alert.error{
+
+background:#ffe9e9;
+
+}
+
+.alert.success{
+
+background:#e8fff0;
+
+}
+
+</style>
+
+<p style="margin-top:16px;">New to PHANTA? <a href="{{ url_for("auth.register") }}">Create an owner account</a></p>
+{% endblock %}

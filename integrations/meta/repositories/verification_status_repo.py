@@ -1,0 +1,2 @@
+class MetaVerificationStatusRepository:
+    pass

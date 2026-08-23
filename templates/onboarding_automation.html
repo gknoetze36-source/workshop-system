@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Onboarding — Automations{% endblock %}
+{% block content %}
+<section class="topbar"><div class="heading"><h1>Automations</h1><p>Choose the deterministic customer communications your business wants enabled.</p></div></section>
+<form method="POST" action="{{ url_for('onboarding.onboarding_automation') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{% for industry, templates in automation_templates_by_industry.items() %}
+  <section class="v-card" style="margin-bottom:20px;">
+    <h2 class="v-card-title">{{ industry|title }}</h2>
+    {% for item in templates %}
+      <div class="operation-row" style="padding:14px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;">
+        <div><strong>{{ item.name }}</strong><p class="help">{{ item.description }}</p></div>
+        <label><input type="checkbox" name="enabled_{{ item.id }}" value="1" {% if item.active %}checked{% endif %}> Enabled</label>
+        <input type="number" min="0" name="delay_{{ item.id }}" value="{{ item.delay_minutes or item.default_delay_minutes or 0 }}" aria-label="Delay in minutes">
+        <input type="hidden" name="channel_{{ item.id }}" value="whatsapp">
+      </div>
+    {% endfor %}
+  </section>
+{% else %}
+  <div class="v-card"><p>No automation templates are configured yet.</p></div>
+{% endfor %}
+<div class="form-actions"><button class="button primary" type="submit">Save and continue</button></div>
+</form>
+{% endblock %}

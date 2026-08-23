@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}
+Server Error
+{% endblock %}
+
+{% block content %}
+
+<div class="error-container">
+
+    <div class="error-card">
+
+        <div class="error-icon">
+
+            ⚠️
+
+        </div>
+
+        <h1>
+
+            500
+
+        </h1>
+
+        <h2>
+
+            Something Went Wrong
+
+        </h2>
+
+        <p>
+
+            We're sorry, but an unexpected error occurred while processing your request.
+            Our team has been notified and we're working to resolve the issue.
+
+        </p>
+
+        <div class="actions">
+
+            {% if current_user.is_authenticated %}
+
+            <a
+                href="{{ url_for('workshop_dashboard.workshop_dashboard') }}"
+                class="btn btn-primary">
+
+                Return to Dashboard
+
+            </a>
+
+            {% else %}
+
+            <a
+                href="{{ url_for('auth.login') }}"
+                class="btn btn-primary">
+
+                Return to Login
+
+            </a>
+
+            {% endif %}
+
+            <button
+                type="button"
+                class="btn btn-outline"
+                onclick="window.location.reload();">
+
+                Try Again
+
+            </button>
+
+            
+
+        </div>
+
+    </div>
+
+</div>
+
+<style>
+
+.error-container{
+
+display:flex;
+
+justify-content:center;
+
+align-items:center;
+
+min-height:80vh;
+
+padding:40px;
+
+}
+
+.error-card{
+
+width:100%;
+
+max-width:650px;
+
+background:var(--panel);
+
+border:1px solid var(--line);
+
+border-radius:18px;
+
+padding:50px;
+
+text-align:center;
+
+box-shadow:var(--shadow);
+
+}
+
+.error-icon{
+
+font-size:72px;
+
+margin-bottom:20px;
+
+}
+
+.error-card h1{
+
+font-size:72px;
+
+margin:0;
+
+color:var(--brand);
+
+}
+
+.error-card h2{
+
+margin:15px 0;
+
+}
+
+.error-card p{
+
+max-width:520px;
+
+margin:0 auto 35px;
+
+line-height:1.7;
+
+color:var(--muted);
+
+}
+
+.actions{
+
+display:flex;
+
+justify-content:center;
+
+gap:15px;
+
+flex-wrap:wrap;
+
+}
+
+@media (max-width:768px){
+
+.actions{
+
+flex-direction:column;
+
+}
+
+.actions a,
+
+.actions button{
+
+width:100%;
+
+}
+
+}
+
+</style>
+
+{% endblock %}

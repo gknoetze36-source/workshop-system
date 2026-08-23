@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Edit Customer{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading">
+        <h1>Edit Customer</h1>
+        <p>Update customer details</p>
+    </div>
+</div>
+
+<form method="post" action="{{ url_for('customer.customer_edit', customer_id=customer.id) }}" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- Customer Information -->
+    <div class="grid two">
+        <label>First name<input type="text" name="first_name" value="{{ customer.first_name or '' }}"></label>
+        <label>Surname<input type="text" name="surname" value="{{ customer.surname or '' }}"></label>
+    </div>
+    <div class="grid two">
+        <label>WhatsApp Number<input type="tel" name="phone" placeholder="+27821234567" value="{{ customer.phone or '' }}"></label>
+        <label>Email<input type="email" name="email" value="{{ customer.email or '' }}"></label>
+    </div>
+
+    <!-- Workshop Notes -->
+    <label>Workshop Notes<textarea name="notes">{% if customer.meta_notes %}{{ customer.meta_notes }}{% endif %}</textarea></label>
+
+    <div class="actions">
+        <button type="submit" class="button">Save Changes</button>
+        <a href="{{ url_for('customer.customer_profile', customer_id=customer.id) }}" class="button alt">Cancel</a>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,2 @@
+class ContextStore:
+    pass

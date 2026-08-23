@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Create your location{% endblock %}
+{% block content %}
+<div class="panel" style="max-width:680px;margin:48px auto;">
+  <div class="heading"><h1>Create your location</h1><p>Your PHANTA account owns one location. Choose the industry so PHANTA can configure the correct services and automations.</p></div>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}<div class="flash-message {{ category }}">{{ message }}</div>{% endfor %}
+  {% endwith %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-field"><label>Location name</label><input name="location_name" required placeholder="e.g. Pretoria Workshop"></div>
+    <div class="form-field"><label>Industry</label>
+      <select name="industry" required>
+        <option value="">Select industry</option>
+        {% for industry in industries %}<option value="{{ industry.value }}">{{ industry.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="button primary" type="submit">Create location</button>
+  </form>
+</div>
+{% endblock %}

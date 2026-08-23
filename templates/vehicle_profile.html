@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Vehicle Profile{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading">
+        <h1>Vehicle Details</h1>
+        <p>{{ vehicle.make }} {{ vehicle.model }} ({{ vehicle.registration }})</p>
+    </div>
+</div>
+
+{% if vehicle %}
+<section class="grid two">
+    <section class="panel">
+        <h2>Vehicle Information</h2>
+        <div class="info-grid">
+            <div><span>Registration:</span> {{ vehicle.registration or '-' }}</div>
+            <div><span>Make:</span> {{ vehicle.make or '-' }}</div>
+            <div><span>Model:</span> {{ vehicle.model or '-' }}</div>
+            <div><span>Year:</span> {{ vehicle.year or '-' }}</div>
+            <div><span>Colour:</span> {{ vehicle.colour or '-' }}</div>
+            <div><span>VIN:</span> {{ vehicle.vehicle_vin or '-' }}</div>
+            <div><span>Current Mileage:</span> {{ vehicle.current_mileage or '-' }}</div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h2>Owner Information</h2>
+        {% if vehicle.customer %}
+        <div class="info-grid">
+            <div><span>Name:</span> {{ vehicle.customer.first_name }} {{ vehicle.customer.surname }}</div>
+            <div><span>WhatsApp:</span> {{ vehicle.customer.phone or '-' }}</div>
+            <div><span>Email:</span> {{ vehicle.customer.email or '-' }}</div>
+        </div>
+        {% else %}
+        <p>No customer associated.</p>
+        {% endif %}
+    </section>
+</section>
+
+{% if vehicle.service_history %}
+<section class="panel">
+    <h2>Service History</h2>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Service</th>
+                    <th>Status</th>
+                    <th>Mileage</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for service in vehicle.service_history %}
+                <tr>
+                    <td>{{ service.date | date('%b %d, %Y') }}</td>
+                    <td>{{ service.service or '-' }}</td>
+                    <td><span class="status">{{ service.status }}</span></td>
+                    <td>{{ service.mileage or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+{% if vehicle.booking_history %}
+<section class="panel">
+    <h2>Booking History</h2>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Booking Reference</th>
+                    <th>Date</th>
+                    <th>Service</th>
+                    <th>Status</th>
+                    <th>Mileage</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for booking in vehicle.booking_history %}
+                <tr>
+                    <td><a href="{{ url_for('workshop_dashboard.workshop_dashboard') }}">{{ booking.booking_reference }}</a></td>
+                    <td>{{ booking.scheduled_date | date('%b %d, %Y') }}</td>
+                    <td>{{ booking.service or '-' }}</td>
+                    <td><span class="status">{{ booking.status }}</span></td>
+                    <td>{{ booking.current_mileage or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+{% if vehicle.mileage_history %}
+<section class="panel">
+    <h2>Mileage History</h2>
+    <p class="small">Previous mileage values recorded when the vehicle was serviced with higher mileage.</p>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Previous Mileage</th>
+                    <th>Date Recorded</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mileage_entry in vehicle.mileage_history %}
+                <tr>
+                    <td>{{ mileage_entry.mileage }}</td>
+                    <td>{{ mileage_entry.date | date('%b %d, %Y') }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+<section class="panel">
+    <h2>Workshop Notes</h2>
+    <p>{{ vehicle.notes or 'No notes recorded.' }}</p>
+</section>
+
+{% else %}
+<p class="empty-state">Vehicle not found.</p>
+{% endif %}
+{% endblock %}

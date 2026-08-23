@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+
+{% block title %}
+Business Information
+{% endblock %}
+
+{% block content %}
+
+<div class="onboarding-container">
+
+    <div class="wizard-card">
+
+        <!-- Logo -->
+
+        <div class="wizard-logo">
+
+            <img
+                src="{{ url_for('static', filename='images/phanta-logo.svg') }}"
+                alt="PHANTA Logo"
+                class="logo">
+
+        </div>
+
+        <!-- Progress -->
+
+        <div class="progress-header">
+
+            <span>
+
+                Step 3 of 10
+
+            </span>
+
+            <div class="progress">
+
+                <div class="progress-fill" style="width:30%;"></div>
+
+            </div>
+
+        </div>
+
+        <h1>
+
+            Tell Us About Your Workshop
+
+        </h1>
+
+        <p class="intro">
+
+            We'll use this information to create your PHANTA workspace.
+
+        </p>
+
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="grid two">
+
+                <label>
+
+                    Workshop Name
+
+                    <input
+                        type="text"
+                        name="business_name"
+                        value="{{ form.business_name if form else '' }}"
+                        required>
+
+                </label>
+
+                <label>
+
+                    Trading Name (Optional)
+
+                    <input
+                        type="text"
+                        name="trading_name"
+                        value="{{ form.trading_name if form else '' }}">
+
+                </label>
+
+            </div>
+
+            <div class="grid two">
+
+                <label>
+
+                    Business Email
+
+                    <input
+                        type="email"
+                        name="business_email"
+                        value="{{ form.business_email if form else '' }}"
+                        required>
+
+                </label>
+
+                <label>
+
+                    Business WhatsApp
+
+                    <input
+                        type="tel"
+                        name="business_phone"
+                        value="{{ form.business_phone if form else '' }}"
+                        placeholder="+27..."
+                        required>
+
+                </label>
+
+            </div>
+
+            <div class="grid two">
+
+                <label>
+
+                    Province
+
+                    <select
+                        name="province"
+                        required>
+
+                        <option value="">Select Province</option>
+
+                        <option>Eastern Cape</option>
+                        <option>Free State</option>
+                        <option>Gauteng</option>
+                        <option>KwaZulu-Natal</option>
+                        <option>Limpopo</option>
+                        <option>Mpumalanga</option>
+                        <option>North West</option>
+                        <option>Northern Cape</option>
+                        <option>Western Cape</option>
+
+                    </select>
+
+                </label>
+
+                <label>
+
+                    City / Town
+
+                    <input
+                        type="text"
+                        name="city"
+                        value="{{ form.city if form else '' }}"
+                        required>
+
+                </label>
+
+            </div>
+
+            <label>
+
+                Physical Address
+
+                <textarea
+                    name="address"
+                    rows="3"
+                    required>{{ form.address if form else '' }}</textarea>
+
+            </label>
+
+            <div class="grid two">
+
+                <label>
+
+                    Workshop Type
+
+                    <select
+                        name="workshop_type"
+                        required>
+
+                        <option value="">Select</option>
+
+                        <option>General Repairs</option>
+
+                        <option>Vehicle Servicing</option>
+
+                        <option>Auto Electrical</option>
+
+                        <option>Panel Beating</option>
+
+                        <option>Tyres</option>
+
+                        <option>Fleet Maintenance</option>
+
+                        <option>Mechanical Workshop</option>
+
+                        <option>Other</option>
+
+                    </select>
+
+                </label>
+
+                <label>
+
+                    VAT Number (Optional)
+
+                    <input
+                        type="text"
+                        name="vat_number"
+                        value="{{ form.vat_number if form else '' }}">
+
+                </label>
+
+            </div>
+
+            <div class="wizard-actions">
+
+                <a
+                    href="{{ url_for('onboarding.onboarding') }}"
+                    class="btn btn-outline">
+
+                    ← Back
+
+                </a>
+
+                <button
+                    type="submit"
+                    class="btn btn-primary">
+
+                    Continue →
+
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
+
+<style>
+
+.onboarding-container{
+
+display:flex;
+
+justify-content:center;
+
+padding:50px 20px;
+
+}
+
+.wizard-card{
+
+max-width:900px;
+
+width:100%;
+
+background:var(--panel);
+
+border:1px solid var(--line);
+
+border-radius:20px;
+
+padding:45px;
+
+box-shadow:var(--shadow);
+
+}
+
+.wizard-logo{
+
+text-align:center;
+
+margin-bottom:30px;
+
+}
+
+.logo{
+
+width:90px;
+
+}
+
+.progress-header{
+
+margin-bottom:35px;
+
+}
+
+.progress{
+
+height:10px;
+
+background:#e5e7eb;
+
+border-radius:999px;
+
+overflow:hidden;
+
+margin-top:10px;
+
+}
+
+.progress-fill{
+
+height:100%;
+
+width:30%;
+
+background:var(--brand);
+
+}
+
+h1{
+
+text-align:center;
+
+margin-bottom:15px;
+
+}
+
+.intro{
+
+text-align:center;
+
+margin-bottom:35px;
+
+color:var(--muted);
+
+}
+
+textarea{
+
+resize:vertical;
+
+}
+
+.wizard-actions{
+
+display:flex;
+
+justify-content:space-between;
+
+margin-top:40px;
+
+}
+
+@media(max-width:768px){
+
+.wizard-actions{
+
+flex-direction:column;
+
+gap:15px;
+
+}
+
+.wizard-actions a,
+
+.wizard-actions button{
+
+width:100%;
+
+}
+
+}
+
+</style>
+
+{% endblock %}

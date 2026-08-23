@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Edit Vehicle{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading">
+        <h1>Edit Vehicle</h1>
+        <p>Update vehicle details</p>
+    </div>
+</div>
+
+<form method="post" action="{{ url_for('vehicles.vehicle_edit', vehicle_id=vehicle.id) }}" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- Vehicle Information -->
+    <div class="grid two">
+        <label>Registration Number<input type="text" name="registration" value="{{ vehicle.registration or '' }}"></label>
+        <label>Make<input type="text" name="make" value="{{ vehicle.make or '' }}"></label>
+    </div>
+    <div class="grid two">
+        <label>Model<input type="text" name="model" value="{{ vehicle.model or '' }}"></label>
+        <label>Year<input type="number" name="year" min="1900" max="{{ now.year }}" value="{{ vehicle.year or '' }}"></label>
+    </div>
+    <div class="grid two">
+        <label>Current Mileage<input type="number" name="mileage" min="0" value="{{ vehicle.mileage or '' }}"></label>
+        <label>Colour<input type="text" name="colour" value="{{ vehicle.colour or '' }}"></label>
+    </div>
+    <div class="grid two">
+        <label>VIN<input type="text" name="vin" value="{{ vehicle.vin or '' }}"></label>
+    </div>
+
+    <!-- Workshop Notes -->
+    <label>Workshop Notes<textarea name="notes">{% if vehicle.notes %}{{ vehicle.notes }}{% endif %}</textarea></label>
+
+    <div class="actions">
+        <button type="submit" class="button">Save Changes</button>
+        <a href="{{ url_for('vehicles.vehicle_profile', vehicle_id=vehicle.id) }}" class="button alt">Cancel</a>
+    </div>
+</form>
+{% endblock %}

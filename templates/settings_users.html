@@ -1,0 +1,468 @@
+{% extends "base.html" %}
+
+{% block title %}
+Users & Permissions
+{% endblock %}
+
+{% block content %}
+
+<!-- ========================================================= -->
+<!-- Header -->
+<!-- ========================================================= -->
+
+<div class="topbar">
+
+    <div class="heading">
+
+        <h1>
+
+            Users & Permissions
+
+        </h1>
+
+        <p>
+
+            Manage users who have access to your workshop.
+
+        </p>
+
+    </div>
+
+    <div class="actions">
+
+        <a
+            href="{{ url_for('settings.settings_overview') }}"
+            class="btn btn-outline"
+        >
+            ← Settings
+        </a>
+
+
+
+    </div>
+
+</div>
+
+<!-- ========================================================= -->
+<!-- Summary -->
+<!-- ========================================================= -->
+
+<section class="dashboard-grid">
+
+    <div class="v-card metric-card">
+
+        <span class="metric-label">
+
+            Total Users
+
+        </span>
+
+        <h2>
+
+            {{ user_stats.total if user_stats else "—" }}
+
+        </h2>
+
+    </div>
+
+    <div class="v-card metric-card">
+
+        <span class="metric-label">
+
+            Active Users
+
+        </span>
+
+        <h2>
+
+            {{ user_stats.active if user_stats else "—" }}
+
+        </h2>
+
+    </div>
+
+    <div class="v-card metric-card">
+
+        <span class="metric-label">
+
+            Pending Invites
+
+        </span>
+
+        <h2>
+
+            {{ user_stats.pending if user_stats else "—" }}
+
+        </h2>
+
+    </div>
+
+    <div class="v-card metric-card">
+
+        <span class="metric-label">
+
+            Locationes
+
+        </span>
+
+        <h2>
+
+            {{ user_stats.locationes if user_stats else "—" }}
+
+        </h2>
+
+    </div>
+
+</section>
+
+<!-- ========================================================= -->
+<!-- Users -->
+<!-- ========================================================= -->
+
+<section class="panel">
+
+<h2>
+
+Workshop Users
+
+</h2>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>Name</th>
+
+<th>Email</th>
+
+<th>Role</th>
+
+<th>Location</th>
+
+<th>Status</th>
+
+<th>Last Login</th>
+
+<th>Actions</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+{% for user in users %}
+
+<tr>
+
+<td>
+
+{{ user.full_name }}
+
+</td>
+
+<td>
+
+{{ user.email }}
+
+</td>
+
+<td>
+
+{{ user.role }}
+
+</td>
+
+<td>
+
+{{ user.location_name or "All Locationes" }}
+
+</td>
+
+<td>
+
+{{ user.status }}
+
+</td>
+
+<td>
+
+{{ user.last_login or "Never" }}
+
+</td>
+
+<td>
+
+<div class="btn-group">
+
+
+
+<button
+class="btn btn-sm btn-outline"
+disabled>
+
+Reset Password
+
+</button>
+
+<button
+class="btn btn-sm btn-outline danger"
+disabled>
+
+Disable
+
+</button>
+
+</div>
+
+</td>
+
+</tr>
+
+{% else %}
+
+<tr>
+
+<td colspan="7">
+
+No users found.
+
+</td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+</div>
+
+</section>
+
+<!-- ========================================================= -->
+<!-- Roles -->
+<!-- ========================================================= -->
+
+<section class="panel">
+
+<h2>
+
+User Roles
+
+</h2>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>Role</th>
+
+<th>Description</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+<tr>
+
+<td>
+
+Owner
+
+</td>
+
+<td>
+
+Full access to every part of the system.
+
+</td>
+
+</tr>
+
+<tr>
+
+<td>
+
+Manager
+
+</td>
+
+<td>
+
+Manage bookings, customers, vehicles and staff.
+
+</td>
+
+</tr>
+
+<tr>
+
+<td>
+
+Reception
+
+</td>
+
+<td>
+
+Manage bookings, customers and communication.
+
+</td>
+
+</tr>
+
+<tr>
+
+<td>
+
+Technician
+
+</td>
+
+<td>
+
+View assigned work and update job status.
+
+</td>
+
+</tr>
+
+</tbody>
+
+</table>
+
+</div>
+
+</section>
+
+<!-- ========================================================= -->
+<!-- Invite User -->
+<!-- ========================================================= -->
+
+<section class="panel">
+
+<h2>
+
+Invite New User
+
+</h2>
+
+<form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="action" value="invite">
+
+<div class="grid two">
+
+<label>
+
+Full Name
+
+<input
+type="text"
+name="full_name">
+
+</label>
+
+<label>
+
+Email
+
+<input
+type="email"
+name="email">
+
+</label>
+
+<label>
+
+Role
+
+<select
+name="role">
+
+<option>
+
+Reception
+
+</option>
+
+<option>
+
+Technician
+
+</option>
+
+<option>
+
+Manager
+
+</option>
+
+<option>
+
+Owner
+
+</option>
+
+</select>
+
+</label>
+
+<label>
+
+Location
+
+<select
+name="location">
+
+<option>
+
+All Locationes
+
+</option>
+
+{% for location in locationes %}
+
+<option value="{{ location.id }}">
+
+{{ location.name }}
+
+</option>
+
+{% endfor %}
+
+</select>
+
+</label>
+
+</div>
+
+<div class="actions">
+
+<button
+type="submit"
+class="btn btn-primary">
+
+Send Invitation
+
+</button>
+
+</div>
+
+</form>
+
+</section>
+
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Automation Settings - PHANTA Platform{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading"><h1>Automation Settings</h1><p>Configure automated messages for your location.</p></div>
+    <div class="actions"><a class="button" href="{{ url_for('index') }}">&larr; Back to Dashboard</a></div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <section class="flash-messages">
+      {% for category, message in messages %}
+        <div class="flash-message {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </section>
+  {% endif %}
+{% endwith %}
+
+<section class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Automation Rules Configuration</h2><p>Enable, disable, and customize automated messages for your location.</p></div>
+    </div>
+
+    <form method="POST" action="{{ url_for('automations.automations_settings') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-section">
+            {% for industry, templates in automation_templates_by_industry.items() %}
+            <div class="industry-section">
+                <h3>{{ industry|title }} Industry</h3>
+
+                <div class="template-grid">
+                    {% for template in templates %}
+                    <div class="template-card">
+                        <div class="template-header">
+                            <h4>{{ template.name }}</h4>
+                            <span class="event-type">{{ template.event_type }}</span>
+                        </div>
+
+                        <div class="template-details">
+                            <p><strong>Trigger:</strong> {{ template.trigger_description }}</p>
+                            <p><strong>Default delay:</strong> {{ template.default_delay_minutes }} minutes</p>
+                            <p><strong>Message template:</strong></p>
+                            <div class="template-message">{{ template.message }}</div>
+                        </div>
+
+                        <div class="template-settings">
+                            <div class="form-field">
+                                <label for="enabled_{{ template.id }}">
+                                    <input type="checkbox" id="enabled_{{ template.id }}" name="enabled_{{ template.id }}" value="1"
+                                           {% if template.is_active %}checked{% endif %}>
+                                    Enable this automation
+                                </label>
+                            </div>
+
+                            <div class="form-field">
+                                <label for="delay_{{ template.id }}">Delay (minutes):</label>
+                                <input type="number" id="delay_{{ template.id }}" name="delay_{{ template.id }}"
+                                       value="{{ template.delay_minutes }}" min="0">
+                                <small>Leave empty to use template default ({{ template.default_delay_minutes }} min)</small>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="button primary">Save Automation Settings</button>
+            <button type="button" class="button" onclick="window.location.href='{{ url_for('index') }}'">Cancel</button>
+        </div>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Available Automation Templates</h2><p>Pre-defined message templates that can be used to create automation rules.</p></div>
+    </div>
+    <div class="template-reference">
+        {% for industry, templates in automation_templates_by_industry.items() %}
+        <div class="industry-section">
+            <h3>{{ industry|title }} Industry Templates</h3>
+            <div class="template-list">
+                {% for template in templates %}
+                <div class="template-item">
+                    <h4>{{ template.name }}</h4>
+                    <p><strong>Event:</strong> {{ template.event_type }}</p>
+                    <p><strong>Trigger:</strong> {{ template.trigger_description }}</p>
+                    <p><strong>Default Delay:</strong> {{ template.default_delay_minutes }} minutes</p>
+                    <p><strong>Message:</strong> "<em>{{ template.message }}</em>"</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

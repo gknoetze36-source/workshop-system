@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Flyer Lady{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="heading"><h1>Flyer Lady</h1><p>Submit a workshop special, approve it, then publish it publicly.</p></div>
+  <div class="actions"><a class="button secondary" href="{{ url_for('flyer_lady.social_connect_start') }}">Connect Facebook / Instagram</a></div>
+</div>
+<div id="status" class="status-card" style="margin-bottom:24px;">Loading…</div>
+<div class="grid two">
+  <section class="card">
+    <h2>Create a special</h2>
+    <form id="special-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Workshop location</label>
+      <select id="location_id" required>
+        {% for location in locations %}<option value="{{ location.id }}">{{ location.name or location.slug or location.id }}</option>{% endfor %}
+      </select>
+      <label>Special text</label>
+      <textarea id="special_text" rows="7" maxlength="10000" required placeholder="Paste the workshop's special exactly as it should be published."></textarea>
+      <label>Public image URL (optional)</label>
+      <input id="media_url" type="url" placeholder="https://your-public-host/special.jpg">
+      <button class="primary" type="submit">Create special</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>How it works</h2>
+    <ol>
+      <li>Submit the workshop's text and optional image.</li>
+      <li>Approve the special.</li>
+      <li>Queue Facebook Story, Facebook Feed and WhatsApp Status handoff.</li>
+      <li>PHANTA publishes approved Facebook content and prepares the WhatsApp Status asset.</li>
+    </ol>
+    <p class="muted">WhatsApp Status remains a prepare-and-share action because Meta does not expose an official Status publishing endpoint.</p>
+  </section>
+</div>
+<section class="card">
+  <h2>Recent specials</h2>
+  <div id="specials"></div>
+</section>
+<script>
+async function api(url, options={}) { const csrfToken=document.querySelector('meta[name=csrf-token]')?.content || ''; const headers={'Content-Type':'application/json','X-CSRFToken':csrfToken,...(options.headers||{})}; const r=await fetch(url,{...options,headers}); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Request failed'); return d; }
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+async function load(){
+  const d=await api('{{ url_for("flyer_lady.index") }}');
+  document.getElementById('status').innerHTML=d.social_connection.connected ? `Connected to <strong>${esc(d.social_connection.page_name||d.social_connection.page_id)}</strong>` : 'Facebook / Instagram is not connected yet.';
+  document.getElementById('specials').innerHTML=d.specials.length?d.specials.map(s=>`<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p><div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue publishing</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div></div>`).join(''):'<p class="muted">No specials yet.</p>';
+}
+document.getElementById('special-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('{{ url_for("flyer_lady.create_special") }}',{method:'POST',body:JSON.stringify({location_id:Number(document.getElementById('location_id').value),text:document.getElementById('special_text').value,media_url:document.getElementById('media_url').value||null})});e.target.reset();await load();}catch(err){alert(err.message);}});
+async function approve(id){try{await api(`/dashboard/flyer-lady/specials/${id}/approval`,{method:'POST',body:JSON.stringify({decision:'approved'})});await load();}catch(e){alert(e.message)}}
+async function queue(id){try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms:['facebook_story','facebook_feed','whatsapp_status_prepared']})});for(const p of d.posts){if(p.platform!=='whatsapp_status_prepared') await api(`/dashboard/flyer-lady/special-posts/${p.id}/publish`,{method:'POST',body:'{}'});}await load();}catch(e){alert(e.message)}}
+load().catch(e=>document.getElementById('status').textContent=e.message);
+</script>
+{% endblock %}

@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+{% block title %}PHANTA · Workshop Dashboard{% endblock %}
+{% block content %}
+{% set today_count = todays_bookings|length %}
+{% set ready_count = todays_bookings|selectattr('status', 'equalto', 'ready_for_collection')|list|length %}
+{% set identity = current_user.get('email') or current_user.get('username') %}
+{% set first_name = identity.split('@')[0]|replace('.', ' ')|title if identity else none %}
+
+<div class="workshop-dashboard">
+  <header class="workshop-hero">
+    <div>
+      {% if first_name %}<h1>Good to see you, {{ first_name }}.</h1>{% else %}<h1>Workshop dashboard</h1>{% endif %}
+      <p>Here is everything the current backend supplies for today.</p>
+    </div>
+    <div class="date-pill"><span aria-hidden="true">●</span> {{ today_count }} booking{% if today_count != 1 %}s{% endif %} today</div>
+  </header>
+
+  <div class="workshop-search" role="search">
+    <span class="search-icon" aria-hidden="true">⌕</span>
+    <input id="workshop-dashboard-search" type="search" autocomplete="off" placeholder="Search today's customer or vehicle..." aria-label="Search today's customer or vehicle">
+    <span class="search-hint">Customer · Vehicle</span>
+    <div id="workshop-search-results" class="work-result" aria-live="polite"></div>
+  </div>
+
+  <section class="workshop-metrics" aria-label="Today's workshop summary">
+    <article class="workshop-metric primary">
+      <span class="label">Bookings today</span>
+      <span class="value">{{ today_count }}</span>
+      <span class="sub">Bookings currently returned for today</span>
+    </article>
+    <article class="workshop-metric">
+      <span class="label">Waiting / in progress</span>
+      <span class="value">{{ vehicles_waiting|length }}</span>
+      <span class="sub">Vehicles currently at the workshop</span>
+    </article>
+    <article class="workshop-metric {% if overdue_vehicles %}danger{% endif %}">
+      <span class="label">Overdue</span>
+      <span class="value">{{ overdue_vehicles|length }}</span>
+      <span class="sub">Active bookings past their expected end</span>
+    </article>
+    <article class="workshop-metric {% if booking_requests %}warning{% endif %}">
+      <span class="label">Need confirmation</span>
+      <span class="value">{{ booking_requests|length }}</span>
+      <span class="sub">Customer booking decisions pending</span>
+    </article>
+    <article class="workshop-metric {% if unanswered_messages %}warning{% endif %}">
+      <span class="label">Unanswered</span>
+      <span class="value">{{ unanswered_messages|length }}</span>
+      <span class="sub">Latest customer messages awaiting reply</span>
+    </article>
+  </section>
+
+  <div class="workshop-layout">
+    <main>
+      <section class="workshop-card" id="today-bookings">
+        <header class="workshop-card-header">
+          <div>
+            <h2>Today's bookings</h2>
+            <p>No customer-facing time slots — bookings are for the date and morning arrival.</p>
+          </div>
+          {% if ready_count %}<span class="status-chip ready_for_collection">{{ ready_count }} ready</span>{% endif %}
+        </header>
+        <div class="workshop-card-body">
+          <div class="booking-list" id="today-booking-list">
+            {% for booking in todays_bookings %}
+            {% set customer_name = (booking.customer.first_name ~ ' ' ~ booking.customer.last_name)|trim %}
+            {% set vehicle_name = (booking.vehicle.make ~ ' ' ~ booking.vehicle.model)|trim %}
+            {% set customer_first = booking.customer.first_name or '' %}
+            {% set customer_last = booking.customer.last_name or '' %}
+            {% set has_customer_name = (customer_first|trim or customer_last|trim) %}
+            {% set initials = ((customer_first[:1] ~ customer_last[:1])|upper) if has_customer_name else '' %}
+            <article class="booking-row dashboard-booking" data-search="{{ customer_name|lower }} {{ vehicle_name|lower }} {{ booking.vehicle.year or '' }} {{ booking.service_type|lower }} {{ booking.status|lower }}" data-booking-id="{{ booking.id }}">
+              <div class="booking-main">
+                <div class="booking-customer">
+                  {% if initials %}<div class="booking-avatar" aria-hidden="true">{{ initials }}</div>{% endif %}
+                  <div>
+                    {% if customer_name %}<strong>{{ customer_name }}</strong>{% endif %}
+                    <span class="status-chip {{ booking.status|lower }}">{{ booking.status|replace('_', ' ')|title }}</span>
+                  </div>
+                </div>
+                <div class="booking-vehicle">{{ vehicle_name }}{% if booking.vehicle.year %} · {{ booking.vehicle.year }}{% endif %}</div>
+                <div class="booking-meta">{{ booking.service_type|replace('_', ' ')|title }} · Morning arrival</div>
+                <div class="booking-notes" data-vehicle-id="{{ booking.vehicle.id }}">
+                  <div class="booking-notes-title">Notes</div>
+                  <div class="booking-notes-list">
+                    {% for note in booking_notes.get(booking.vehicle.id, []) %}
+                    <div class="booking-note"><span>{{ note.content }}</span></div>
+                    {% else %}
+                    <div class="booking-notes-empty">No notes saved for this vehicle.</div>
+                    {% endfor %}
+                  </div>
+                  <div class="booking-note-compose">
+                    <textarea class="booking-note-input" rows="2" maxlength="5000" placeholder="Add a note for this vehicle..." aria-label="Add a note for this vehicle"></textarea>
+                    <button type="button" class="button secondary save-note-btn" data-subject-type="vehicle" data-subject-id="{{ booking.vehicle.id }}">Save note</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="booking-actions-stack">
+                {% if booking.status == 'ready_for_collection' %}
+                <button type="button" class="button primary lifecycle-ready-btn" data-booking-id="{{ booking.id }}">Notify customer: ready</button>
+                {% endif %}
+                <div class="booking-actions">
+                  <button type="button" class="button secondary lifecycle-work-btn" data-booking-id="{{ booking.id }}" data-completed="true">Record work completed</button>
+                  <button type="button" class="button secondary lifecycle-work-btn" data-booking-id="{{ booking.id }}" data-completed="false">Work still outstanding</button>
+                </div>
+                <a class="button ghost full-action" href="{{ url_for('vehicles.vehicle_profile', vehicle_id=booking.vehicle.id) }}">View vehicle</a>
+              </div>
+            </article>
+            {% else %}
+            <div class="empty-dashboard">
+              <div class="empty-icon" aria-hidden="true">🚗</div>
+              <strong>No vehicles booked for today.</strong>
+              <span>When bookings arrive, they will appear here automatically.</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      {% if booking_requests %}
+      <section class="workshop-card" id="booking-confirmations">
+        <header class="workshop-card-header">
+          <div>
+            <h2>Booking confirmations</h2>
+            <p>Only explicit customer Yes/No booking decisions are recorded here.</p>
+          </div>
+          <span class="status-chip pending">{{ booking_requests|length }} pending</span>
+        </header>
+        <div class="workshop-card-body">
+          <div class="booking-list">
+            {% for booking in booking_requests %}
+            <article class="booking-row pending-booking" data-booking-id="{{ booking.id }}">
+              <div class="booking-main">
+                <div class="booking-customer">
+                  {% set confirmation_first = booking.customer.first_name or '' %}
+                {% set confirmation_last = booking.customer.last_name or '' %}
+                {% set confirmation_name = (confirmation_first ~ ' ' ~ confirmation_last)|trim %}
+                {% set confirmation_initials = ((confirmation_first[:1] ~ confirmation_last[:1])|upper) if confirmation_name else '' %}
+                  {% if confirmation_initials %}<div class="booking-avatar" aria-hidden="true">{{ confirmation_initials }}</div>{% endif %}
+                  <div>
+                    {% if confirmation_name %}<strong>{{ confirmation_name }}</strong>{% endif %}
+                    <div class="booking-meta">{{ booking.vehicle.make }} {{ booking.vehicle.model }} · {{ booking.service_type|replace('_', ' ')|title }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="booking-actions">
+                <button type="button" class="button primary booking-decision" data-booking-id="{{ booking.id }}" data-customer-id="{{ booking.customer.id }}" data-decision="yes">Confirm</button>
+                <button type="button" class="button secondary booking-decision" data-booking-id="{{ booking.id }}" data-customer-id="{{ booking.customer.id }}" data-decision="no">Decline</button>
+              </div>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+      {% endif %}
+    </main>
+
+    <aside>
+      <section class="workshop-card">
+        <header class="workshop-card-header">
+          <div>
+            <h2>Attention</h2>
+            <p>Things worth checking now.</p>
+          </div>
+        </header>
+        <div class="attention-list">
+          {% for booking in overdue_vehicles[:5] %}
+          <div class="attention-item">
+            <span class="attention-icon" aria-hidden="true">⚠</span>
+            <div>
+              <strong>{{ booking.customer.first_name }} {{ booking.customer.last_name }}</strong>
+              <span>{{ booking.vehicle.make }} {{ booking.vehicle.model }} · overdue</span>
+            </div>
+          </div>
+          {% endfor %}
+          {% if unanswered_messages %}
+          <div class="attention-item">
+            <span class="attention-icon" aria-hidden="true">💬</span>
+            <div>
+              <strong>{{ unanswered_messages|length }} customer message{% if unanswered_messages|length != 1 %}s{% endif %}</strong>
+              <span>Latest inbound messages need attention.</span>
+            </div>
+          </div>
+          {% endif %}
+          {% if not overdue_vehicles and not unanswered_messages and not booking_requests %}
+          <div class="empty-dashboard" style="padding:20px 8px;">
+            <div class="empty-icon" aria-hidden="true">✓</div>
+            <strong>Nothing urgent.</strong>
+            <span>The workshop looks clear right now.</span>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="workshop-card">
+        <header class="workshop-card-header"><div><h2>Quick actions</h2><p>Jump to the parts you use most.</p></div></header>
+        <div class="quick-actions">
+          <a class="quick-action" href="{{ url_for('customer.customers') }}"><span class="icon">👥</span><strong>Customers & Vehicles</strong><span>Find a customer or car</span></a>
+          <a class="quick-action" href="{{ url_for('flyer_lady.ui') }}"><span class="icon">✦</span><strong>Flyer Lady</strong><span>Create or manage a special</span></a>
+          <a class="quick-action" href="{{ url_for('settings.settings_whatsapp') }}"><span class="icon">◉</span><strong>WhatsApp</strong><span>Check connection</span></a>
+          <a class="quick-action" href="{{ url_for('settings.settings_overview') }}"><span class="icon">⚙</span><strong>Settings</strong><span>Workshop configuration</span></a>
+        </div>
+      </section>
+
+      {% if connection_health and connection_health.status %}
+      <section class="workshop-card">
+        <header class="workshop-card-header"><div><h2>WhatsApp status</h2><p>Current connection information returned by PHANTA.</p></div></header>
+        <div class="health-card">
+          {% set whatsapp_status = connection_health.status|replace('_', ' ')|title %}
+          <div class="health-row"><span class="health-label">Status</span><span class="health-value {% if connection_health.status in ['connected', 'healthy'] %}ok{% elif connection_health.status in ['not_connected', 'reconnect_required'] %}bad{% else %}warn{% endif %}">{{ whatsapp_status }}</span></div>
+          {% if connection_health.phone_number %}<div class="health-row"><span class="health-label">Number</span><span class="health-value">{{ connection_health.phone_number }}</span></div>{% endif %}
+          {% if connection_health.status == 'reconnect_required' %}
+          <div style="margin-top:12px;"><a class="button primary" style="width:100%;" href="{{ url_for('settings.settings_whatsapp') }}">Reconnect WhatsApp</a></div>
+          {% elif connection_health.status == 'not_connected' %}
+          <div style="margin-top:12px;"><a class="button primary" style="width:100%;" href="{{ url_for('settings.settings_whatsapp') }}">Connect WhatsApp</a></div>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if billing_state and billing_state.subscription_status and billing_state.subscription_status != 'not_configured' %}
+      <section class="workshop-card">
+        <header class="workshop-card-header"><div><h2>Billing status</h2><p>Current subscription state returned by PHANTA.</p></div></header>
+        <div class="health-card">
+          <div class="health-row"><span class="health-label">Subscription</span><span class="health-value {% if billing_state.subscription_status in ['active', 'trialing'] %}ok{% elif billing_state.subscription_status in ['past_due', 'unpaid'] %}bad{% else %}warn{% endif %}">{{ billing_state.subscription_status|replace('_', ' ')|title }}</span></div>
+        </div>
+      </section>
+      {% endif %}
+    </aside>
+  </div>
+</div>
+
+<script>
+window.PHANTA_GHOST_DATA = {
+  admin: false,
+  todaysBookings: {{ todays_bookings|length }},
+  vehiclesWaiting: {{ vehicles_waiting|length }},
+  overdueVehicles: {{ overdue_vehicles|length }},
+  bookingRequests: {{ booking_requests|length }},
+  unansweredMessages: {{ unanswered_messages|length }},
+  connectionHealth: {{ connection_health|tojson }},
+  billingState: {{ billing_state|tojson }}
+};
+
+(() => {
+  const search = document.getElementById('workshop-dashboard-search');
+  const results = document.getElementById('workshop-search-results');
+  const rows = [...document.querySelectorAll('.dashboard-booking')];
+  let searchRequest = 0;
+  if (search) {
+    search.addEventListener('input', async () => {
+      const q = search.value.trim();
+      const requestId = ++searchRequest;
+      results.innerHTML = '';
+      rows.forEach(r => r.hidden = false);
+      if (!q) { results.classList.remove('is-visible'); return; }
+
+      const localMatches = rows.filter(r => (r.dataset.search || '').includes(q.toLowerCase()));
+      localMatches.forEach(r => r.hidden = false);
+      if (localMatches.length) {
+        localMatches.slice(0, 5).forEach(row => {
+          const name = row.querySelector('.booking-customer strong')?.textContent?.trim() || '';
+          const vehicle = row.querySelector('.booking-vehicle')?.textContent?.trim() || '';
+          const titleParts = [name, vehicle].filter(Boolean);
+          if (!titleParts.length) return;
+          const item = document.createElement('a');
+          item.href = '#booking-' + row.dataset.bookingId;
+          const type = document.createElement('span'); type.className='result-type'; type.textContent='Today';
+          const title = document.createElement('span'); title.className='result-title'; title.textContent=titleParts.join(' · ');
+          item.append(type,title);
+          item.addEventListener('click', () => row.scrollIntoView({behavior:'smooth', block:'center'}));
+          results.appendChild(item);
+        });
+      }
+
+      try {
+        const response = await fetch('/customers/search?q=' + encodeURIComponent(q), {credentials:'same-origin', headers:{'Accept':'application/json'}});
+        const data = await response.json().catch(() => ({}));
+        if (requestId !== searchRequest) return;
+        if (!response.ok) throw new Error(data.error || 'Search failed.');
+        const globalResults = Array.isArray(data.results) ? data.results : [];
+        const seen = new Set();
+        globalResults.slice(0, 8).forEach(item => {
+          const key = [item.customer_id, item.vehicle_id || ''].join(':');
+          if (seen.has(key)) return;
+          seen.add(key);
+          const titleParts = [item.customer_name, item.vehicle].filter(Boolean);
+          if (!titleParts.length) return;
+          const href = item.vehicle_id ? '/vehicles/' + item.vehicle_id : '/customers/' + item.customer_id;
+          const link = document.createElement('a'); link.href=href;
+          const type = document.createElement('span'); type.className='result-type'; type.textContent=item.vehicle_id ? 'Customer / Vehicle' : 'Customer';
+          const title = document.createElement('span'); title.className='result-title'; title.textContent=titleParts.join(' · ');
+          link.append(type,title);
+          results.appendChild(link);
+        });
+        if (!results.children.length) {
+          const empty=document.createElement('div'); empty.className='text-muted'; empty.style.padding='8px'; empty.textContent='No customer or vehicle records matched that search.'; results.appendChild(empty);
+        }
+      } catch (error) {
+        if (requestId !== searchRequest) return;
+        const empty=document.createElement('div'); empty.className='text-muted'; empty.style.padding='8px'; empty.textContent='Search could not reach the workshop records. Use Customers & Vehicles to search directly.'; results.appendChild(empty);
+      }
+      results.classList.add('is-visible');
+    });
+  }
+
+  async function postJson(url, payload) {
+    const response = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify(payload || {})});
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'PHANTA could not complete that action.');
+    return data;
+  }
+
+  document.querySelectorAll('.save-note-btn').forEach(button => {
+    button.addEventListener('click', async () => {
+      const wrap = button.closest('.booking-notes');
+      const input = wrap?.querySelector('.booking-note-input');
+      const content = input?.value.trim();
+      if (!content) return;
+      button.disabled = true;
+      try {
+        const data = await postJson('/dashboard/notes', {
+          subject_type: button.dataset.subjectType,
+          subject_id: Number(button.dataset.subjectId),
+          content
+        });
+        const list = wrap.querySelector('.booking-notes-list');
+        const empty = list.querySelector('.booking-notes-empty');
+        if (empty) empty.remove();
+        const item = document.createElement('div');
+        item.className = 'booking-note';
+        const text = document.createElement('span');
+        text.textContent = data.note.content;
+        item.appendChild(text);
+        list.prepend(item);
+        input.value = '';
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('.lifecycle-ready-btn').forEach(button => {
+    button.addEventListener('click', async () => {
+      if (!confirm('Send the customer the vehicle-ready WhatsApp message?')) return;
+      button.disabled = true;
+      try {
+        await postJson('/dashboard/lifecycle/bookings/' + button.dataset.bookingId + '/ready-for-collection');
+        button.textContent = 'Customer notified';
+        button.classList.remove('primary');
+        button.classList.add('success');
+      } catch (error) {
+        button.disabled = false;
+        alert(error.message);
+      }
+    });
+  });
+
+  document.querySelectorAll('.lifecycle-work-btn').forEach(button => {
+    button.addEventListener('click', async () => {
+      const completed = button.dataset.completed === 'true';
+      const question = completed ? 'Record that the work is completed in PHANTA's audit trail?' : 'Record that work is still outstanding and schedule the existing follow-up?';
+      if (!confirm(question)) return;
+      button.disabled = true;
+      try {
+        await postJson('/dashboard/lifecycle/bookings/' + button.dataset.bookingId + '/work-to-be-done', {completed});
+        const group = button.closest('.booking-actions');
+        group?.querySelectorAll('button').forEach(b => b.disabled = true);
+        button.textContent = completed ? 'Completion recorded' : 'Follow-up scheduled';
+      } catch (error) {
+        button.disabled = false;
+        alert(error.message);
+      }
+    });
+  });
+
+  document.querySelectorAll('.booking-decision').forEach(button => {
+    button.addEventListener('click', async () => {
+      const decision = button.dataset.decision;
+      const label = decision === 'yes' ? 'confirm' : 'decline';
+      if (!confirm('Record the customer booking decision as ' + label + '?')) return;
+      button.disabled = true;
+      try {
+        await postJson('/bookings/' + button.dataset.bookingId + '/confirm', {customer_id:Number(button.dataset.customerId), raw_message:decision});
+        const row = button.closest('.pending-booking');
+        row?.remove();
+      } catch (error) {
+        button.disabled = false;
+        alert(error.message);
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

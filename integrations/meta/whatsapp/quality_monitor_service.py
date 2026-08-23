@@ -1,0 +1,2 @@
+class QualityMonitorService:
+    pass

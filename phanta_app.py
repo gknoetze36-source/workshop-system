@@ -1,0 +1,207 @@
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, abort, g, send_file
+from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from database import execute_db, query_db, utc_now, iso_date, classify_service_level, get_session
+from helpers.common import boolish, db_bool
+from helpers.dates import utc_today, compute_service_due_date
+from constants.booking_constants import DONE_STATUSES
+from repositories.booking_repository import (
+    get_visible_bookings as _get_visible_bookings,
+    get_booking_by_reference as _get_booking_by_reference,
+    get_booking_by_reference_raw as _get_booking_by_reference_raw,
+    get_booking_by_id as _get_booking_by_id,
+    get_booking_by_id_for_user as _get_booking_by_id_for_user,
+    get_booking_count_per_location as _get_booking_count_per_location,
+    get_bookings_for_customers as _get_bookings_for_customers,
+    get_bookings_for_customer_history as _get_bookings_for_customer_history,
+    get_booking_service_history_by_vin_and_location as _get_booking_service_history_by_vin_and_location,
+    get_booking_count_by_location_and_date as _get_booking_count_by_location_and_date,
+    find_duplicate_booking as _find_duplicate_booking,
+    create_booking as _create_booking,
+    attach_inquiry_to_booking as _attach_inquiry_to_booking,
+)
+
+from routes.auth import auth_bp
+from services.auth_service import (
+    authenticate_user,
+    logout_user,
+    current_user,
+    active_location_required,
+    login_required,
+)
+from routes.settings import settings_bp
+from routes.onboarding import onboarding_bp
+from routes.automations import automations_bp
+from routes.vehicles import vehicles_bp
+from routes.dashboard import workshop_dashboard_bp, platform_dashboard_bp
+from routes.customer import customer_bp
+from routes.error import error_bp
+from routes.meta import meta_bp
+from routes.meta_messaging import meta_messaging_bp
+from routes.bookings import bookings_bp
+from routes.lifecycle import lifecycle_bp
+from routes.reviews import reviews_bp
+from routes.service_advisor import service_advisor_bp
+from routes.webhooks import webhooks_bp
+from routes.paystack import paystack_bp
+from routes.flyer_lady import flyer_lady_bp
+from routes.ghost import ghost_bp
+from services.phanta_assistant import build_dashboard_assistant
+from services.customer_service import upsert_customer
+from services.financial_service import can_create_booking
+from services.inquiry_service import find_active_inquiry
+from services.catalog_service import ensure_service
+from services.vehicle_service import upsert_vehicle
+from repositories.automation_repository import (
+    get_automation_rules_by_location_and_event as _get_automation_rules_by_location_and_event,
+    get_location_by_id as _get_location_by_id,
+)
+import json
+import os
+import logging
+
+from observability import configure_logging, init_sentry
+
+configure_logging()
+init_sentry()
+
+# Initialize Flask app
+app = Flask(__name__)
+
+_secret_key = os.getenv('FLASK_SECRET_KEY')
+if not _secret_key and os.getenv('FLASK_ENV', '').lower() == 'production':
+    raise RuntimeError('FLASK_SECRET_KEY is required in production')
+if not _secret_key:
+    _secret_key = os.getenv('DEV_FLASK_SECRET_KEY')
+if not _secret_key:
+    raise RuntimeError('FLASK_SECRET_KEY is required; set DEV_FLASK_SECRET_KEY for local development')
+app.secret_key = _secret_key
+
+# Ensure schema/bootstrap exists before the first request (local SQLite or Railway PostgreSQL).
+from database import initialize_database
+initialize_database(run_migrations=False)
+csrf = CSRFProtect(app)
+app.config['WTF_CSRF_CHECK_DEFAULT'] = True
+limiter = Limiter(key_func=get_remote_address, default_limits=[os.getenv('DEFAULT_RATE_LIMIT', '300 per hour')], storage_uri=os.getenv('RATELIMIT_STORAGE_URI', 'memory://'))
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_ENV', '').lower() == 'production' or bool(os.getenv('RAILWAY_ENVIRONMENT'))
+app.register_blueprint(auth_bp)
+app.register_blueprint(workshop_dashboard_bp)
+app.register_blueprint(platform_dashboard_bp)
+app.register_blueprint(customer_bp)
+app.register_blueprint(vehicles_bp)
+app.register_blueprint(error_bp)
+app.register_blueprint(automations_bp)
+app.register_blueprint(settings_bp)
+app.register_blueprint(onboarding_bp)
+app.register_blueprint(meta_bp)
+app.register_blueprint(meta_messaging_bp)
+app.register_blueprint(bookings_bp)
+app.register_blueprint(lifecycle_bp)
+app.register_blueprint(reviews_bp)
+app.register_blueprint(service_advisor_bp)
+app.register_blueprint(webhooks_bp)
+app.register_blueprint(paystack_bp)
+# Provider webhooks authenticate with their own cryptographic signatures rather
+# than browser CSRF tokens. Exempt only the dedicated provider blueprints; all
+# other state-changing browser requests remain CSRF protected.
+csrf.exempt(webhooks_bp)
+csrf.exempt(paystack_bp)
+app.register_blueprint(flyer_lady_bp)
+app.register_blueprint(ghost_bp)
+
+
+@app.template_filter("date")
+def _format_template_date(value, fmt="%b %d, %Y"):
+    if value is None:
+        return ""
+    if hasattr(value, "strftime"):
+        return value.strftime(fmt)
+    return str(value)
+
+
+@app.after_request
+def _security_headers(response):
+    """Apply baseline browser security headers to every response."""
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "object-src 'none'; "
+        "frame-ancestors 'self'; "
+        "script-src 'self' 'unsafe-inline' https://connect.facebook.net; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob: https:; "
+        "font-src 'self' data: https:; "
+        "connect-src 'self' https:; "
+        "frame-src 'self' https://www.facebook.com https://connect.facebook.net;",
+    )
+    if os.getenv("FLASK_ENV", "").lower() == "production" or os.getenv("RAILWAY_ENVIRONMENT"):
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
+
+@app.before_request
+def _protect_form_requests():
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return
+    # External webhooks authenticate with provider signatures, not browser
+    # CSRF tokens. They must remain reachable from Meta/Paystack while every
+    # browser-originated state-changing request is CSRF protected.
+    if request.endpoint in {"webhooks.meta_webhook_receive", "paystack.webhook"}:
+        return
+    csrf.protect()
+
+
+@app.before_request
+def _populate_location_context():
+    """Bridge the existing session auth to the Phase 19 location-scoped routes."""
+    user = session.get("user") or {}
+    location_id = user.get("location_id")
+    g.location_id = location_id if isinstance(location_id, int) and location_id > 0 else None
+    # Transitional ORM scope: location_id is now the authenticated location ID,
+    # not a separate business hierarchy.
+    g.location_id = g.location_id
+    g.is_phanta_admin = user.get("role") in {"super_admin", "phanta_admin", "platform_admin"}
+    g.platform_admin = g.is_phanta_admin
+
+
+@app.get("/health")
+def health():
+    """Public readiness endpoint for Railway; never exposes secrets or location data."""
+    try:
+        from sqlalchemy import text
+        db = get_session()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+        return jsonify({"status": "ok"}), 200
+    except Exception:
+        app.logger.exception("health_check_failed")
+        return jsonify({"status": "unhealthy"}), 503
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return send_file(os.path.join(app.static_folder, "images", "phanta-logo.svg"), mimetype="image/svg+xml")
+
+
+@app.get("/")
+def index():
+    user = session.get("user") or {}
+    if not user:
+        return redirect(url_for("auth.login"))
+    if user.get("role") in {"super_admin", "phanta_admin", "platform_admin"}:
+        return redirect(url_for("platform_dashboard.platform_dashboard"))
+    if user.get("role") == "owner" and not user.get("location_id"):
+        return redirect(url_for("onboarding.onboarding_location"))
+    return redirect(url_for("workshop_dashboard.workshop_dashboard"))

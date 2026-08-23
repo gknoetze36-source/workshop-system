@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Customers & Vehicles{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading">
+        <h1>Customers & Vehicles</h1>
+        <p>Unified view of customers and their vehicles</p>
+    </div>
+    <div class="actions">
+        <form method="get" action="{{ url_for('customer.customers') }}" class="search-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="search" placeholder="Search by name, phone, registration..." value="{{ request.args.get('search', '') }}" class="search-input">
+            <button type="submit" class="button alt">Search</button>
+        </form>
+    </div>
+</div>
+
+{% if customers %}
+<section class="panel">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>WhatsApp</th>
+                    <th>Vehicle</th>
+                    <th>Registration</th>
+                    <th>Last Visit</th>
+                    <th>Next Booking</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for customer in customers %}
+                <tr>
+                    <td>
+                        {% if customer.name %}
+                            <a href="{{ url_for('customer.customer_profile', customer_id=customer.id) }}">{{ customer.name }}</a>
+                        {% else %}Unknown{% endif %}
+                    </td>
+                    <td>{{ customer.whatsapp or '-' }}</td>
+                    <td>
+                        {% if customer.vehicle %}
+                            <a href="{{ url_for('vehicles.vehicle_profile', vehicle_id=customer.vehicle.id) }}">{{ customer.vehicle.make }} {{ customer.vehicle.model }}</a>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td>{{ customer.registration or '-' }}</td>
+                    <td>{{ customer.last_visit | date('%b %d, %Y') if customer.last_visit else '-' }}</td>
+                    <td>
+                        {% if customer.next_booking %}
+                            <a href="{{ url_for('workshop_dashboard.workshop_dashboard') }}">{{ customer.next_booking.date | date('%b %d, %Y') }}</a>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td><span class="status">{{ customer.status }}</span></td>
+                    <td>
+                        <div class="actions">
+                            <a href="{{ url_for('customer.customer_profile', customer_id=customer.id) }}" class="button alt">Customer</a>
+                            {% if customer.vehicle %}
+                                <a href="{{ url_for('vehicles.vehicle_profile', vehicle_id=customer.vehicle.id) }}" class="button alt">Vehicle</a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% else %}
+<p class="empty-state">No customers yet.</p>
+{% endif %}
+{% endblock %}

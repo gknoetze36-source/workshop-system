@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block title %}
+Operating Hours
+{% endblock %}
+
+{% block content %}
+
+<!-- ========================================================= -->
+<!-- Header -->
+<!-- ========================================================= -->
+
+<div class="topbar">
+
+    <div class="heading">
+
+        <h1>
+
+            Operating Hours
+
+        </h1>
+
+        <p>
+
+            Configure your workshop opening hours.
+
+        </p>
+
+    </div>
+
+    <div class="actions">
+
+        <a
+            href="{{ url_for('settings.settings_overview') }}"
+            class="btn btn-outline"
+        >
+            ← Settings
+        </a>
+
+    </div>
+
+</div>
+
+<form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+<!-- ========================================================= -->
+<!-- Weekly Schedule -->
+<!-- ========================================================= -->
+
+<section class="panel">
+
+<h2>
+
+Weekly Schedule
+
+</h2>
+
+<div class="table-wrap">
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>Day</th>
+
+<th>Open</th>
+
+<th>Opening Time</th>
+
+<th>Closing Time</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+{% set days = [
+
+("Monday","monday"),
+
+("Tuesday","tuesday"),
+
+("Wednesday","wednesday"),
+
+("Thursday","thursday"),
+
+("Friday","friday"),
+
+("Saturday","saturday"),
+
+("Sunday","sunday")
+
+] %}
+
+{% for label,key in days %}
+
+<tr>
+
+<td>
+
+{{ label }}
+
+</td>
+
+<td>
+
+<input
+type="checkbox"
+name="{{ key }}_enabled"
+{% if settings[key ~ "_enabled"] %}checked{% endif %}>
+
+</td>
+
+<td>
+
+<input
+type="time"
+name="{{ key }}_open"
+value="{{ settings[key ~ '_open'] }}">
+
+</td>
+
+<td>
+
+<input
+type="time"
+name="{{ key }}_close"
+value="{{ settings[key ~ '_close'] }}">
+
+</td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+</div>
+
+</section>
+
+<!-- ========================================================= -->
+<!-- Holidays -->
+<!-- ========================================================= -->
+
+<section class="panel">
+
+<h2>
+
+Holiday Settings
+
+</h2>
+
+<div class="grid two">
+
+<label>
+
+Public Holidays
+
+<select name="public_holidays">
+
+<option
+value="open"
+{% if settings.public_holidays=="open" %}selected{% endif %}>
+
+Remain Open
+
+</option>
+
+<option
+value="closed"
+{% if settings.public_holidays=="closed" %}selected{% endif %}>
+
+Close Automatically
+
+</option>
+
+</select>
+
+</label>
+
+<label>
+
+Holiday Message
+
+<input
+type="text"
+name="holiday_message"
+value="{{ settings.holiday_message }}">
+
+</label>
+
+</div>
+
+</section>
+
+<!-- ========================================================= -->
+<!-- Booking Cut-Off -->
+<!-- ========================================================= -->
+
+<section class="panel">
+
+<h2>
+
+Booking Availability
+
+</h2>
+
+<div class="grid two">
+
+<label>
+
+Same Day Booking Cut-Off
+
+<input
+type="time"
+name="same_day_cutoff"
+value="{{ settings.same_day_cutoff }}">
+
+</label>
+
+<label>
+
+Maximum Advance Booking (Days)
+
+<input
+type="number"
+name="advance_booking_days"
+value="{{ settings.advance_booking_days }}"
+min="1"
+max="365">
+
+</label>
+
+</div>
+
+</section>
+
+<!-- ========================================================= -->
+<!-- Save -->
+<!-- ========================================================= -->
+
+<section class="panel">
+
+<div class="actions">
+
+<button
+type="submit"
+class="btn btn-primary">
+
+Save Operating Hours
+
+</button>
+
+<a
+href="{{ url_for('settings.settings_overview') }}"
+class="btn btn-outline">
+
+Cancel
+
+</a>
+
+</div>
+
+</section>
+
+</form>
+
+{% endblock %}

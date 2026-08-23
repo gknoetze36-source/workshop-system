@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Onboarding — Review{% endblock %}
+{% block content %}
+<section class="topbar"><div class="heading"><h1>Review setup</h1><p>Confirm the workshop configuration before going live.</p></div></section>
+<div class="dashboard-grid">
+  <div class="v-card"><strong>Business</strong><p>{{ location.name if location else 'Not configured' }}</p></div>
+  <div class="v-card"><strong>Services</strong><p>{{ services|length }}</p></div>
+  <div class="v-card"><strong>WhatsApp</strong><p>{% if whatsapp_config %}Connected{% else %}Not connected{% endif %}</p></div>
+  <div class="v-card"><strong>Automations</strong><p>{{ automation_rules.total_count or 0 }}</p></div>
+  <div class="v-card"><strong>Team</strong><p>{{ team_members.total_count or 0 }}</p></div>
+</div>
+<div class="v-card" style="margin-top:24px;">
+  {% if is_complete %}
+    <p><strong>Setup is complete.</strong> You can finish onboarding.</p>
+    <form method="POST" action="{{ url_for('onboarding.onboarding_complete') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button primary" type="submit">Complete onboarding</button></form>
+  {% else %}
+    <p>Complete all required steps before finishing onboarding.</p>
+    <a class="button" href="{{ url_for('onboarding.onboarding') }}">Return to onboarding</a>
+  {% endif %}
+</div>
+{% endblock %}

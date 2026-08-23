@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Create your PHANTA account{% endblock %}
+{% block content %}
+<div class="panel" style="max-width:560px;margin:48px auto;">
+  <div class="heading"><h1>Create your PHANTA account</h1><p>Create your owner account first. Your location is configured next.</p></div>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}<div class="flash-message {{ category }}">{{ message }}</div>{% endfor %}
+  {% endwith %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-field"><label>Full name</label><input name="full_name" required></div>
+    <div class="form-field"><label>Email</label><input type="email" name="email" required autocomplete="email"></div>
+    <div class="form-field"><label>Password</label><input type="password" name="password" required minlength="8" autocomplete="new-password"></div>
+    <div class="form-field"><label>Confirm password</label><input type="password" name="confirm_password" required minlength="8" autocomplete="new-password"></div>
+    <button class="button primary" type="submit">Create account</button>
+  </form>
+  <p style="margin-top:16px;">Already have an account? <a href="{{ url_for('auth.login') }}">Sign in</a></p>
+</div>
+{% endblock %}

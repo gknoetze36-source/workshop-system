@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% block title %}Automation History - PHANTA Workshop Platform{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading"><h1>Automation History</h1><p>View past automation executions and results.</p></div>
+    <div class="actions"><a class="button" href="{{ url_for('index') }}">&larr; Back to Dashboard</a></div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <section class="flash-messages">
+      {% for category, message in messages %}
+        <div class="flash-message {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </section>
+  {% endif %}
+{% endwith %}
+
+<section class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Automation Statistics</h2><p>Overview of automation performance in the last 30 days.</p></div>
+    </div>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Total Executions</h3>
+            <p class="stat-number">{{ stats.total }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>Successful</h3>
+            <p class="stat-number success">{{ stats.successful }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>Failed</h3>
+            <p class="stat-number danger">{{ stats.failed }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>Pending</h3>
+            <p class="stat-number warning">{{ stats.pending }}</p>
+        </div>
+        <div class="stat-card">
+            <h3>Running</h3>
+            <p class="stat-number info">{{ stats.running }}</p>
+        </div>
+    </div>
+</section>
+
+{% if automation_history %}
+<section class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>Recent Automation Executions</h2><p>Last 50 automation job executions (successful and failed).</p></div>
+    </div>
+
+    {% if automation_history %}
+    <table class="history-table">
+        <thead>
+            <tr>
+                <th>Date/Time</th>
+                <th>Industry</th>
+                <th>Automation Type</th>
+                <th>Template</th>
+                <th>Status</th>
+                <th>Attempts</th>
+                <th>Details</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in automation_history %}
+            <tr class="status-{{ job.status }}">
+                <td>
+                    {{ job.scheduled_for.strftime('%Y-%m-%d %H:%M') if job.scheduled_for else '' }}
+                    {% if job.completed_at %}
+                        <br><small>Completed: {{ job.completed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                    {% endif %}
+                </td>
+                <td>{{ job.industry|title if job.industry else 'N/A' }}</td>
+                <td>
+                    {% if job.event_type %}
+                        {{ job.event_type.replace('.', ' ')|title }}
+                    {% else %}
+                        Unknown
+                    {% endif %}
+                </td>
+                <td>{{ job.template_name }}</td>
+                <td>
+                    <span class="status-badge status-{{ job.status }}">
+                        {{ job.status|title }}
+                    </span>
+                </td>
+                <td>{{ job.attempts }}</td>
+                <td>
+                    {% if job.last_error %}
+                        <div class="error-tooltip" title="{{ job.last_error }}">
+                            ⚠️ Error
+                        </div>
+                    {% else %}
+                        ✓ Success
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="no-data">No automation executions found in the last 30 days.</p>
+    {% endif %}
+</section>
+{% else %}
+<section class="panel">
+    <div class="topbar">
+        <div class="heading"><h2>No Automation History Available</h2><p>No automation executions have been recorded yet.</p></div>
+    </div>
+    <p>Automation history will appear here as automated messages are sent based on your configured rules.</p>
+</section>
+{% endif %}
+
+<style>
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 16px;
+        margin: 20px 0;
+    }
+
+    .stat-card {
+        background: var(--panel);
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: var(--shadow);
+    }
+
+    .stat-card h3 {
+        margin: 0 0 8px 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .stat-number {
+        font-size: 2rem;
+        font-weight: bold;
+        margin: 0;
+        color: var(--text);
+    }
+
+    .stat-number.success { color: var(--success); }
+    .stat-number.danger { color: var(--danger); }
+    .stat-number.warning { color: var(--accent); }
+    .stat-number.info { color: var(--brand); }
+
+    .history-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+    }
+
+    .history-table th,
+    .history-table td {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .history-table th {
+        background-color: var(--panel);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.85rem;
+        letter-spacing: 0.5px;
+        color: var(--muted);
+    }
+
+    .history-table tbody tr {
+        transition: background-color 0.2s;
+    }
+
+    .history-table tbody tr:hover {
+        background-color: rgba(23, 49, 59, 0.03);
+    }
+
+    .history-table tbody tr.status-success {
+        border-left: 3px solid var(--success);
+    }
+
+    .history-table tbody tr.status-failed {
+        border-left: 3px solid var(--danger);
+    }
+
+    .history-table tbody tr.status-pending {
+        border-left: 3px solid var(--accent);
+    }
+
+    .history-table tbody tr.status-running {
+        border-left: 3px solid var(--brand);
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .status-badge.status-success {
+        background-color: rgba(47, 122, 77, 0.1);
+        color: var(--success);
+    }
+
+    .status-badge.status-failed {
+        background-color: rgba(163, 61, 61, 0.1);
+        color: var(--danger);
+    }
+
+    .status-badge.status-pending {
+        background-color: rgba(212, 138, 49, 0.1);
+        color: var(--accent);
+    }
+
+    .status-badge.status-running {
+        background-color: rgba(11, 122, 117, 0.1);
+        color: var(--brand);
+    }
+
+    .error-tooltip {
+        display: inline-block;
+        width: 18px;
+        height: 18px;
+        background-color: var(--danger);
+        color: white;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 18px;
+        font-size: 12px;
+        margin-right: 4px;
+    }
+
+    .error-tooltip:hover::after {
+        content: attr(title);
+        position: absolute;
+        background-color: rgba(0,0,0,0.8);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        white-space: nowrap;
+        z-index: 1000;
+        pointer-events: none;
+        margin-top: -30px;
+        margin-left: -60px;
+    }
+
+    .error-tooltip {
+        position: relative;
+        display: inline-block;
+    }
+
+    .no-data {
+        text-align: center;
+        color: var(--muted);
+        padding: 40px 20px;
+    }
+</style>
+{% endblock %}

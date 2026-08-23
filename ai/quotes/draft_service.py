@@ -1,0 +1,2 @@
+class QuoteDraftService:
+    pass

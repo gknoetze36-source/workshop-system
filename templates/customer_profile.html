@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Customer Profile - {{ customer.name }}{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading">
+        <h1>Customer Profile</h1>
+        <p>{{ customer.name or 'Unnamed Customer' }}</p>
+    </div>
+    <div class="actions">
+        <a href="{{ url_for('customer.customer_edit', customer_id=customer.id) }}" class="button">Edit Customer</a>
+        <a href="{{ url_for('customer.customers') }}" class="button alt">Back to Customers</a>
+    </div>
+</div>
+
+{% if customer %}
+<section class="panel">
+    <div class="grid two">
+        <div>
+            <h2>Details</h2>
+            <p><strong>Full Name:</strong> {{ customer.name or '-' }}</p>
+            <p><strong>WhatsApp:</strong> {{ customer.whatsapp or '-' }}</p>
+            <p><strong>Email:</strong> {{ customer.email or '-' }}</p>
+            <p><strong>Workshop Notes:</strong> {{ customer.notes or '-' }}</p>
+            <p><strong>Date Added:</strong> {{ customer.created_at | date('%b %d, %Y') if customer.created_at else '-' }}</p>
+        </div>
+        <div>
+            <h2>Statistics</h2>
+            <p><strong>Number of Vehicles:</strong> {{ customer.vehicle_count }}</p>
+            <p><strong>Number of Bookings:</strong> {{ customer.booking_count }}</p>
+            <p><strong>Last Visit:</strong> {{ customer.last_visit | date('%b %d, %Y') if customer.last_visit else '-' }}</p>
+            {% if customer.next_booking %}
+            <p><strong>Upcoming Booking:</strong> <a href="{{ url_for('workshop_dashboard.workshop_dashboard') }}">{{ customer.next_booking.date | date('%b %d, %Y') }}</a> - {{ customer.next_booking.service }}</p>
+            {% else %}
+            <p><strong>Upcoming Booking:</strong> -</p>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+{% if customer.vehicles %}
+<section class="panel">
+    <h2>Linked Vehicles</h2>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Vehicle</th>
+                    <th>Registration</th>
+                    <th>Year</th>
+                    <th>Current Mileage</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for vehicle in customer.vehicles %}
+                <tr>
+                    <td>{{ vehicle.make }} {{ vehicle.model }}</td>
+                    <td>{{ vehicle.registration or '-' }}</td>
+                    <td>{{ vehicle.year or '-' }}</td>
+                    <td>{{ vehicle.current_mileage or '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('vehicles.vehicle_profile', vehicle_id=vehicle.id) }}" class="button alt">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+{% if customer.bookings %}
+<section class="panel">
+    <h2>Booking History</h2>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Service</th>
+                    <th>Status</th>
+                    <th>Mileage</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for booking in customer.bookings %}
+                <tr>
+                    <td>{{ booking.scheduled_date | date('%b %d, %Y') }}</td>
+                    <td>{{ booking.service or '-' }}</td>
+                    <td><span class="status">{{ booking.status }}</span></td>
+                    <td>{{ booking.current_mileage or '-' }}</td>
+                    <td>
+                        <a href="{{ url_for('workshop_dashboard.workshop_dashboard') }}" class="button alt">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+{% else %}
+<p class="empty-state">Customer not found.</p>
+{% endif %}
+{% endblock %}

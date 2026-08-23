@@ -1,0 +1,59 @@
+<!-- PHANTA Phase 16: reception dashboard lifecycle actions.
+     Include this partial for each booking card/row. -->
+<div class="phanta-lifecycle-actions" data-booking-id="{{ booking.id }}">
+  <button type="button" class="ready-for-collection-btn"
+          data-booking-id="{{ booking.id }}"
+          {% if booking.status != 'ready_for_collection' %}disabled{% endif %}>
+    Vehicle ready for collection
+  </button>
+
+  <div class="work-to-be-done-actions">
+    <span>Work to be done</span>
+    <button type="button" data-work-complete="true">Finished</button>
+    <button type="button" data-work-complete="false">Still work to be done</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const root = document.currentScript.previousElementSibling;
+  if (!root) return;
+  const bookingId = root.dataset.bookingId;
+  const post = async (url, body = undefined) => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin'
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Action failed');
+    return data;
+  };
+
+  root.querySelector('.ready-for-collection-btn')?.addEventListener('click', async () => {
+    const button = root.querySelector('.ready-for-collection-btn');
+    button.disabled = true;
+    try {
+      await post(`/dashboard/lifecycle/bookings/${bookingId}/ready-for-collection`);
+      button.textContent = 'Customer notified';
+    } catch (error) {
+      button.disabled = false;
+      alert(error.message);
+    }
+  });
+
+  root.querySelectorAll('[data-work-complete]').forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await post(`/dashboard/lifecycle/bookings/${bookingId}/work-to-be-done`, {
+          completed: button.dataset.workComplete === 'true'
+        });
+        root.querySelectorAll('[data-work-complete]').forEach(b => b.disabled = true);
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  });
+})();
+</script>
