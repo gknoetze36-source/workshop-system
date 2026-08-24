@@ -17,8 +17,21 @@ from datetime import time
 
 
 def build_service_advisor(session):
+    """Build the AI conversation service used to reply on WhatsApp.
+
+    Previously never passed usage_repo to AIDispatcher, so
+    AIDispatcher._log_usage()/_log_error() were both silent no-ops for
+    every real Service Advisor conversation -- ai_usage_log exists (with
+    its own RLS policy, migration 0021) specifically to record this, and
+    integrations/ai/repositories/ai_usage_repo.py's AIUsageRepository was
+    already built and ready; it just never got the session it needed.
+    Every OpenAI call's tokens, cost, latency, and any retry/failure were
+    silently lost instead of tracked.
+    """
+    from integrations.ai.repositories.ai_usage_repo import AIUsageRepository
+
     provider = OpenAIProvider()
-    dispatcher = AIDispatcher({"openai": provider})
+    dispatcher = AIDispatcher({"openai": provider}, usage_repo=AIUsageRepository(session))
     return AIConversationService(dispatcher)
 
 

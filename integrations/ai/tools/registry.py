@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, date as date_type, time as time_type
+from datetime import datetime, timedelta, timezone, date as date_type
 from decimal import Decimal
 from typing import Any, Callable
 import re
@@ -13,7 +13,7 @@ from models.core import (
     FollowUp, Task, AuditLog, ToolExecution,
 )
 from integrations.ai.providers.base_provider import ToolDefinition
-from ai.booking.availability import BookingAvailabilityService, OperatingWindow, WorkshopSchedule
+from ai.booking.availability import BookingAvailabilityService
 from ai.booking.service import BookingService
 from ai.booking.confirmation import BookingConfirmationService
 
@@ -188,9 +188,13 @@ class ServiceAdvisorToolRegistry:
     def _booking_service(self) -> BookingService:
         if self.booking_service is not None:
             return self.booking_service
-        # Local/test fallback. Production should inject workshop-specific hours.
-        hours = {d: [OperatingWindow(time_type(8, 0), time_type(17, 0))] for d in range(5)}
-        schedule = WorkshopSchedule(hours)
+        # Fallback for callers that don't inject one (tests, or any future
+        # caller that forgets to). Previously hardcoded Mon-Fri 8-5
+        # regardless of the real location -- now uses the same shared
+        # services/operating_hours_service.py every other booking path in
+        # this codebase reads real hours from.
+        from services.operating_hours_service import build_workshop_schedule
+        schedule = build_workshop_schedule(self.ctx.location_id)
         return BookingService(self.ctx.session, BookingAvailabilityService(self.ctx.session, schedule))
 
     def get_available_booking_dates(self, date):
@@ -201,7 +205,17 @@ class ServiceAdvisorToolRegistry:
         service = self._booking_service()
         # Phase 15 deliberately uses the workshop opening as the customer-facing
         # arrival point. Exact times remain internal scheduling data.
-        opening = datetime.combine(day, time_type(8, 0), tzinfo=timezone.utc)
+        #
+        # Previously hardcoded an 8am opening regardless of the injected
+        # schedule's real hours for this day, and never checked whether the
+        # day was open at all -- a workshop closed on Sundays, or opening
+        # at a different time, would get an availability check run against
+        # a window that doesn't match reality (checking 8-9am on a day
+        # that's actually closed, or that opens at 9am).
+        windows = service.availability.schedule.windows_for(day)
+        if not windows:
+            return {"date": str(day), "arrival": "morning", "workshop_opening": None, "available": False}
+        opening = datetime.combine(day, windows[0].start, tzinfo=timezone.utc)
         duration = timedelta(minutes=60)
         try:
             service.availability.assert_available(self.ctx.location_id, opening, opening + duration)
@@ -217,9 +231,19 @@ class ServiceAdvisorToolRegistry:
             day = date_type.fromisoformat(str(booking_date))
         except ValueError as exc:
             raise ToolExecutionError("booking_date must be YYYY-MM-DD") from exc
-        opening = datetime.combine(day, time_type(8, 0), tzinfo=timezone.utc)
-        end = opening + timedelta(minutes=60)
         service = self._booking_service()
+        # Same fix as get_available_booking_dates(): use the real configured
+        # opening time and actually reject a day the workshop is closed,
+        # rather than hardcoding 8am for every booking regardless of day or
+        # real hours -- this is the tool the AI calls directly when a
+        # WhatsApp customer says "book me for Monday", so this was silently
+        # creating every AI-booked appointment at 8-9am even on days the
+        # workshop doesn't operate.
+        windows = service.availability.schedule.windows_for(day)
+        if not windows:
+            raise ToolExecutionError(f"the workshop is closed on {day.strftime('%A')}")
+        opening = datetime.combine(day, windows[0].start, tzinfo=timezone.utc)
+        end = opening + timedelta(minutes=60)
         try:
             booking = service.create_booking(
                 location_id=self.ctx.location_id,
