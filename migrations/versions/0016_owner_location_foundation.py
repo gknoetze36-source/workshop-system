@@ -33,7 +33,6 @@ def upgrade():
             sa.Column("name", sa.String(200)),
             sa.Column("email", sa.String(320)),
             sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
-            sa.Column("legacy_franchise_id", sa.Integer(), unique=True),
             sa.Column("created_at", sa.Text()),
             sa.Column("updated_at", sa.Text()),
         )
@@ -48,8 +47,6 @@ def upgrade():
             sa.Column("contact_phone", sa.String(80)),
             sa.Column("industry", sa.String(80), server_default="workshop", nullable=False),
             sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.true()),
-            sa.Column("legacy_franchise_id", sa.Integer(), unique=True),
-            sa.Column("legacy_branch_id", sa.Integer(), unique=True),
             sa.Column("created_at", sa.Text()),
             sa.Column("updated_at", sa.Text()),
         )
@@ -64,6 +61,7 @@ def upgrade():
 
 
 def downgrade():
-    # The historical franchise/branch removal is intentionally not reversed by
-    # this migration. Dropping owner/location would destroy canonical data.
+    # Owner/Location is the canonical, irreversible tenant model (see
+    # ABSOLUTE RULES in the architecture doc: no franchise/branch hierarchy
+    # is reintroduced). Dropping owner/location would destroy canonical data.
     raise RuntimeError("Owner/location foundation is irreversible; restore from backup instead.")
