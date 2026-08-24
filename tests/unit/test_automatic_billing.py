@@ -209,11 +209,120 @@ def test_missing_authorization_is_reported_not_crashed(billing_location):
     assert summary["results"][0]["status"] == "no_authorization"
 
 
+def test_double_charge_is_prevented_on_concurrent_claim(billing_location):
+    """Two overlapping runs (Railway retrying a crashed cron execution is
+    the realistic trigger) must not both charge the same invoice."""
+    from services.billing_service import close_billing_period
+    from services.automatic_billing_service import _claim_billing_record
+    from database import raw_location_scope, query_db
+
+    location_id = billing_location["location_id"]
+    with raw_location_scope(location_id):
+        close_billing_period(usage_month=billing_location["period"], location_id=location_id)
+        record = query_db("SELECT id FROM billing_records WHERE location_id=%s", (location_id,), one=True)
+        first_claim = _claim_billing_record(record["id"])
+        second_claim = _claim_billing_record(record["id"])
+
+    assert first_claim is True
+    assert second_claim is False, "a record already claimed must not be claimable again"
+
+
+def test_no_authorization_falls_back_to_payment_link(billing_location, monkeypatch):
+    """Before this fix, a location with no saved card (its first bill ever)
+    just got a silent error logged every cron run, forever, with no way for
+    the customer to actually pay."""
+    from services.automatic_billing_service import run_automatic_billing
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://app.example.test")
+    location_id = billing_location["location_id"]
+    from database import raw_location_scope, query_db
+
+    with patch("services.paystack_service.initialize_transaction") as mock_init:
+        mock_init.return_value = {"data": {"authorization_url": "https://checkout.paystack.com/xyz"}}
+        summary = run_automatic_billing(billing_period=billing_location["period"], location_id=location_id)
+
+    assert summary["results"][0]["status"] == "no_authorization"
+    assert summary["results"][0]["payment_link"] == "https://checkout.paystack.com/xyz"
+    assert mock_init.called, "must actually attempt to create a payment link, not just log an error"
+
+    with raw_location_scope(location_id):
+        record = query_db(
+            "SELECT status, payment_link FROM billing_records WHERE location_id=%s",
+            (location_id,), one=True,
+        )
+    assert record["status"] == "unpaid", "must return to unpaid, not stay stuck on processing"
+    assert record["payment_link"] == "https://checkout.paystack.com/xyz"
+
+
+def test_exhausted_retries_reach_a_distinct_terminal_state(billing_location):
+    """Before this fix, a record that exhausted all retries looked
+    identical (status='unpaid') to one that had never been attempted --
+    indistinguishable without manually cross-referencing the attempts
+    column."""
+    from services.automatic_billing_service import run_automatic_billing, MAX_ATTEMPTS
+    from database import raw_location_scope, query_db, execute_db
+
+    location_id = billing_location["location_id"]
+    _save_authorization(location_id, billing_location["email"])
+
+    for _ in range(MAX_ATTEMPTS):
+        with raw_location_scope(location_id):
+            execute_db(
+                "UPDATE billing_records SET last_attempt_at=NULL WHERE location_id=%s",
+                (location_id,),
+            )
+        with patch("integrations.paystack.services.paystack_client.PaystackClient.charge_authorization") as mock:
+            mock.return_value = {"data": {"status": "failed", "gateway_response": "Insufficient funds"}}
+            run_automatic_billing(billing_period=billing_location["period"], location_id=location_id)
+
+    with raw_location_scope(location_id):
+        record = query_db(
+            "SELECT status, attempts FROM billing_records WHERE location_id=%s",
+            (location_id,), one=True,
+        )
+    assert record["status"] == "payment_failed_final"
+    assert record["attempts"] == MAX_ATTEMPTS
+
+
+def test_billing_amounts_are_never_float_precision_artifacts(billing_location):
+    """333 overage messages at R0.10 each is exactly R33.30 -- not
+    33.300000000000004, which plain float multiplication produces and
+    which used to be what actually got stored (the customer's real charge
+    was already protected by Decimal rounding at the Paystack boundary;
+    this is about what ends up in billing_records/chatbot_usage_monthly
+    for any dashboard, receipt, or export that reads those columns
+    directly)."""
+    from services.billing_service import close_billing_period
+    from database import raw_location_scope, query_db, execute_db
+
+    location_id = billing_location["location_id"]
+    execute_db(
+        "UPDATE locations SET overage_price_per_message=0.10, monthly_message_limit=1, monthly_base_price=0 WHERE id=%s",
+        (location_id,),
+    )
+    execute_db(
+        "UPDATE chatbot_usage_monthly SET message_count=334, message_limit=1, base_price=0, overage_price=0.10 WHERE location_id=%s",
+        (location_id,),
+    )
+
+    with raw_location_scope(location_id):
+        close_billing_period(usage_month=billing_location["period"], location_id=location_id)
+        record = query_db(
+            "SELECT amount, usage_amount FROM billing_records WHERE location_id=%s",
+            (location_id,), one=True,
+        )
+
+    assert record["usage_amount"] == 33.30
+    assert record["amount"] == 33.30
+    assert len(str(record["usage_amount"]).split(".")[-1]) <= 2, \
+        f"stored amount has more than 2 decimal places: {record['usage_amount']}"
+
+
 def test_zero_amount_invoice_is_closed_not_charged(billing_location):
-    from database import execute_db
     """A free-plan location with no usage owes nothing; it must not be left
     unpaid forever, and must not hit Paystack with a zero charge."""
     from services.automatic_billing_service import run_automatic_billing
+    from database import execute_db
 
     location_id = billing_location["location_id"]
     execute_db("UPDATE locations SET monthly_base_price=0 WHERE id=%s", (location_id,))

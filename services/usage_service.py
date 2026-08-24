@@ -23,7 +23,7 @@ def track_message_usage(location_id, count=1):
         extra_messages = max(messages_used - limit, 0)
         execute_db(
             "UPDATE usage_daily SET messages_used=%s, extra_messages=%s, extra_cost=%s, updated_at=%s WHERE id=%s",
-            (messages_used, extra_messages, extra_messages * overage_price, utc_now(), daily["id"]),
+            (messages_used, extra_messages, round(extra_messages * overage_price, 2), utc_now(), daily["id"]),
         )
     else:
         execute_db(
@@ -35,10 +35,10 @@ def track_message_usage(location_id, count=1):
     if monthly:
         message_count = int(monthly.get("message_count") or 0) + count
         extra_messages = max(message_count - limit, 0)
-        overage_cost = extra_messages * overage_price
+        overage_cost = round(extra_messages * overage_price, 2)
         execute_db(
             "UPDATE chatbot_usage_monthly SET message_count=%s, message_limit=%s, extra_messages=%s, base_price=%s, overage_price=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s",
-            (message_count, limit, extra_messages, base_price, overage_price, overage_cost, base_price + overage_cost, utc_now(), monthly["id"]),
+            (message_count, limit, extra_messages, base_price, overage_price, overage_cost, round(base_price + overage_cost, 2), utc_now(), monthly["id"]),
         )
     else:
         execute_db(

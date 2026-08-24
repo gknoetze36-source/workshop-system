@@ -34,8 +34,16 @@ def close_billing_period(usage_month=None, location_id=None):
             overage_price = float(row.get("overage_price") or row.get("overage_price_per_message") or 0.5)
             base_price = float(row.get("base_price") or row.get("monthly_base_price") or 0)
             extra = max(int(row.get("message_count") or 0) - limit, 0)
-            usage_amount = extra * overage_price
-            total_due = base_price + usage_amount
+            # round() here, not just at the Paystack charge boundary: plain
+            # float multiplication produces artifacts like
+            # 333 * 0.1 == 33.300000000000004. charge_overage() already
+            # quantizes to cents before charging, so the customer was never
+            # actually overcharged by this -- but the raw value was still
+            # what got stored in billing_records and chatbot_usage_monthly,
+            # so any dashboard, receipt email, or export reading those
+            # columns directly would have shown the artifact.
+            usage_amount = round(extra * overage_price, 2)
+            total_due = round(base_price + usage_amount, 2)
             execute_db(
                 "UPDATE chatbot_usage_monthly SET message_limit=%s, extra_messages=%s, base_price=%s, overage_price=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s",
                 (limit, extra, base_price, overage_price, usage_amount, total_due, utc_now(), row["id"]),

@@ -56,21 +56,62 @@ def _attempt_is_due(record) -> bool:
     return datetime.now(timezone.utc) >= last + timedelta(hours=wait_hours)
 
 
+def _claim_billing_record(billing_id) -> bool:
+    """Atomically move a record from unpaid to processing.
+
+    Without this, two overlapping runs of run_automatic_billing() -- Railway
+    retrying a crashed cron execution (restartPolicyMaxRetries=2 in
+    railway-cron-billing.toml) is the realistic way this happens -- could
+    both read the same unpaid record, both pass the backoff check, and both
+    call Paystack: a genuine double charge on the customer's card. The
+    UPDATE ... WHERE status='unpaid' ... RETURNING id is atomic at the
+    database level regardless of how many processes race to run it; only
+    one can ever see a returned row for a given record.
+    """
+    claimed = query_db(
+        "UPDATE billing_records SET status='processing', updated_at=%s WHERE id=%s AND status='unpaid' RETURNING id",
+        (utc_now(), billing_id),
+    )
+    return bool(claimed)
+
+
+def _release_billing_record(billing_id, status="unpaid"):
+    """Return a claimed record to a retryable (or terminal) state.
+
+    Every exit path from charge_billing_record that isn't 'paid' must call
+    this, or the record is stuck on 'processing' forever -- indistinguishable
+    from a charge that's still genuinely in flight, and never retried again.
+    """
+    execute_db("UPDATE billing_records SET status=%s, updated_at=%s WHERE id=%s", (status, utc_now(), billing_id))
+
+
 def charge_billing_record(location_id: int, record: dict) -> dict:
     """Charge one unpaid billing record against the saved authorization.
 
     Returns a result dict; never raises for an ordinary decline, since a
     declined card is an expected business outcome rather than a job failure.
+
+    Callers must have already confirmed the record is due for an attempt
+    (see _attempt_is_due) -- this function claims it unconditionally once
+    called, and un-claims it again on every exit path that isn't success.
     """
+    billing_id = record["id"]
     amount = float(record.get("amount") or 0)
+
     if amount <= 0:
         # Nothing owed (e.g. a zero-usage period on a free plan). Close it
-        # out rather than leaving it unpaid forever.
+        # out rather than leaving it unpaid forever. No claim needed --
+        # nothing external is happening, so there's no race to protect
+        # against here.
         execute_db(
             "UPDATE billing_records SET status='paid', paid_at=%s, updated_at=%s WHERE id=%s",
-            (utc_now(), utc_now(), record["id"]),
+            (utc_now(), utc_now(), billing_id),
         )
-        return {"billing_id": record["id"], "status": "skipped_zero_amount"}
+        return {"billing_id": billing_id, "status": "skipped_zero_amount"}
+
+    if not _claim_billing_record(billing_id):
+        # Another process already claimed it since the caller's unpaid scan.
+        return {"billing_id": billing_id, "status": "already_claimed"}
 
     from integrations.paystack.auth.authorization_store import PaystackAuthorizationStore
     from integrations.paystack.services.paystack_client import PaystackClient
@@ -82,11 +123,25 @@ def charge_billing_record(location_id: int, record: dict) -> dict:
         stored = PaystackAuthorizationStore().load_authorization(session, location_id)
 
     if not stored:
-        message = "no saved Paystack authorization for this location"
-        _record_attempt(record["id"], error=message)
-        return {"billing_id": record["id"], "status": "no_authorization", "error": message}
+        # No card on file yet -- the location's first bill, or they removed
+        # their card. Fall back to the link-based flow (create_payment_link,
+        # the same mechanism used before automatic billing existed) so the
+        # invoice is still actionable rather than silently stuck. Once they
+        # pay through that link, the charge.success webhook captures their
+        # authorization and every subsequent period auto-charges normally.
+        from services.billing_service import create_payment_link
+        message = "no saved Paystack authorization; sent a payment link instead"
+        try:
+            link = create_payment_link(billing_id)
+        except Exception as exc:
+            logger.exception("payment_link_fallback_failed location_id=%s billing_id=%s", location_id, billing_id)
+            link = None
+            message = f"no saved authorization, and creating a payment link also failed: {exc}"
+        _record_attempt(billing_id, error=message)
+        _release_billing_record(billing_id, status="unpaid")
+        return {"billing_id": billing_id, "status": "no_authorization", "error": message, "payment_link": link}
 
-    reference = f"phanta-billing-{record['id']}-{record['billing_period']}-{uuid.uuid4().hex[:8]}"
+    reference = f"phanta-billing-{billing_id}-{record['billing_period']}-{uuid.uuid4().hex[:8]}"
     try:
         service = SubscriptionService(PaystackClient())
         response = service.charge_overage(
@@ -95,9 +150,10 @@ def charge_billing_record(location_id: int, record: dict) -> dict:
             authorization_code=stored["authorization_code"],
         )
     except Exception as exc:
-        logger.exception("paystack_charge_failed location_id=%s billing_id=%s", location_id, record["id"])
-        _record_attempt(record["id"], error=str(exc), charge_reference=reference)
-        return {"billing_id": record["id"], "status": "error", "error": str(exc)}
+        logger.exception("paystack_charge_failed location_id=%s billing_id=%s", location_id, billing_id)
+        _record_attempt(billing_id, error=str(exc), charge_reference=reference)
+        _release_billing_record(billing_id, status="unpaid")
+        return {"billing_id": billing_id, "status": "error", "error": str(exc)}
 
     data = (response or {}).get("data") or response or {}
     status = data.get("status")
@@ -106,23 +162,33 @@ def charge_billing_record(location_id: int, record: dict) -> dict:
         mark_billing_paid(location_id, record["billing_period"], payment_reference=data.get("reference") or reference)
         execute_db(
             "UPDATE billing_records SET charge_reference=%s, last_error=NULL, updated_at=%s WHERE id=%s",
-            (data.get("reference") or reference, utc_now(), record["id"]),
+            (data.get("reference") or reference, utc_now(), billing_id),
         )
-        return {"billing_id": record["id"], "status": "paid", "amount": amount}
+        return {"billing_id": billing_id, "status": "paid", "amount": amount}
 
     # Paystack returns paused=true when a card is challenged (3DS/OTP).
     # That needs customer interaction, so it is not a retryable decline.
     if data.get("paused"):
         message = "charge requires customer authentication (3DS/OTP)"
-        _record_attempt(record["id"], error=message, charge_reference=reference, terminal=True)
-        return {"billing_id": record["id"], "status": "requires_authentication", "error": message}
+        _record_attempt(billing_id, error=message, charge_reference=reference)
+        _release_billing_record(billing_id, status="action_required")
+        return {"billing_id": billing_id, "status": "requires_authentication", "error": message}
 
     message = data.get("gateway_response") or "charge declined"
-    _record_attempt(record["id"], error=message, charge_reference=reference)
-    return {"billing_id": record["id"], "status": "declined", "error": message}
+    new_attempts = int(record.get("attempts") or 0) + 1
+    _record_attempt(billing_id, error=message, charge_reference=reference)
+    if new_attempts >= MAX_ATTEMPTS:
+        # Distinguish "we gave up, a human needs to look at this" from
+        # "never tried yet" -- both previously looked identical
+        # (status='unpaid'), which made the two impossible to tell apart
+        # without cross-referencing the attempts column by hand.
+        _release_billing_record(billing_id, status="payment_failed_final")
+    else:
+        _release_billing_record(billing_id, status="unpaid")
+    return {"billing_id": billing_id, "status": "declined", "error": message}
 
 
-def _record_attempt(billing_id, *, error=None, charge_reference=None, terminal=False):
+def _record_attempt(billing_id, *, error=None, charge_reference=None):
     execute_db(
         """
         UPDATE billing_records
@@ -130,11 +196,10 @@ def _record_attempt(billing_id, *, error=None, charge_reference=None, terminal=F
             last_attempt_at = %s,
             last_error = %s,
             charge_reference = COALESCE(%s, charge_reference),
-            status = CASE WHEN %s THEN 'action_required' ELSE status END,
             updated_at = %s
         WHERE id = %s
         """,
-        (utc_now(), error, charge_reference, bool(terminal), utc_now(), billing_id),
+        (utc_now(), error, charge_reference, utc_now(), billing_id),
     )
 
 
@@ -178,7 +243,7 @@ def run_automatic_billing(billing_period: str | None = None, location_id: int | 
                 summary["results"].append(result)
                 if result["status"] == "paid":
                     summary["charged"] += 1
-                elif result["status"] not in {"skipped_zero_amount"}:
+                elif result["status"] not in {"skipped_zero_amount", "already_claimed"}:
                     summary["failed"] += 1
         except Exception:
             logger.exception("automatic_billing_failed location_id=%s period=%s", loc_id, billing_period)
