@@ -7,7 +7,14 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
-TENANT_TABLES = [
+# Every table here must exist in models/core.py's Base.metadata (created by
+# create_all() below) with a location_id column at the time this migration
+# runs. Tables created by LATER migrations (e.g. the flyer_lady_* tables,
+# created in 0011) cannot go in this list -- they don't exist yet when this
+# migration executes, and Base.metadata.tables[table] would raise a
+# KeyError for any table that isn't an ORM model. Their own migration is
+# responsible for enabling RLS on them.
+LOCATION_SCOPED_TABLES = [
     "customers", "vehicles", "bookings", "service_records", "conversations",
     "messages", "recommendations", "quotes", "quote_line_items", "approvals",
     "follow_ups", "tasks", "audit_logs", "conversation_summaries",
@@ -15,7 +22,7 @@ TENANT_TABLES = [
     "meta_business_verification_status", "meta_permissions_grants",
     "meta_webhook_events", "meta_audit_logs", "payment_customers", "payments",
     "subscriptions", "invoices", "refunds", "paystack_webhook_events",
-    "ai_usage_log", "meta_social_connections", "meta_social_oauth_sessions", "flyer_lady_specials", "flyer_lady_special_approvals", "flyer_lady_special_posts", "flyer_lady_link_clicks",
+    "ai_usage_log", "meta_social_connections", "meta_social_oauth_sessions",
 ]
 
 def upgrade():
@@ -27,16 +34,16 @@ def upgrade():
         return
 
     # Fail fast if the migration's RLS contract drifts from the model schema.
-    for table in TENANT_TABLES:
-        if "tenant_id" not in Base.metadata.tables[table].c:
-            raise RuntimeError(f"RLS table {table} has no tenant_id column")
+    for table in LOCATION_SCOPED_TABLES:
+        if "location_id" not in Base.metadata.tables[table].c:
+            raise RuntimeError(f"RLS table {table} has no location_id column")
 
     op.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
     op.execute("""
         ALTER TABLE bookings
         ADD CONSTRAINT bookings_no_bay_overlap
         EXCLUDE USING gist (
-            tenant_id WITH =,
+            location_id WITH =,
             tstzrange(start_time, end_time, '[)') WITH &&,
             bay_id WITH =
         )
@@ -46,20 +53,20 @@ def upgrade():
         ALTER TABLE bookings
         ADD CONSTRAINT bookings_no_technician_overlap
         EXCLUDE USING gist (
-            tenant_id WITH =,
+            location_id WITH =,
             tstzrange(start_time, end_time, '[)') WITH &&,
             technician_id WITH =
         )
         WHERE (technician_id IS NOT NULL AND status NOT IN ('cancelled', 'completed'))
     """)
-    for table in TENANT_TABLES:
+    for table in LOCATION_SCOPED_TABLES:
         op.execute(sa.text(f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY'))
         op.execute(sa.text(f'ALTER TABLE "{table}" FORCE ROW LEVEL SECURITY'))
-        policy = table + "_tenant_isolation"
+        policy = table + "_location_isolation"
         sql = (
             'CREATE POLICY "' + policy + '" ON "' + table + '" '
-            "USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::integer) "
-            "WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::integer)"
+            "USING (location_id = NULLIF(current_setting('app.location_id', true), '')::integer) "
+            "WITH CHECK (location_id = NULLIF(current_setting('app.location_id', true), '')::integer)"
         )
         op.execute(sa.text(sql))
     # Approvals are records of customer consent and must be immutable.
@@ -80,8 +87,8 @@ def upgrade():
 def downgrade():
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
-        for table in reversed(TENANT_TABLES):
-            op.execute(sa.text(f'DROP POLICY IF EXISTS "{table}_tenant_isolation" ON "{table}"'))
+        for table in reversed(LOCATION_SCOPED_TABLES):
+            op.execute(sa.text(f'DROP POLICY IF EXISTS "{table}_location_isolation" ON "{table}"'))
             op.execute(sa.text(f'ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY'))
         op.execute("ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_no_bay_overlap")
         op.execute("ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_no_technician_overlap")

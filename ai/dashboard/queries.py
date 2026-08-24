@@ -13,7 +13,7 @@ from sqlalchemy import func, select, and_, exists
 from sqlalchemy.orm import Session
 
 from models.core import Booking, BookingConfirmation, Conversation, Message, Location, Customer, Vehicle, AuditLog
-from sqlalchemy import text
+from sqlalchemy import text, bindparam
 from models.integration_models import (
     AIUsageLog, Invoice, MetaAuditLog, MetaBusinessConnection,
     MetaWebhookEvent, Payment, PaystackWebhookEvent, Subscription, MetaBusinessVerificationStatus, MetaPermissionGrant, MetaSocialConnection, MetaSocialOAuthSession,
@@ -103,9 +103,10 @@ class WorkshopDashboardQueries:
             FROM notes
             WHERE location_id = :location_id
               AND subject_type = 'vehicle'
-              AND subject_id = ANY(:vehicle_ids)
+              AND subject_id IN :vehicle_ids
             ORDER BY created_at DESC
-        """), {"location_id": self.location_id, "vehicle_ids": vehicle_ids}).mappings().all()
+        """).bindparams(bindparam("vehicle_ids", expanding=True)),
+            {"location_id": self.location_id, "vehicle_ids": vehicle_ids}).mappings().all()
         result = {vehicle_id: [] for vehicle_id in vehicle_ids}
         for row in rows:
             result[int(row["subject_id"])].append(dict(row))

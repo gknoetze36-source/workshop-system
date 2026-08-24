@@ -36,7 +36,7 @@ def upgrade():
             for column in inspector.get_columns(table)
         }
 
-        if "tenant_id" not in columns:
+        if "location_id" not in columns:
             continue
 
         op.execute(
@@ -51,7 +51,7 @@ def upgrade():
             )
         )
 
-        policy = f"{table}_tenant_isolation"
+        policy = f"{table}_location_isolation"
 
         op.execute(
             sa.text(
@@ -65,16 +65,16 @@ def upgrade():
                 CREATE POLICY "{policy}"
                 ON "{table}"
                 USING (
-                    tenant_id =
+                    location_id =
                     NULLIF(
-                        current_setting('app.tenant_id', true),
+                        current_setting('app.location_id', true),
                         ''
                     )::integer
                 )
                 WITH CHECK (
-                    tenant_id =
+                    location_id =
                     NULLIF(
-                        current_setting('app.tenant_id', true),
+                        current_setting('app.location_id', true),
                         ''
                     )::integer
                 )
@@ -93,7 +93,7 @@ def downgrade():
         op.execute(
             sa.text(
                 f'DROP POLICY IF EXISTS '
-                f'"{table}_tenant_isolation" '
+                f'"{table}_location_isolation" '
                 f'ON "{table}"'
             )
         )

@@ -174,6 +174,19 @@ def _populate_location_context():
     g.platform_admin = g.is_phanta_admin
 
 
+@app.context_processor
+def _inject_current_user():
+    """templates/base.html and templates/dashboard/workshop.html reference
+    current_user directly (current_user.get('email'), {% if current_user %},
+    etc.) but nothing was ever injecting it into the template context -- no
+    context_processor existed, and render_template() calls in routes/
+    don't pass it individually. Under Flask's default (non-strict) Jinja
+    Undefined, `{% if current_user %}` silently evaluated false, but any
+    direct `.get(...)` call on it -- like workshop.html's very first line --
+    raised UndefinedError and 500'd the entire dashboard."""
+    return {"current_user": current_user()}
+
+
 @app.get("/health")
 def health():
     """Public readiness endpoint for Railway; never exposes secrets or location data."""

@@ -10,7 +10,7 @@ branch_labels = None
 depends_on = None
 
 
-TENANT_TABLES = [
+LOCATION_SCOPED_TABLES = [
     "customers",
     "vehicles",
     "bookings",
@@ -59,13 +59,13 @@ def upgrade():
     # ---------------------------------------------------------
     # 1. Re-establish PostgreSQL tenant RLS
     # ---------------------------------------------------------
-    for table in TENANT_TABLES:
+    for table in LOCATION_SCOPED_TABLES:
         if table not in existing_tables:
             continue
 
         columns = {column["name"] for column in inspector.get_columns(table)}
 
-        if "tenant_id" not in columns:
+        if "location_id" not in columns:
             continue
 
         op.execute(
@@ -80,7 +80,7 @@ def upgrade():
             )
         )
 
-        policy = f"{table}_tenant_isolation"
+        policy = f"{table}_location_isolation"
 
         op.execute(
             sa.text(
@@ -94,16 +94,16 @@ def upgrade():
                 CREATE POLICY "{policy}"
                 ON "{table}"
                 USING (
-                    tenant_id =
+                    location_id =
                     NULLIF(
-                        current_setting('app.tenant_id', true),
+                        current_setting('app.location_id', true),
                         ''
                     )::integer
                 )
                 WITH CHECK (
-                    tenant_id =
+                    location_id =
                     NULLIF(
-                        current_setting('app.tenant_id', true),
+                        current_setting('app.location_id', true),
                         ''
                     )::integer
                 )
@@ -136,7 +136,7 @@ def upgrade():
                         ALTER TABLE bookings
                         ADD CONSTRAINT bookings_no_bay_overlap
                         EXCLUDE USING gist (
-                            tenant_id WITH =,
+                            location_id WITH =,
                             tstzrange(
                                 start_time,
                                 end_time,
@@ -175,7 +175,7 @@ def upgrade():
                         ALTER TABLE bookings
                         ADD CONSTRAINT bookings_no_technician_overlap
                         EXCLUDE USING gist (
-                            tenant_id WITH =,
+                            location_id WITH =,
                             tstzrange(
                                 start_time,
                                 end_time,
@@ -249,12 +249,12 @@ def downgrade():
     inspector = sa.inspect(bind)
     existing_tables = set(inspector.get_table_names())
 
-    for table in reversed(TENANT_TABLES):
+    for table in reversed(LOCATION_SCOPED_TABLES):
         if table in existing_tables:
             op.execute(
                 sa.text(
                     f'DROP POLICY IF EXISTS '
-                    f'"{table}_tenant_isolation" '
+                    f'"{table}_location_isolation" '
                     f'ON "{table}"'
                 )
             )

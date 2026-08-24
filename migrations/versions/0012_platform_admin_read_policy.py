@@ -37,19 +37,19 @@ def upgrade():
         if table not in existing:
             continue
         columns = {c["name"] for c in inspector.get_columns(table)}
-        if "tenant_id" not in columns:
+        if "location_id" not in columns:
             continue
-        # 0011 created flyer_lady_public_links with tenant_id but did not
-        # enable RLS on it. Bring it under the same tenant isolation contract
+        # 0011 created flyer_lady_public_links with location_id but did not
+        # enable RLS on it. Bring it under the same location isolation contract
         # before adding the platform-admin read policy.
         if table == "flyer_lady_public_links":
             op.execute(sa.text('ALTER TABLE "flyer_lady_public_links" ENABLE ROW LEVEL SECURITY'))
             op.execute(sa.text('ALTER TABLE "flyer_lady_public_links" FORCE ROW LEVEL SECURITY'))
-            op.execute(sa.text('DROP POLICY IF EXISTS "flyer_lady_public_links_tenant_isolation" ON "flyer_lady_public_links"'))
+            op.execute(sa.text('DROP POLICY IF EXISTS "flyer_lady_public_links_location_isolation" ON "flyer_lady_public_links"'))
             op.execute(sa.text(
-                'CREATE POLICY "flyer_lady_public_links_tenant_isolation" ON "flyer_lady_public_links" '
-                "USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::integer) "
-                "WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::integer)"
+                'CREATE POLICY "flyer_lady_public_links_location_isolation" ON "flyer_lady_public_links" '
+                "USING (location_id = NULLIF(current_setting('app.location_id', true), '')::integer) "
+                "WITH CHECK (location_id = NULLIF(current_setting('app.location_id', true), '')::integer)"
             ))
         policy = f"{table}_platform_admin_read"
         op.execute(sa.text(f'DROP POLICY IF EXISTS "{policy}" ON "{table}"'))

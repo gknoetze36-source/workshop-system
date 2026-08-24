@@ -13,14 +13,22 @@ depends_on = None
 
 
 def upgrade():
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    # These are already declared on the ORM model (models/integration_models.py)
+    # and created by migration 0001's Base.metadata.create_all() on any
+    # database where that ran first. Guard against re-adding them.
+    existing = {c["name"] for c in inspector.get_unique_constraints("meta_business_connections")}
     # A Location can have one connection, and a Meta WABA/phone asset must not
     # silently belong to multiple PHANTA Locations.
-    op.create_unique_constraint(
-        "uq_meta_connection_waba_id", "meta_business_connections", ["waba_id"]
-    )
-    op.create_unique_constraint(
-        "uq_meta_connection_phone_number_id", "meta_business_connections", ["phone_number_id"]
-    )
+    if "uq_meta_connection_waba_id" not in existing:
+        op.create_unique_constraint(
+            "uq_meta_connection_waba_id", "meta_business_connections", ["waba_id"]
+        )
+    if "uq_meta_connection_phone_number_id" not in existing:
+        op.create_unique_constraint(
+            "uq_meta_connection_phone_number_id", "meta_business_connections", ["phone_number_id"]
+        )
 
 
 def downgrade():

@@ -16,7 +16,7 @@ def upgrade():
     op.create_table(
         "meta_webhook_events",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("tenant_id", sa.Integer(), sa.ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("location_id", sa.Integer(), sa.ForeignKey("locations.id", ondelete="SET NULL"), nullable=True),
         sa.Column("waba_id", sa.String(100), nullable=True),
         sa.Column("phone_number_id", sa.String(100), nullable=True),
         sa.Column("external_event_id", sa.String(255), nullable=False),
@@ -35,19 +35,19 @@ def upgrade():
     if bind.dialect.name == "postgresql":
         op.execute("ALTER TABLE meta_webhook_events ENABLE ROW LEVEL SECURITY")
         op.execute("ALTER TABLE meta_webhook_events FORCE ROW LEVEL SECURITY")
-        # Webhook ingress must resolve tenant before accessing tenant-owned rows.
-        # Events themselves allow NULL tenant_id for valid account updates that
+        # Webhook ingress must resolve location before accessing location-owned rows.
+        # Events themselves allow NULL location_id for valid account updates that
         # arrive before a connection can be resolved.
         op.execute("""
-            CREATE POLICY meta_webhook_events_tenant_isolation
+            CREATE POLICY meta_webhook_events_location_isolation
             ON meta_webhook_events
             USING (
-                tenant_id IS NULL OR
-                tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::integer
+                location_id IS NULL OR
+                location_id = NULLIF(current_setting('app.location_id', true), '')::integer
             )
             WITH CHECK (
-                tenant_id IS NULL OR
-                tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::integer
+                location_id IS NULL OR
+                location_id = NULLIF(current_setting('app.location_id', true), '')::integer
             )
         """)
 
@@ -55,7 +55,7 @@ def upgrade():
 def downgrade():
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
-        op.execute("DROP POLICY IF EXISTS meta_webhook_events_tenant_isolation ON meta_webhook_events")
+        op.execute("DROP POLICY IF EXISTS meta_webhook_events_location_isolation ON meta_webhook_events")
     op.drop_index("ix_meta_webhook_received", table_name="meta_webhook_events")
     op.drop_index("ix_meta_webhook_external_id", table_name="meta_webhook_events")
     op.drop_table("meta_webhook_events")
