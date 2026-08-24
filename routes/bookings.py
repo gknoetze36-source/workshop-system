@@ -8,7 +8,7 @@ from datetime import date, datetime, time, timedelta
 from flask import Blueprint, jsonify, request, g
 
 from database import get_session, fetch_one
-from ai.booking.availability import BookingAvailabilityService, OperatingWindow, WorkshopSchedule
+from ai.booking.availability import BookingAvailabilityService
 from ai.booking.service import BookingService, BookingStatus
 from ai.booking.confirmation import BookingConfirmationService
 from ai.communications.lifecycle import LifecycleCommunicationService
@@ -26,19 +26,28 @@ def _morning_window(location_id: int, day: date) -> tuple[datetime, datetime]:
 
     Customers never choose or receive an exact time; the system uses the
     workshop's opening time internally so the booking remains date + morning.
+
+    Raises ValueError if the location is explicitly closed on this day --
+    previously this silently fell back to a generic 8am-5pm window even
+    for a day marked closed (e.g. Sunday), because the enabled check only
+    ever decided whether to override the fallback open/close times, never
+    whether to allow the day at all.
     """
     import json
     from datetime import time as dt_time
+    from services.operating_hours_service import is_day_enabled
+
+    key = day.strftime("%A").lower()
+    if not is_day_enabled(location_id, key):
+        raise ValueError(f"workshop is closed on {key.title()}")
 
     row = fetch_one("SELECT operating_hours_json FROM locations WHERE id=%s", (location_id,))
     opening = "08:00"
     closing = "17:00"
     try:
         settings = json.loads((row or {}).get("operating_hours_json") or "{}")
-        key = day.strftime("%A").lower()
-        if settings.get(f"{key}_enabled", True):
-            opening = settings.get(f"{key}_open") or opening
-            closing = settings.get(f"{key}_close") or closing
+        opening = settings.get(f"{key}_open") or opening
+        closing = settings.get(f"{key}_close") or closing
     except (TypeError, ValueError):
         pass
     start = datetime.combine(day, dt_time.fromisoformat(opening))
@@ -49,12 +58,20 @@ def _morning_window(location_id: int, day: date) -> tuple[datetime, datetime]:
     return start, end
 
 
-def _schedule_from_payload(payload):
-    # Internal validation only. Customer-facing booking remains date + morning.
-    return WorkshopSchedule({
-        weekday: [OperatingWindow(time(8, 0), time(17, 0))]
-        for weekday in range(7)
-    })
+def _schedule_from_payload(location_id: int):
+    """Build the real WorkshopSchedule for availability/overlap checking.
+
+    Previously named _schedule_from_payload and took a `payload` argument
+    it never actually used -- it always returned every day of the week
+    open 8am-5pm regardless of the location's real configured hours. That
+    meant BookingAvailabilityService.assert_available()'s business-hours
+    gate (`self.schedule.contains(...)`) could never actually reject a
+    booking for being outside operating hours; combined with
+    _morning_window() not rejecting closed days either (see above), a
+    booking could be created for a day the workshop doesn't even operate.
+    """
+    from services.operating_hours_service import build_workshop_schedule
+    return build_workshop_schedule(location_id)
 
 
 def _dt(value: str) -> datetime:
@@ -93,7 +110,7 @@ def create_booking():
             raise ValueError("arrival must be morning")
         day = date.fromisoformat(str(payload["date"]))
         start_time, end_time = _morning_window(location_id, day)
-        service = BookingService(session, BookingAvailabilityService(session, _schedule_from_payload(payload)))
+        service = BookingService(session, BookingAvailabilityService(session, _schedule_from_payload(location_id)))
         booking = service.create_booking(
             location_id=location_id,
             customer_id=int(payload["customer_id"]),
@@ -133,7 +150,7 @@ def change_booking_status(booking_id: int):
     try:
         booking_service = BookingService(
             session,
-            BookingAvailabilityService(session, _schedule_from_payload(payload)),
+            BookingAvailabilityService(session, _schedule_from_payload(location_id)),
         )
         previous_status = booking_service.bookings.get_by_id(location_id, booking_id)
         previous_status_value = previous_status.status if previous_status else None
