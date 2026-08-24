@@ -140,7 +140,7 @@ class PaymentCustomer(Base):
     phanta_customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"))
     paystack_customer_code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     email: Mapped[Optional[str]] = mapped_column(String(320))
-    authorization_secret_ref: Mapped[Optional[str]] = mapped_column(String(255))
+    authorization_secret_ref: Mapped[Optional[str]] = mapped_column(Text)
 
 
 class Payment(Base):

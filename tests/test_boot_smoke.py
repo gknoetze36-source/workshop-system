@@ -46,13 +46,31 @@ def fresh_sqlite_env(tmp_path, monkeypatch):
     # Every database.* submodule may already be imported (with a stale
     # connection cached) by whatever ran before this test, so force a clean
     # reimport against the new env vars.
+    #
+    # This test's own body then does `import phanta_app`, which transitively
+    # reimports the entire route/service/repository tree -- all of it ends
+    # up bound to this test's tmp-path database, module-level engines and
+    # PRIMARY_SQLITE_PATH included. Deleting only the `database`/`phanta_app`
+    # prefixes and leaving everything else in place used to leave those
+    # transitively-reimported modules (services.billing_service was one)
+    # permanently bound to this tmp path for the rest of the pytest session
+    # -- any later test file that happened to run after this one would
+    # silently read/write the wrong (deleted) database, with no error, just
+    # empty results. Snapshotting and restoring the whole of sys.modules
+    # makes this test's disruption fully self-contained, the way a passing
+    # fixture should behave, instead of leaking into every test that follows.
+    modules_snapshot = dict(sys.modules)
     for name in list(sys.modules):
-        if name == "database" or name.startswith("database."):
+        if name == "database" or name.startswith("database.") or name == "phanta_app":
             del sys.modules[name]
-    if "phanta_app" in sys.modules:
-        del sys.modules["phanta_app"]
 
-    yield db_path
+    try:
+        yield db_path
+    finally:
+        for name in list(sys.modules):
+            if name not in modules_snapshot:
+                del sys.modules[name]
+        sys.modules.update(modules_snapshot)
 
 
 def test_initialize_database_succeeds_from_empty(fresh_sqlite_env):

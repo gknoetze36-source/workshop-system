@@ -5,7 +5,7 @@ SQLAlchemy session helpers used by location-scoped Phase 2+ integrations.
 """
 
 from .connection import get_connection, require_postgres_for_service
-from .query import query_db, execute_db, fetch_one, fetch_all, transaction
+from .query import query_db, execute_db, fetch_one, fetch_all, transaction, raw_location_scope
 from .utils import (
     utc_now,
     slugify,

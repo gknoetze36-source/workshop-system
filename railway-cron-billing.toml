@@ -1,0 +1,24 @@
+# Dedicated Railway Cron service for automatic billing.
+#
+# Use this as the custom config path for a THIRD Railway service, alongside
+# the web service (railway.toml) and the 5-minute job runner
+# (railway-cron.toml). Do not apply it to either of those.
+#
+# Runs daily at 02:00 UTC rather than monthly on purpose:
+#   - Railway cron granularity plus deploy timing makes a strict
+#     once-a-month schedule easy to miss entirely.
+#   - The cycle is idempotent. close_billing_period() updates the existing
+#     billing_records row for a period instead of creating duplicates, and
+#     a record already marked paid is never charged again.
+#   - Daily runs give failed charges a chance to retry within the backoff
+#     window (see MAX_ATTEMPTS / RETRY_BACKOFF_HOURS in
+#     services/automatic_billing_service.py) instead of waiting a month.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python -c 'import json; from jobs.scheduler import run_billing_jobs; print(json.dumps(run_billing_jobs(), default=str))'"
+cronSchedule = "0 2 * * *"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 2

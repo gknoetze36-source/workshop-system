@@ -47,6 +47,19 @@ def run_scheduled_jobs() -> dict:
     }
 
 
+def run_billing_jobs() -> dict:
+    """Execute the billing cycle once, then return.
+
+    Deliberately NOT part of run_scheduled_jobs(). That runs every 5 minutes
+    (railway-cron.toml), which is the right cadence for message queues and
+    token checks but wrong for charging customers' cards -- billing needs
+    its own, much slower schedule. This is the entry point for the separate
+    Railway cron service configured by railway-cron-billing.toml.
+    """
+    from .billing import run_billing_cycle
+    return {"billing": _run("billing", run_billing_cycle)}
+
+
 if __name__ == "__main__":
     import json
     print(json.dumps(run_scheduled_jobs(), default=str))
