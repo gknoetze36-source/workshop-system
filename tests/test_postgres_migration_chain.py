@@ -94,7 +94,7 @@ def test_full_migration_chain_succeeds_from_empty_postgres(fresh_postgres_env):
         with conn.cursor() as cur:
             cur.execute("SELECT version_num FROM alembic_version")
             version = cur.fetchone()[0]
-            assert version == "0020_automation_location_ownership"
+            assert version == "0021_complete_location_rls"
 
             cur.execute("SELECT to_regclass('public.tenants')")
             assert cur.fetchone()[0] is None, "a 'tenants' table should never exist - the location model is canonical"
@@ -110,6 +110,23 @@ def test_full_migration_chain_succeeds_from_empty_postgres(fresh_postgres_env):
             assert policy_rows, "notes has no location-scoped RLS policy"
             assert any("app.location_id" in row[0] for row in policy_rows), \
                 "notes RLS policy does not check app.location_id (the GUC the app actually sets)"
+
+            # Every table with a location_id column must have RLS enabled,
+            # except the deliberately-excluded ones (see
+            # migrations/versions/0021_complete_location_rls.py for why).
+            cur.execute("""
+                SELECT c.relname
+                FROM pg_class c
+                JOIN pg_attribute a ON a.attrelid = c.oid
+                WHERE c.relnamespace = 'public'::regnamespace
+                  AND c.relkind = 'r' AND a.attname = 'location_id' AND NOT c.relrowsecurity
+                ORDER BY c.relname
+            """)
+            unprotected = {row[0] for row in cur.fetchall()}
+            expected_exclusions = {"users", "onboarding_answers", "onboarding_sessions", "onboarding_state"}
+            assert unprotected == expected_exclusions, (
+                f"unexpected tables without RLS: {unprotected - expected_exclusions}"
+            )
     finally:
         conn.close()
 
