@@ -4,7 +4,7 @@ import secrets
 from urllib.parse import urlencode
 from flask import Blueprint, jsonify, redirect, request, session as flask_session, url_for
 from sqlalchemy import select
-from database import get_session
+from database import get_session, get_platform_session, location_transaction
 from helpers.location import current_location_id
 from models.core import AuditLog
 from repositories.location_repository import get_location_by_id
@@ -186,12 +186,48 @@ def social_connect_complete():
 
 @flyer_lady_bp.get("/l/<int:special_id>")
 def redirect_special(special_id):
-    db = get_session()
+    """Public, unauthenticated entry point for every Flyer Lady social post's
+    tracking link -- the actual customer-facing purpose of the whole
+    feature. Cannot know the location_id in advance (that's exactly what
+    this needs to resolve from special_id), so it can't use an ordinary
+    location-scoped session the way every other route can.
+
+    Previously used plain get_session() (unscoped). Under the properly
+    restricted phanta_app role (RLS forced on flyer_lady_specials since
+    migration 0011), that returns nothing for a special that genuinely
+    exists -- every public tracking link 404's for every real visitor.
+    Confirmed directly against real Postgres under the restricted role
+    before this fix, and confirmed again after.
+
+    Fixed with get_platform_session() for the initial lookup -- a
+    deliberate, SELECT-only RLS bypass backed by a real migration-defined
+    policy, not a workaround -- then a properly location-scoped
+    location_transaction() for the click-log INSERT once the location_id
+    is actually known, since get_platform_session() only grants SELECT and
+    the click log's own RLS policy would otherwise reject the write.
+    """
+    platform_session = get_platform_session()
     try:
-        special = db.scalar(select(Special).where(Special.id == special_id))
-        if not special: return jsonify({"error": "link not found"}), 404
-        db.add(FlyerLinkClick(special_id=special.id, location_id=special.location_id, user_agent=request.headers.get("User-Agent"), referrer=request.referrer)); db.commit()
-        target = special.booking_link
-        if not (target.startswith("/") or target.startswith("https://")): return jsonify({"error": "invalid booking link"}), 500
-        return redirect(target, code=302)
-    finally: db.close()
+        special = platform_session.scalar(select(Special).where(Special.id == special_id))
+    finally:
+        platform_session.close()
+
+    if not special:
+        return jsonify({"error": "link not found"}), 404
+
+    target = special.booking_link
+    if not (target.startswith("/") or target.startswith("https://")):
+        return jsonify({"error": "invalid booking link"}), 500
+
+    try:
+        with location_transaction(special.location_id) as db:
+            db.add(FlyerLinkClick(
+                special_id=special.id, location_id=special.location_id,
+                user_agent=request.headers.get("User-Agent"), referrer=request.referrer,
+            ))
+    except Exception:
+        # A click that fails to log must never block the actual redirect --
+        # the visitor booking a service matters more than the analytics row.
+        pass
+
+    return redirect(target, code=302)
