@@ -233,7 +233,7 @@ def fire_event(event_type: str, location_id: int, context: dict | None = None) -
         if delay_minutes <= 0:
             outcome["outcome"] = _execute_action(rule, location_id, context)
         else:
-            _schedule_action(rule, delay_minutes, context)
+            _schedule_action(rule, location_id, delay_minutes, context)
             outcome["outcome"] = "scheduled"
         results.append(outcome)
     return results
@@ -242,7 +242,7 @@ def fire_event(event_type: str, location_id: int, context: dict | None = None) -
 def _execute_action(rule, location_id, context):
     action_json = rule.get("action_json")
     if not action_json:
-        _log_automation(rule, None, "error", "rule has no action_json")
+        _log_automation(rule, location_id, None, "error", "rule has no action_json")
         return {"status": "error", "error": "rule has no action_json"}
 
     spec = json.loads(action_json) if isinstance(action_json, str) else action_json
@@ -251,42 +251,42 @@ def _execute_action(rule, location_id, context):
     fn = ACTIONS.get(action_name)
     if fn is None:
         message = f"unregistered action: {action_name}"
-        _log_automation(rule, None, "error", message)
+        _log_automation(rule, location_id, None, "error", message)
         return {"status": "error", "error": message}
 
     try:
         result = fn(location_id, context, params)
-        _log_automation(rule, None, "ok", None)
+        _log_automation(rule, location_id, None, "ok", None)
         return {"status": "ok", "result": result}
     except Exception as exc:
         logger.exception(
             "automation_engine action failed: rule=%s action=%s", rule["id"], action_name
         )
-        _log_automation(rule, None, "error", str(exc))
+        _log_automation(rule, location_id, None, "error", str(exc))
         return {"status": "error", "error": str(exc)}
 
 
-def _schedule_action(rule, delay_minutes, context):
+def _schedule_action(rule, location_id, delay_minutes, context):
     scheduled_for = (datetime.utcnow() + timedelta(minutes=delay_minutes)).replace(microsecond=0).isoformat()
     payload = json.dumps({"context": context})
     execute_db(
         """
         INSERT INTO scheduled_jobs
-            (automation_rule_id, job_type, payload_json, scheduled_for, status, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, 'pending', %s, %s)
+            (automation_rule_id, job_type, payload_json, scheduled_for, status, created_at, updated_at, location_id)
+        VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s)
         """,
-        (rule["id"], "automation_action", payload, scheduled_for, utc_now(), utc_now()),
+        (rule["id"], "automation_action", payload, scheduled_for, utc_now(), utc_now(), location_id),
     )
 
 
-def _log_automation(rule, scheduled_job_id, status, message):
+def _log_automation(rule, location_id, scheduled_job_id, status, message):
     execute_db(
         """
         INSERT INTO automation_logs
-            (automation_rule_id, scheduled_job_id, event_type, status, message, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
+            (automation_rule_id, scheduled_job_id, event_type, status, message, created_at, location_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
-        (rule["id"], scheduled_job_id, rule.get("event_type"), status, message, utc_now()),
+        (rule["id"], scheduled_job_id, rule.get("event_type"), status, message, utc_now(), location_id),
     )
 
 
