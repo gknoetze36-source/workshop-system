@@ -23,8 +23,8 @@ def _create_or_update_onboarding_state(
                    go_live_ready=%s, updated_at=%s
                WHERE location_id=%s""",
             (
-                setup_progress, int(bool(services_created)),
-                int(bool(automations_enabled)), int(bool(go_live_ready)),
+                setup_progress, bool(services_created),
+                bool(automations_enabled), bool(go_live_ready),
                 utc_now(), location_id,
             ),
         )
@@ -35,8 +35,8 @@ def _create_or_update_onboarding_state(
                 automations_enabled, go_live_ready, created_at, updated_at)
                VALUES (%s,%s,%s,%s,%s,%s,%s)""",
             (
-                location_id, setup_progress, int(bool(services_created)),
-                int(bool(automations_enabled)), int(bool(go_live_ready)),
+                location_id, setup_progress, bool(services_created),
+                bool(automations_enabled), bool(go_live_ready),
                 utc_now(), utc_now(),
             ),
         )
@@ -306,7 +306,7 @@ def onboarding_services():
                     """INSERT INTO services
                        (location_id,name,description,duration_minutes,active,display_order,created_at,updated_at)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (location_id,name,description,duration,1,order,utc_now(),utc_now()),
+                    (location_id,name,description,duration,True,order,utc_now(),utc_now()),
                 )
             services = query_db(
                 """SELECT id,name,description,duration_minutes,
@@ -335,7 +335,7 @@ def onboarding_services():
     except (TypeError, ValueError):
         flash("Duration must be a number greater than or equal to 5", "error")
         return redirect(url_for("onboarding.onboarding_services"))
-    active = 1 if form_data.get("is_enabled", "1") == "1" else 0
+    active = form_data.get("is_enabled", "1") == "1"
     try:
         display_order = int(form_data.get("display_order", 0))
     except ValueError:
@@ -414,7 +414,7 @@ def onboarding_automation():
         # Get automation templates with current settings
         templates = query_db("""
             SELECT at.*,
-                   COALESCE(ar.active, 0) as is_active,
+                   COALESCE(ar.active, FALSE) as is_active,
                    COALESCE(ar.delay_minutes, at.default_delay_minutes) as delay_minutes,
                    COALESCE(ar.preferred_channel, 'whatsapp') as preferred_channel
             FROM automation_templates at
@@ -461,7 +461,7 @@ def onboarding_automation():
             delay_key = f"delay_{template_id}"
             channel_key = f"channel_{template_id}"
 
-            is_enabled = 1 if form_data.get(enabled_key) == "1" else 0
+            is_enabled = form_data.get(enabled_key) == "1"
             delay_minutes_str = form_data.get(delay_key, "")
             preferred_channel = form_data.get(channel_key, "whatsapp")
 
@@ -598,7 +598,7 @@ def onboarding_team():
             row = query_db("SELECT active FROM users WHERE id=%s AND location_id=%s", (user_id,location_id), one=True)
             if row:
                 execute_db("UPDATE users SET active=%s,updated_at=%s WHERE id=%s AND location_id=%s",
-                           (0 if row["active"] else 1,utc_now(),user_id,location_id))
+                           (not row["active"],utc_now(),user_id,location_id))
     elif action == "change_role":
         user_id = request.form.get("user_id")
         role = request.form.get("new_role","").strip().lower()
@@ -656,7 +656,7 @@ def onboarding_review():
     # Get automation rules count and status
     automation_rules = query_db("""
         SELECT COUNT(*) as total_count,
-               SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) as active_count
+               SUM(CASE WHEN active THEN 1 ELSE 0 END) as active_count
         FROM automation_rules
         WHERE location_id = %s
     """, (location_id,), one=True)
@@ -664,7 +664,7 @@ def onboarding_review():
     # Get team members count
     team_members = query_db("""
         SELECT COUNT(*) as total_count,
-               SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) as active_count,
+               SUM(CASE WHEN active THEN 1 ELSE 0 END) as active_count,
                SUM(CASE WHEN role IN ('owner', 'manager') THEN 1 ELSE 0 END) as management_count
         FROM users
         WHERE location_id = %s

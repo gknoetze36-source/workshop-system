@@ -98,7 +98,7 @@ def automations_settings():
             enabled_key = f"enabled_{template_id}"
             delay_key = f"delay_{template_id}"
 
-            is_active = 1 if form_data.get(enabled_key) == "1" else 0
+            is_active = form_data.get(enabled_key) == "1"
             delay_minutes_str = form_data.get(delay_key, "")
 
             # Get existing rule for this location and template

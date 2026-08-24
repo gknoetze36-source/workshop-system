@@ -71,17 +71,30 @@ def provision_owner_location(owner_id, name, industry):
         suffix += 1
 
     now = utc_now()
-    execute_db(
-        """INSERT INTO locations
-           (owner_id,name,slug,contact_email,industry,active,
-            automation_enabled,chatbot_enabled,reporting_enabled,
-            custom_integrations_enabled,priority_support_enabled,
-            timezone,currency,language,daily_capacity,public_booking_enabled,
-            created_at,updated_at)
-           VALUES (%s,%s,%s,%s,%s,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,
-                   'Africa/Johannesburg','ZAR','en',12,TRUE,%s,%s)""",
-        (owner_id, name, slug, owner.get("email"), industry, now, now),
-    )
+    try:
+        execute_db(
+            """INSERT INTO locations
+               (owner_id,name,slug,contact_email,industry,active,
+                automation_enabled,chatbot_enabled,reporting_enabled,
+                custom_integrations_enabled,priority_support_enabled,
+                timezone,currency,language,daily_capacity,public_booking_enabled,
+                created_at,updated_at)
+               VALUES (%s,%s,%s,%s,%s,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,
+                       'Africa/Johannesburg','ZAR','en',12,TRUE,%s,%s)""",
+            (owner_id, name, slug, owner.get("email"), industry, now, now),
+        )
+    except Exception:
+        # locations.owner_id is UNIQUE, so a genuine double-submit racing
+        # past the "existing" check above raises here rather than silently
+        # creating a duplicate. Treat it the same as if the earlier check
+        # had caught it, instead of letting an IntegrityError become an
+        # unhandled 500 for what's really just an ordinary double-click.
+        existing_after_race = query_db(
+            "SELECT id FROM locations WHERE owner_id=%s LIMIT 1", (owner_id,), one=True,
+        )
+        if existing_after_race:
+            return {"ok": True, "location_id": existing_after_race["id"], "owner_id": owner_id, "industry": industry}
+        raise
     location = query_db(
         "SELECT id FROM locations WHERE owner_id=%s ORDER BY id DESC LIMIT 1",
         (owner_id,), one=True,

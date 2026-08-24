@@ -838,6 +838,7 @@ def _ensure_columns(connection, backend):
             "conditions_json": "TEXT",
             "action_json": "TEXT",
             "delay_minutes": "INTEGER DEFAULT 0",
+            "preferred_channel": "TEXT DEFAULT 'whatsapp'",
             "active": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
             "created_at": "TEXT",
             "updated_at": "TEXT",

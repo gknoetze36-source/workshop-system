@@ -188,3 +188,49 @@ def test_flyer_lady_job_finds_posts_under_restricted_role(rls_test_env, monkeypa
     ).all()
     db.close()
     assert len(posts) == 1, "flyer_lady's per-location query should find the seeded pending post"
+
+
+def test_onboarding_flow_survives_real_postgres_boolean_columns(rls_test_env):
+    """Regression test for a class of bug found 2026-08-25: several
+    onboarding/automation routes passed Python int(bool(x)) or a literal
+    1/0 as a query parameter or SQL literal against columns that are
+    genuine Postgres BOOLEAN (services.active, automation_rules.active,
+    onboarding_state.services_created/automations_enabled/go_live_ready,
+    users.active). This is silently fine on SQLite (integer affinity) and
+    a hard DatatypeMismatch/operator-does-not-exist error on Postgres --
+    every prior test of this flow ran on SQLite only, so it went
+    undetected. Runs the real onboarding routes end to end against real
+    Postgres rather than re-testing the isolated queries, since the bug
+    was only ever caught by hitting the actual pages."""
+    import re
+    import phanta_app
+
+    phanta_app.app.config["TESTING"] = True
+    client = phanta_app.app.test_client()
+
+    def csrf_from(path):
+        html = client.get(path).get_data(as_text=True)
+        m = re.search(r'name="csrf_token" value="([^"]+)"', html)
+        return m.group(1) if m else None
+
+    token = csrf_from("/register")
+    r = client.post("/register", data={
+        "full_name": "PG Onboarding Test", "email": "pgonboard@test.example",
+        "password": "SuperSecret123", "confirm_password": "SuperSecret123",
+        "csrf_token": token,
+    })
+    assert r.status_code == 302
+
+    token2 = csrf_from("/onboarding/location")
+    r2 = client.post("/onboarding/location", data={
+        "location_name": "PG Onboarding Workshop", "industry": "workshop", "csrf_token": token2,
+    })
+    assert r2.status_code == 302, "onboarding_state creation must not fail on real Postgres booleans"
+
+    for path in ("/onboarding/services", "/onboarding/automation", "/onboarding/review", "/onboarding/team"):
+        response = client.get(path)
+        assert response.status_code == 200, f"{path} must not 500 on real Postgres"
+
+    token3 = csrf_from("/onboarding/automation")
+    r3 = client.post("/onboarding/automation", data={"csrf_token": token3}, follow_redirects=False)
+    assert r3.status_code == 302
