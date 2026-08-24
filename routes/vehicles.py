@@ -1,7 +1,39 @@
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
+"""Vehicle profile and edit routes.
+
+Rewritten 2026-08-25 -- the same legacy-column bug found in
+routes/customer.py, but worse here: this file crashed outright (500 on
+every single view) rather than silently showing wrong data, because
+`v.colour` was queried and no column of that name exists anywhere in the
+schema, legacy or current (only customers.surname/phone and
+vehicles.license_plate/vehicle_vin exist as unused legacy remnants;
+`colour` was never a real column at all). bookings.scheduled_date/
+booking_reference/work_to_be_done referenced here have the same problem
+as they did in customer.py -- see that file's module docstring for the
+full explanation of why (create_customer()'s dual-write sibling for
+vehicles is equally dead code; the live creation path only populates
+make/model/year/registration/vin/mileage via the ORM).
+
+vehicle_edit()'s POST handler additionally referenced a `vehicle` variable
+that was only ever assigned inside the sibling `if request.method ==
+"GET":` branch -- guaranteed NameError on every real edit submission,
+independent of the column-name bug.
+
+Template-facing output keys are kept exactly as templates/vehicle_profile
+.html and templates/vehicle_edit.html already expect (including
+inconsistent naming between the two -- vehicle_profile.html wants
+`vehicle_vin` and a nested `customer.surname`/`.phone`;
+vehicle_edit.html wants `vin` and no customer object at all) so neither
+template needed to change; only the source columns and the route's
+output shape (which didn't match either template before this fix) did.
+
+`colour` and vehicle-level `notes` are shown as empty strings and
+`mileage_history` as an empty list throughout -- there is no real column
+or tracking mechanism for any of the three in the current schema. This is
+a disclosed gap, not a new one introduced by this fix.
+"""
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from database import query_db, execute_db, utc_now
 from helpers.dates import utc_today
-import json
 from services.auth_service import login_required, active_location_required, current_user
 
 vehicles_bp = Blueprint("vehicles", __name__)
@@ -16,149 +48,69 @@ def vehicle_profile(vehicle_id):
     user = current_user()
     location_id = user["location_id"]
 
-    # Get vehicle with location scope
     vehicle = query_db(
         """
-        SELECT v.id, v.make, v.model, v.year, v.license_plate, v.colour, v.vehicle_vin, v.current_mileage,
-               v.metadata_json, v.created_at, c.id as customer_id, c.first_name, c.surname, c.phone, c.email, c.metadata_json as customer_metadata
+        SELECT v.id, v.make, v.model, v.year, v.registration, v.vin, v.mileage, v.created_at,
+               c.id as customer_id, c.first_name, c.last_name, c.whatsapp_number, c.email
         FROM vehicles v
         JOIN customers c ON v.customer_id = c.id
         WHERE v.id = %s AND v.location_id = %s
         """,
-        (vehicle_id, location_id),
-        one=True
+        (vehicle_id, location_id), one=True,
     )
     if not vehicle:
         abort(404)
 
-    # Parse vehicle metadata
-    vehicle_meta = {}
-    if vehicle['metadata_json']:
-        try:
-            vehicle_meta = json.loads(vehicle['metadata_json'])
-        except (json.JSONDecodeError, TypeError):
-            vehicle_meta = {}
-
-    # Parse customer metadata
-    customer_meta = {}
-    if vehicle['customer_metadata']:
-        try:
-            customer_meta = json.loads(vehicle['customer_metadata'])
-        except (json.JSONDecodeError, TypeError):
-            customer_meta = {}
-
-    # Vehicle details
-    vehicle_make = vehicle['make'] or ""
-    vehicle_model = vehicle['model'] or ""
-    vehicle_year = vehicle['year']
-    vehicle_registration = vehicle['license_plate'] or ""
-    vehicle_colour = vehicle['colour'] or ""
-    vehicle_vin = vehicle['vehicle_vin'] or ""
-    vehicle_mileage = vehicle['current_mileage']
-    vehicle_notes = vehicle_meta.get('notes', "")
-
-    # Customer details
-    customer_name = f"{vehicle['first_name'] or ''} {vehicle['surname'] or ''}".strip() or "Unknown"
-    customer_whatsapp = vehicle['phone'] or ""
-    customer_email = vehicle['email'] or ""
-    customer_notes = customer_meta.get('notes', "")
-
-    # Get service history for this vehicle
     service_history = query_db(
         """
-        SELECT b.scheduled_date as date, b.work_to_be_done as service, b.status, b.current_mileage as mileage
-        FROM bookings b
-        WHERE b.vehicle_id = %s
-          AND b.location_id = %s
-          AND b.status IN ('Completed', 'Done')
-        ORDER BY b.scheduled_date DESC
+        SELECT id, start_time, service_type, status
+        FROM bookings
+        WHERE vehicle_id = %s AND location_id = %s AND status IN ('completed', 'done')
+        ORDER BY start_time DESC
         """,
         (vehicle_id, location_id)
     ) or []
+    service_list = [{
+        "date": s["start_time"], "service": s["service_type"] or "-", "status": s["status"], "mileage": None,
+    } for s in service_history]
 
-    # Process service history
-    service_list = []
-    for s in service_history:
-        service_list.append({
-            'date': s['date'],
-            'service': s['service'] or '-',
-            'status': s['status'],
-            'mileage': s['mileage']
-        })
-
-    # Get booking history for this vehicle
     booking_history = query_db(
         """
-        SELECT b.booking_reference, b.scheduled_date, b.status, b.work_to_be_done as service, b.current_mileage as mileage
-        FROM bookings b
-        WHERE b.vehicle_id = %s
-          AND b.location_id = %s
-        ORDER BY b.scheduled_date DESC
+        SELECT id, start_time, service_type, status
+        FROM bookings
+        WHERE vehicle_id = %s AND location_id = %s
+        ORDER BY start_time DESC
         """,
         (vehicle_id, location_id)
     ) or []
+    # Matches templates/vehicle_profile.html's actual accessors
+    # (booking.booking_reference/.scheduled_date/.current_mileage) --
+    # the previous version built {"reference": ..., "date": ...} instead,
+    # a shape the template never read, on top of sourcing from columns
+    # (booking_reference, scheduled_date) that don't exist in the schema.
+    booking_list = [{
+        "booking_reference": b["id"], "scheduled_date": b["start_time"],
+        "service": b["service_type"] or "-", "status": b["status"], "current_mileage": None,
+    } for b in booking_history]
 
-    # Process booking history
-    booking_list = []
-    for b in booking_history:
-        booking_list.append({
-            'reference': b['booking_reference'],
-            'date': b['scaled_date'],
-            'status': b['status'],
-            'service': b['service'] or '-',
-            'mileage': b['mileage']
-        })
-
-    # Get next booking (future)
-    today = utc_today()
-    next_booking = query_db(
-        """
-        SELECT b.booking_reference, b.scheduled_date, b.status, b.work_to_be_done as service
-        FROM bookings b
-        WHERE b.vehicle_id = %s
-          AND b.location_id = %s
-          AND b.scheduled_date >= %s
-          AND b.status NOT IN ('Completed', 'Cancelled')
-        ORDER BY b.scheduled_date ASC
-        LIMIT 1
-        """,
-        (vehicle_id, location_id, today)
-    )
-
-    next_booking_obj = None
-    if next_booking:
-        next_booking_obj = {
-            'reference': next_booking['booking_reference'],
-            'date': next_booking['scheduled_date'],
-            'service': next_booking['work_to_be_done'] or '-'
-        }
-
-    # Prepare vehicle object for template
     vehicle_obj = {
-        'id': vehicle['id'],
-        'make': vehicle_make,
-        'model': vehicle_model,
-        'year': vehicle_year,
-        'registration': vehicle_registration,
-        'colour': vehicle_colour,
-        'vin': vehicle_vin,
-        'current_mileage': vehicle_mileage,
-        'notes': vehicle_notes,
-        'customer': {
-            'id': vehicle['customer_id'],
-            'name': customer_name,
-            'whatsapp': customer_whatsapp,
-            'email': customer_email,
-            'notes': customer_notes
+        "id": vehicle["id"], "make": vehicle["make"] or "", "model": vehicle["model"] or "",
+        "year": vehicle["year"], "registration": vehicle["registration"] or "", "colour": "",
+        "vehicle_vin": vehicle["vin"] or "", "current_mileage": vehicle["mileage"], "notes": "",
+        "customer": {
+            "id": vehicle["customer_id"],
+            "first_name": vehicle["first_name"] or "",
+            "surname": vehicle["last_name"] or "",
+            "phone": vehicle["whatsapp_number"] or "",
+            "email": vehicle["email"] or "",
         },
-        'service_history': service_list,
-        'booking_history': booking_list,
-        'next_booking': next_booking_obj
+        "service_history": service_list,
+        "booking_history": booking_list,
+        "mileage_history": [],
     }
-
     return render_template("vehicle_profile.html", vehicle=vehicle_obj)
 
-# Vehicle edit route
+
 @vehicles_bp.route("/vehicles/<int:vehicle_id>/edit", methods=["GET", "POST"])
 @login_required
 def vehicle_edit(vehicle_id):
@@ -169,144 +121,54 @@ def vehicle_edit(vehicle_id):
     location_id = user["location_id"]
 
     if request.method == "GET":
-        # Get vehicle for editing
         vehicle = query_db(
-            """
-            SELECT id, make, model, year, license_plate, colour, vehicle_vin, current_mileage, metadata_json, created_at
-            FROM vehicles
-            WHERE id = %s AND location_id = %s
-            """,
-            (vehicle_id, location_id),
-            one=True
+            "SELECT id, make, model, year, registration, vin, mileage, created_at FROM vehicles WHERE id = %s AND location_id = %s",
+            (vehicle_id, location_id), one=True,
         )
         if not vehicle:
             abort(404)
 
-        # Parse vehicle metadata
-        vehicle_meta = {}
-        if vehicle['metadata_json']:
-            try:
-                vehicle_meta = json.loads(vehicle['metadata_json'])
-            except (json.JSONDecodeError, TypeError):
-                vehicle_meta = {}
-
-        # Prepare vehicle data for form
         vehicle_data = {
-            'id': vehicle['id'],
-            'make': vehicle['make'] or '',
-            'model': vehicle['model'] or '',
-            'year': vehicle['year'] or '',
-            'registration': vehicle['license_plate'] or '',
-            'colour': vehicle['colour'] or '',
-            'vin': vehicle['vehicle_vin'] or '',
-            'mileage': vehicle['current_mileage'] or '',
-            'notes': vehicle_meta.get('notes', ''),
-            'created_at': vehicle['created_at']
+            "id": vehicle["id"], "make": vehicle["make"] or "", "model": vehicle["model"] or "",
+            "year": vehicle["year"] or "", "registration": vehicle["registration"] or "", "colour": "",
+            "vin": vehicle["vin"] or "", "mileage": vehicle["mileage"] or "", "notes": "",
+            "created_at": vehicle["created_at"],
         }
-
         return render_template("vehicle_edit.html", vehicle=vehicle_data)
 
     elif request.method == "POST":
-        # Update vehicle
         form_data = request.form
-        from database import execute_db, utc_now
-        from services.vehicle_service import upsert_vehicle
-        import json
 
-        # Extract form data
-        make = form_data.get("make", "").strip()
-        model = form_data.get("model", "").strip()
-        year_str = form_data.get("year", "").strip()
-        registration = form_data.get("registration", "").strip()
-        colour = form_data.get("colour", "").strip()
-        vin = form_data.get("vin", "").strip()
-        mileage_str = form_data.get("mileage", "").strip()
-        notes = form_data.get("notes", "").strip()
-
-        # Convert year and mileage to integers or None
-        try:
-            year = int(year_str) if year_str.isdigit() else None
-        except ValueError:
-            year = None
-        try:
-            mileage = int(mileage_str) if mileage_str.isdigit() else None
-        except ValueError:
-            mileage = None
-
-        now = utc_now()
-
-        # Get existing vehicle to preserve customer_id and location_id
         existing = query_db(
-            "SELECT customer_id, location_id FROM vehicles WHERE id = %s AND location_id = %s",
-            (vehicle_id, location_id),
-            one=True
+            "SELECT id, customer_id, location_id FROM vehicles WHERE id = %s AND location_id = %s",
+            (vehicle_id, location_id), one=True,
         )
         if not existing:
             abort(404)
 
-        customer_id = existing['customer_id']
-        # Verify location_id matches
-        if existing['location_id'] != location_id:
-            abort(403)  # Forbidden
+        make = form_data.get("make", "").strip()
+        model = form_data.get("model", "").strip()
+        year_str = form_data.get("year", "").strip()
+        registration = form_data.get("registration", "").strip()
+        vin = form_data.get("vin", "").strip()
+        mileage_str = form_data.get("mileage", "").strip()
+        notes = form_data.get("notes", "").strip()
+        # `colour` is intentionally accepted from the form and discarded --
+        # there is no real column for it in the current schema (see module
+        # docstring); it was never actually being persisted before this
+        # fix either, since the previous code wrote to a column
+        # (vehicles.colour) that doesn't exist and would have crashed
+        # before reaching any UPDATE at all.
 
-        # Use upsert_vehicle from vehicle_service to update
-        # Note: upsert_vehicle will update based on registration/vin, but we know the ID.
-        # However, we want to update the specific vehicle by ID.
-        # We'll do a direct update similar to customer_edit.
+        year = int(year_str) if year_str.isdigit() else None
+        mileage = int(mileage_str) if mileage_str.isdigit() else None
+        now = utc_now()
 
-        # Prepare metadata
-        metadata = {}
-        if mileage is not None:
-            # For update, we need to handle mileage history
-            # We'll retrieve the existing metadata to preserve history
-            existing_meta = {}
-            if vehicle['metadata_json']:
-                try:
-                    existing_meta = json.loads(vehicle['metadata_json'])
-                except (json.JSONDecodeError, TypeError):
-                    existing_meta = {}
-            # If mileage is increasing, add current mileage to history
-            current_mileage = existing_meta.get('current_mileage') if 'current_mileage' in existing_meta else None
-            if current_mileage is not None and mileage is not None and mileage > current_mileage:
-                history = existing_meta.get('mileage_history', [])
-                history.append(current_mileage)
-                metadata['mileage_history'] = history
-            # Update current mileage
-            metadata['current_mileage'] = mileage
-        else:
-            # Keep existing mileage if not provided
-            if vehicle['metadata_json']:
-                try:
-                    existing_meta = json.loads(vehicle['metadata_json'])
-                except (json.JSONDecodeError, TypeError):
-                    existing_meta = {}
-                metadata = existing_meta
-
-        if notes is not None:
-            metadata['notes'] = notes
-        metadata_json = json.dumps(metadata) if metadata else None
-
-        # Update vehicle
-        updates = {
-            "make": make,
-            "model": model,
-            "year": year,
-            "license_plate": registration,
-            "colour": colour,
-            "vehicle_vin": vin,
-            "current_mileage": mileage,
-            "metadata_json": metadata_json,
-            "updated_at": now
-        }
-
-        # Remove None values to avoid setting columns to NULL unintentionally
-        updates = {k: v for k, v in updates.items() if v is not None}
-
-        if updates:
-            set_clause = ", ".join([f"{key}=%s" for key in updates.keys()])
-            query = f"UPDATE vehicles SET {set_clause} WHERE id=%s AND location_id=%s"
-            params = list(updates.values()) + [vehicle_id, location_id]
-            execute_db(query, tuple(params))
+        execute_db(
+            "UPDATE vehicles SET make=%s, model=%s, year=%s, registration=%s, vin=%s, mileage=%s, updated_at=%s "
+            "WHERE id=%s AND location_id=%s",
+            (make, model, year, registration, vin, mileage, now, vehicle_id, location_id),
+        )
 
         flash('Vehicle updated successfully', 'success')
         return redirect(url_for('vehicles.vehicle_profile', vehicle_id=vehicle_id))

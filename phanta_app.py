@@ -183,8 +183,16 @@ def _inject_current_user():
     don't pass it individually. Under Flask's default (non-strict) Jinja
     Undefined, `{% if current_user %}` silently evaluated false, but any
     direct `.get(...)` call on it -- like workshop.html's very first line --
-    raised UndefinedError and 500'd the entire dashboard."""
-    return {"current_user": current_user()}
+    raised UndefinedError and 500'd the entire dashboard.
+
+    `now` is the same class of bug found separately in
+    templates/vehicle_edit.html (`{{ now.year }}`, used as the max value
+    for the vehicle year field) -- also never injected anywhere, which
+    500'd every visit to that page. Bundled into this same processor
+    rather than adding a second one for one variable.
+    """
+    from datetime import datetime, timezone
+    return {"current_user": current_user(), "now": datetime.now(timezone.utc)}
 
 
 @app.get("/health")
