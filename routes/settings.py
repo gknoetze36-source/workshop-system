@@ -20,6 +20,9 @@ def settings_business():
     if inactive_redirect:
         return inactive_redirect
     user = current_user()
+    if user.get("role") not in {"owner", "admin"}:
+        flash("Access denied. Administrator privileges required.", "error")
+        return redirect(url_for("workshop_dashboard.workshop_dashboard"))
     location_id = user["location_id"]
 
     if request.method == "GET":
@@ -91,7 +94,11 @@ def settings_hours():
     inactive_redirect = active_location_required()
     if inactive_redirect:
         return inactive_redirect
-    location_id = current_user()["location_id"]
+    user = current_user()
+    if user.get("role") not in {"owner", "admin", "manager"}:
+        flash("Access denied. Manager privileges required.", "error")
+        return redirect(url_for("workshop_dashboard.workshop_dashboard"))
+    location_id = user["location_id"]
     location = query_db(
         "SELECT operating_hours_json FROM locations WHERE id=%s", (location_id,), one=True
     ) or {}
@@ -159,7 +166,7 @@ def settings_users():
     location_id = user["location_id"]
     if user.get("role") not in {"owner", "admin"}:
         flash("Access denied. Administrator privileges required.", "error")
-        return redirect(url_for("settings.settings_overview"))
+        return redirect(url_for("workshop_dashboard.workshop_dashboard"))
 
     if request.method == "GET":
         users = query_db(
@@ -234,7 +241,11 @@ def settings_notifications():
     inactive_redirect = active_location_required()
     if inactive_redirect:
         return inactive_redirect
-    location_id = current_user()["location_id"]
+    user = current_user()
+    if user.get("role") not in {"owner", "admin", "manager"}:
+        flash("Access denied. Manager privileges required.", "error")
+        return redirect(url_for("workshop_dashboard.workshop_dashboard"))
+    location_id = user["location_id"]
     import json
     defaults = {
         "email_enabled": True, "whatsapp_enabled": True, "sms_enabled": False,
@@ -277,5 +288,9 @@ def settings_whatsapp():
     inactive_redirect = active_location_required()
     if inactive_redirect:
         return inactive_redirect
+    user = current_user()
+    if user.get("role") not in {"owner", "admin"}:
+        flash("Access denied. Administrator privileges required.", "error")
+        return redirect(url_for("workshop_dashboard.workshop_dashboard"))
     return render_template("connect_whatsapp.html", onboarding=False)
 

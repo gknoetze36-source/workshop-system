@@ -10,11 +10,11 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import create_engine, inspect, text
 
-from .connection import _database_url
+from .connection import _database_url, PRIMARY_SQLITE_PATH
 
 
 def _engine():
-    url = _database_url() or "sqlite:///phanta.db"
+    url = _database_url() or f"sqlite:///{PRIMARY_SQLITE_PATH}"
     return create_engine(
         url,
         future=True,

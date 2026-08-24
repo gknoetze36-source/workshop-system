@@ -20,7 +20,10 @@ def get_database_url() -> str:
     production = any(str(os.getenv(k, "")).lower() in {"1", "true", "yes", "production"} for k in ("FLASK_ENV", "APP_ENV", "RAILWAY_ENVIRONMENT"))
     if production and not url:
         raise RuntimeError("DATABASE_URL is required in production")
-    return url or "sqlite:///phanta.db"
+    if url:
+        return url
+    from database.connection import PRIMARY_SQLITE_PATH
+    return f"sqlite:///{PRIMARY_SQLITE_PATH}"
 
 
 def create_db_engine():
