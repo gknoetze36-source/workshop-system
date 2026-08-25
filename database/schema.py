@@ -173,6 +173,18 @@ def _create_tables(connection, backend):
         )
         """,
         f"""
+        CREATE TABLE IF NOT EXISTS notes (
+            id {primary_key},
+            location_id INTEGER,
+            subject_type TEXT,
+            subject_id INTEGER,
+            content TEXT,
+            created_by_user_id INTEGER,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
         CREATE TABLE IF NOT EXISTS communication_logs (
             id {primary_key},
             booking_id INTEGER,
