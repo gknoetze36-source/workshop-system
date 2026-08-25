@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Billing Statement{% endblock %}
+{% block content %}
+<style>
+  /* Print CSS: hides everything but the statement itself, sizes it to
+     exactly one A4 page so Ctrl+P produces a clean, complete printout
+     with nothing cut off and no wasted second page. */
+  @media print {
+    @page { size: A4; margin: 18mm; }
+    body * { visibility: hidden; }
+    .statement, .statement * { visibility: visible; }
+    .statement {
+      position: absolute; top: 0; left: 0;
+      width: 100%; max-width: none; margin: 0; padding: 0; box-shadow: none; border: none;
+    }
+    .no-print { display: none !important; }
+  }
+
+  .statement {
+    max-width: 720px;
+    margin: 0 auto;
+    background: var(--panel, #0d1f1c);
+    border: 1px solid var(--border, #1f3b35);
+    border-radius: 12px;
+    padding: 40px;
+  }
+  .statement-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    border-bottom: 1px solid var(--border, #1f3b35);
+    padding-bottom: 20px; margin-bottom: 24px;
+  }
+  .statement-header h1 { margin: 0 0 4px 0; font-size: 1.5rem; }
+  .statement-header .period { color: var(--text-muted, #9fb3ae); font-size: 0.95rem; }
+  .statement-status {
+    display: inline-block; padding: 4px 12px; border-radius: 999px;
+    font-size: 0.8rem; font-weight: 600; text-transform: capitalize;
+  }
+  .statement-status.paid { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
+  .statement-status.unpaid, .statement-status.action_required, .statement-status.payment_failed_final {
+    background: rgba(248, 113, 113, 0.15); color: #f87171;
+  }
+  .statement-section { margin-bottom: 24px; }
+  .statement-section h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted, #9fb3ae); margin-bottom: 12px; }
+  .statement-line {
+    display: flex; justify-content: space-between; padding: 8px 0;
+    border-bottom: 1px solid var(--border, #16302b);
+  }
+  .statement-line:last-child { border-bottom: none; }
+  .statement-total {
+    display: flex; justify-content: space-between; padding-top: 16px;
+    margin-top: 8px; border-top: 2px solid var(--border, #1f3b35);
+    font-size: 1.15rem; font-weight: 700;
+  }
+  .statement-actions { margin-top: 32px; }
+</style>
+
+<div class="topbar no-print">
+    <div class="heading">
+        <h1>Billing Statement</h1>
+        <p>An itemized record of what PHANTA did for you and what you were billed.</p>
+    </div>
+</div>
+
+{% if not recap %}
+<div class="statement">
+    <p>No billing period has been generated for {{ location.name if location else "your workshop" }} yet.</p>
+</div>
+{% else %}
+<div class="statement">
+    <div class="statement-header">
+        <div>
+            <h1>{{ location.name if location else "PHANTA" }}</h1>
+            <div class="period">Billing period: {{ recap.billing_period }}</div>
+        </div>
+        <span class="statement-status {{ recap.billing_status }}">{{ recap.billing_status|replace('_', ' ') }}</span>
+    </div>
+
+    <div class="statement-section">
+        <h2>What PHANTA did for you</h2>
+        <div class="statement-line"><span>Bookings handled</span><span>{{ recap.bookings_handled }}</span></div>
+        <div class="statement-line"><span>Bookings completed</span><span>{{ recap.bookings_completed }}</span></div>
+        <div class="statement-line"><span>Automated messages sent</span><span>{{ recap.automations_sent }}</span></div>
+        <div class="statement-line"><span>Flyer Lady posts published</span><span>{{ recap.flyer_posts_published }}</span></div>
+    </div>
+
+    <div class="statement-section">
+        <h2>Charges</h2>
+        <div class="statement-line"><span>Dashboard (flat monthly fee)</span><span>R{{ "%.2f"|format(recap.base_amount) }}</span></div>
+        <div class="statement-line"><span>Usage</span><span>R{{ "%.2f"|format(recap.usage_amount) }}</span></div>
+        <div class="statement-total"><span>Total</span><span>R{{ "%.2f"|format(recap.amount_due) }}</span></div>
+    </div>
+
+    <div class="statement-actions no-print">
+        <button type="button" class="button primary" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

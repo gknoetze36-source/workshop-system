@@ -509,6 +509,7 @@
                 <a class="nav-link {% if request.endpoint and request.endpoint.startswith('flyer_lady.') %}active{% endif %}" href="{{ url_for('flyer_lady.ui') }}">Flyer Lady</a>
 
                 <div class="nav-label">Manage</div>
+                <a class="nav-link {% if request.endpoint == 'billing_statement.billing_statement' %}active{% endif %}" href="{{ url_for('billing_statement.billing_statement') }}">Billing</a>
                 <a class="nav-link {% if request.endpoint and request.endpoint.startswith('settings.') %}active{% endif %}" href="{{ url_for('settings.settings_overview') }}">Settings</a>
             </nav>
             {% if current_user.get('email') or current_user.get('username') %}<div class="workshop-user">

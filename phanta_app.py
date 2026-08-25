@@ -47,6 +47,7 @@ from routes.webhooks import webhooks_bp
 from routes.paystack import paystack_bp
 from routes.flyer_lady import flyer_lady_bp
 from routes.billing_wall import billing_wall_bp
+from routes.billing_statement import billing_statement_bp
 from routes.ghost import ghost_bp
 from services.phanta_assistant import build_dashboard_assistant
 from services.customer_service import upsert_customer
@@ -113,6 +114,7 @@ csrf.exempt(webhooks_bp)
 csrf.exempt(paystack_bp)
 app.register_blueprint(flyer_lady_bp)
 app.register_blueprint(billing_wall_bp)
+app.register_blueprint(billing_statement_bp)
 app.register_blueprint(ghost_bp)
 
 
