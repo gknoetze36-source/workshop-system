@@ -36,7 +36,7 @@ from routes.automations import automations_bp
 from routes.vehicles import vehicles_bp
 from routes.dashboard import workshop_dashboard_bp, platform_dashboard_bp
 from routes.customer import customer_bp
-from routes.error import error_bp
+from routes.error import register_error_handlers
 from routes.meta import meta_bp
 from routes.meta_messaging import meta_messaging_bp
 from routes.bookings import bookings_bp
@@ -93,7 +93,7 @@ app.register_blueprint(workshop_dashboard_bp)
 app.register_blueprint(platform_dashboard_bp)
 app.register_blueprint(customer_bp)
 app.register_blueprint(vehicles_bp)
-app.register_blueprint(error_bp)
+register_error_handlers(app)
 app.register_blueprint(automations_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(onboarding_bp)

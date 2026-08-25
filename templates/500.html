@@ -37,7 +37,7 @@ Server Error
 
         <div class="actions">
 
-            {% if current_user.is_authenticated %}
+            {% if current_user %}
 
             <a
                 href="{{ url_for('workshop_dashboard.workshop_dashboard') }}"
