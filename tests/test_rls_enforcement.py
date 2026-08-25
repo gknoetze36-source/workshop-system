@@ -358,3 +358,97 @@ def test_settings_and_onboarding_user_management_survives_real_postgres_booleans
 
     row2 = query_db("SELECT active FROM users WHERE id=%s", (row["id"],), one=True)
     assert row2["active"] is False
+
+
+def test_inbound_whatsapp_message_fires_generic_automation_trigger(rls_test_env):
+    """Regression test for services/automation_engine.py's fire_event()
+    now being called from a real place -- integrations/meta/webhook/
+    event_handlers/message_handlers.py's inbound() -- added 2026-08-25 as
+    the generic "new message received" trigger (matching how Zapier
+    treats "new message" as a plain, reusable trigger any downstream
+    automation can react to, rather than a single-purpose one).
+
+    Runs a real inbound WhatsApp webhook payload through the actual
+    MetaWebhookRouter (not a direct fire_event() call) against a real
+    automation_rule seeded for event_type='message.received', and
+    confirms automation_logs shows it actually fired.
+
+    Postgres-only: fire_event() writes through the raw query_db/execute_db
+    layer from inside an open ORM session/transaction (the webhook
+    handler's), which is a combination not exercised anywhere else in
+    this codebase before this change. Confirmed directly that this
+    causes "database is locked" on SQLite (two connections contending
+    for the same file mid-transaction) but works cleanly on Postgres,
+    which is the actual deployment target -- consistent with every other
+    SQLite-vs-Postgres gap found this engagement.
+    """
+    import json
+    from database import execute_db, query_db, utc_now, get_session
+
+    execute_db(
+        "INSERT INTO owners (name, email, active, created_at, updated_at) VALUES (%s,%s,TRUE,%s,%s)",
+        ("Message Trigger Owner", "messagetrigger@test.example", utc_now(), utc_now()),
+    )
+    owner_id = query_db("SELECT id FROM owners WHERE email=%s", ("messagetrigger@test.example",), one=True)["id"]
+    execute_db(
+        "INSERT INTO locations (owner_id, name, industry, active, created_at, updated_at) VALUES (%s,%s,'workshop',TRUE,%s,%s)",
+        (owner_id, "Message Trigger Workshop", utc_now(), utc_now()),
+    )
+    location_id = query_db("SELECT id FROM locations WHERE owner_id=%s", (owner_id,), one=True)["id"]
+
+    from models.integration_models import MetaBusinessConnection
+    session = get_session()
+    try:
+        session.add(MetaBusinessConnection(
+            location_id=location_id, waba_id="WABA_TEST", phone_number_id="PHONE_TEST", connection_status="connected",
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    execute_db(
+        "INSERT INTO automation_templates (industry, name, event_type, default_delay_minutes, default_message, created_at, updated_at) "
+        "VALUES ('workshop', 'Custom message hook', 'message.received', 0, 'test', %s, %s)",
+        (utc_now(), utc_now()),
+    )
+    template_id = query_db("SELECT id FROM automation_templates WHERE event_type='message.received'", one=True)["id"]
+    execute_db(
+        "INSERT INTO automation_rules (location_id, template_id, name, event_type, active, delay_minutes, action_json, created_at, updated_at) "
+        "VALUES (%s, %s, 'Custom message hook', 'message.received', TRUE, 0, %s, %s, %s)",
+        (location_id, template_id, json.dumps({"action": "log_only", "params": {}}), utc_now(), utc_now()),
+    )
+
+    from integrations.meta.webhook.webhook_router import MetaWebhookRouter
+    session2 = get_session()
+    try:
+        router = MetaWebhookRouter(session2)
+        payload = {
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "id": "WABA_TEST",
+                "changes": [{
+                    "field": "messages",
+                    "value": {
+                        "metadata": {"phone_number_id": "PHONE_TEST"},
+                        "messages": [{
+                            "from": "27821110000", "id": "wamid.regression_test",
+                            "type": "text", "text": {"body": "Hi, is my car ready?"},
+                        }],
+                    },
+                }],
+            }],
+        }
+        result = router.dispatch(payload)
+        session2.commit()
+    finally:
+        session2.close()
+
+    assert result["accepted"] is True
+    assert result["results"][0]["result"]["stored"] is True
+
+    log_row = query_db(
+        "SELECT event_type, status FROM automation_logs WHERE location_id=%s AND event_type='message.received'",
+        (location_id,), one=True,
+    )
+    assert log_row is not None, "fire_event() must have run for the real inbound message"
+    assert log_row["status"] == "ok"

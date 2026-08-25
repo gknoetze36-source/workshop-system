@@ -69,6 +69,26 @@ class MetaMessageHandlers:
         )
         self.session.add(obj)
         self.session.flush()
+        # Generic hook for any automation_rule configured against
+        # "message.received" -- unlike booking.created/service.annual_due
+        # etc., this isn't tied to a specific canned template; it's the
+        # general-purpose "something arrived" trigger a client can build
+        # their own condition/action against (matching how Zapier treats
+        # "new message" as a plain, reusable trigger rather than a
+        # single-purpose one). Only fires for a genuinely new message,
+        # not a webhook redelivery of one already stored (see the
+        # `existing` check above) -- webhook_events already guards
+        # against the whole delivery being reprocessed, but this is a
+        # second, cheaper guard specifically for automation firing.
+        from services.automation_engine import fire_event
+        fire_event("message.received", location_id, context={
+            "customer_id": customer.id,
+            "conversation_id": conversation.id,
+            "message_id": obj.id,
+            "body": body,
+            "phone_number": normalized,
+            "channel": "whatsapp",
+        })
         return {
             "stored": True,
             "duplicate": False,
