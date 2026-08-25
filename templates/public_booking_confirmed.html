@@ -3,7 +3,6 @@
 {% block content %}
 <div class="auth-container">
   <div class="auth-card" style="max-width: 560px; text-align: center;">
-    <img src="{{ url_for('static', filename='images/phanta-ghost-mascot.jpg') }}" alt="" style="width:80px;height:auto;border-radius:10px;display:block;margin:0 auto 16px;">
     <h1>You're booked in!</h1>
     <p>{{ location.name }} has you down for <strong>{{ booking.service_type }}</strong> on
       <strong>{{ booking.start_time }}</strong>.</p>
