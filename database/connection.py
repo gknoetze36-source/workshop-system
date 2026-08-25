@@ -118,6 +118,25 @@ def _apply_request_rls_context(connection, backend):
         cursor.execute("SELECT set_config('app.platform_admin', %s, true)", ("1" if platform_admin else "",))
 
 
+def get_connection_from_url(database_url):
+    if not database_url:
+        raise RuntimeError("database_url is required")
+
+    if database_url.startswith(("postgres://", "postgresql://")):
+        import psycopg2
+
+        connection = psycopg2.connect(
+            database_url,
+            connect_timeout=int(os.environ.get("PGCONNECT_TIMEOUT", "5")),
+        )
+        connection.autocommit = False
+        return connection, "postgres"
+
+    connection = sqlite3.connect(database_url)
+    connection.row_factory = sqlite3.Row
+    return connection, "sqlite"
+
+
 def get_connection():
     database_url = _database_url()
     if database_url:

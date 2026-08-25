@@ -1,4 +1,6 @@
-from .connection import get_connection
+import os
+
+from .connection import get_connection, get_connection_from_url
 from .schema import _create_tables, _ensure_columns
 from .migrations import run_alembic_migrations
 from .indexes import _ensure_unique_username_index, _ensure_indexes
@@ -8,7 +10,12 @@ from .compatibility import ensure_orm_compatibility
 
 
 def initialize_database(*, run_migrations: bool = True):
-    connection, backend = get_connection()
+    if run_migrations and os.environ.get("ADMIN_DATABASE_URL"):
+        connection, backend = get_connection_from_url(
+            os.environ["ADMIN_DATABASE_URL"]
+        )
+    else:
+        connection, backend = get_connection()
     try:
         _create_tables(connection, backend)
         # owners/locations must exist before _ensure_columns touches them.
