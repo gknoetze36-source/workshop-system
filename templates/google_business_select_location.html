@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Connect Google Business Profile{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading">
+        <h1>Connect Google Business Profile</h1>
+        <p>Choose which Business Profile listing PHANTA should post specials to.</p>
+    </div>
+</div>
+
+<section class="card" style="max-width: 640px;">
+    {% if error %}
+    <p class="flash flash-error">{{ error }}</p>
+    <a href="{{ url_for('google_business.connect_start', onboarding='1' if onboarding else None) }}" class="btn btn-primary">Try again</a>
+    {% elif options %}
+    <form method="post" action="{{ url_for('google_business.connect_complete') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="onboarding" value="{{ '1' if onboarding else '' }}">
+        <label>Business Profile listing
+            <select name="_selection" id="location-select" required>
+                <option value="" disabled selected>Choose a listing</option>
+                {% for opt in options %}
+                <option value="{{ loop.index0 }}">{{ opt.title }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <input type="hidden" name="account_id" id="account_id_field">
+        <input type="hidden" name="google_location_id" id="location_id_field">
+        <input type="hidden" name="title" id="title_field">
+        <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Connect this listing</button>
+    </form>
+    <script>
+        const options = {{ options | tojson }};
+        const select = document.getElementById('location-select');
+        select.addEventListener('change', () => {
+            const opt = options[Number(select.value)];
+            if (!opt) return;
+            document.getElementById('account_id_field').value = opt.account_id;
+            document.getElementById('location_id_field').value = opt.location_id;
+            document.getElementById('title_field').value = opt.title;
+        });
+    </script>
+    {% endif %}
+
+    {% if onboarding %}
+    <p style="margin-top: 1.5rem;"><a href="{{ url_for('onboarding.onboarding') }}">Back to onboarding</a></p>
+    {% endif %}
+</section>
+{% endblock %}

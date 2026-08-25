@@ -94,7 +94,7 @@ def test_full_migration_chain_succeeds_from_empty_postgres(fresh_postgres_env):
         with conn.cursor() as cur:
             cur.execute("SELECT version_num FROM alembic_version")
             version = cur.fetchone()[0]
-            assert version == "0023_location_access_lock"
+            assert version == "0024_google_business_connections"
 
             cur.execute("SELECT to_regclass('public.tenants')")
             assert cur.fetchone()[0] is None, "a 'tenants' table should never exist - the location model is canonical"

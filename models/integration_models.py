@@ -3,6 +3,10 @@
 Google Calendar models are intentionally absent: PHANTA v1 does not use
 Google Calendar. Customer review URLs are stored on Location in models/core.py;
 they require no Google/HelloPeter API integration.
+
+GoogleBusinessConnection (below) is a different Google product --
+Google Business Profile posting (Local Posts), not Calendar -- and is
+not affected by the Calendar decision above.
 """
 
 from __future__ import annotations
@@ -342,6 +346,25 @@ class MetaSocialConnection(Base):
     token_key_version: Mapped[str] = mapped_column(String(20), default="v1", nullable=False)
     token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     permissions_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
+    connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class GoogleBusinessConnection(Base):
+    """Location-scoped Google Business Profile connection, for posting
+    Local Posts (see flyer_lady/platforms/google_business_publisher.py).
+    Mirrors MetaSocialConnection's shape -- same one-connection-per-
+    location pattern, same encrypted-token-at-rest approach."""
+    __tablename__ = "google_business_connections"
+    __table_args__ = (UniqueConstraint("location_id", name="uq_google_business_connection_location"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    google_account_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    google_location_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    business_name: Mapped[Optional[str]] = mapped_column(String(255))
+    encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    token_key_version: Mapped[str] = mapped_column(String(20), default="v1", nullable=False)
     connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

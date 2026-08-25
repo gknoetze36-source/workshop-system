@@ -3,9 +3,13 @@
 {% block content %}
 <div class="topbar">
   <div class="heading"><h1>Flyer Lady</h1><p>Submit a workshop special, approve it, then publish it publicly.</p></div>
-  <div class="actions"><a class="button secondary" href="{{ url_for('flyer_lady.social_connect_start') }}">Connect Facebook / Instagram</a></div>
+  <div class="actions">
+    <a class="button secondary" href="{{ url_for('flyer_lady.social_connect_start') }}">Connect Facebook / Instagram</a>
+    <a class="button secondary" href="{{ url_for('google_business.connect_start') }}">Connect Google Business Profile</a>
+  </div>
 </div>
-<div id="status" class="status-card" style="margin-bottom:24px;">Loading…</div>
+<div id="status" class="status-card" style="margin-bottom:8px;">Loading…</div>
+<div id="google-status" class="status-card" style="margin-bottom:24px;">Loading…</div>
 <div class="grid two">
   <section class="card">
     <h2>Create a special</h2>
@@ -43,11 +47,12 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 async function load(){
   const d=await api('{{ url_for("flyer_lady.index") }}');
   document.getElementById('status').innerHTML=d.social_connection.connected ? `Connected to <strong>${esc(d.social_connection.page_name||d.social_connection.page_id)}</strong>` : 'Facebook / Instagram is not connected yet.';
+  document.getElementById('google-status').innerHTML=d.google_connection.connected ? `Google Business Profile connected to <strong>${esc(d.google_connection.business_name||'your listing')}</strong>` : 'Google Business Profile is not connected yet.';
   document.getElementById('specials').innerHTML=d.specials.length?d.specials.map(s=>`<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p><div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue publishing</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div></div>`).join(''):'<p class="muted">No specials yet.</p>';
 }
 document.getElementById('special-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('{{ url_for("flyer_lady.create_special") }}',{method:'POST',body:JSON.stringify({location_id:Number(document.getElementById('location_id').value),text:document.getElementById('special_text').value,media_url:document.getElementById('media_url').value||null})});e.target.reset();await load();}catch(err){alert(err.message);}});
 async function approve(id){try{await api(`/dashboard/flyer-lady/specials/${id}/approval`,{method:'POST',body:JSON.stringify({decision:'approved'})});await load();}catch(e){alert(e.message)}}
-async function queue(id){try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms:['facebook_story','facebook_feed','whatsapp_status_prepared']})});for(const p of d.posts){if(p.platform!=='whatsapp_status_prepared') await api(`/dashboard/flyer-lady/special-posts/${p.id}/publish`,{method:'POST',body:'{}'});}await load();}catch(e){alert(e.message)}}
+async function queue(id){try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms:['facebook_story','facebook_feed','google_business_post','whatsapp_status_prepared']})});for(const p of d.posts){if(p.platform!=='whatsapp_status_prepared') await api(`/dashboard/flyer-lady/special-posts/${p.id}/publish`,{method:'POST',body:'{}'});}await load();}catch(e){alert(e.message)}}
 load().catch(e=>document.getElementById('status').textContent=e.message);
 </script>
 {% endblock %}

@@ -44,7 +44,9 @@ def index():
     try:
         specials = db.scalars(select(Special).where(Special.location_id == location_id).order_by(Special.created_at.desc()).limit(50)).all()
         connection = MetaSocialConnectionRepository().get_for_location(db, location_id)
-        return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": click_count(db, location_id, s.id)} for s in specials], "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}})
+        from models.integration_models import GoogleBusinessConnection
+        google_connection = db.query(GoogleBusinessConnection).filter_by(location_id=location_id).one_or_none()
+        return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": click_count(db, location_id, s.id)} for s in specials], "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "google_connection": {"connected": bool(google_connection and google_connection.connection_status == "connected"), "business_name": google_connection.business_name if google_connection else None}})
     finally: db.close()
 
 @flyer_lady_bp.post("/specials")
