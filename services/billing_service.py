@@ -10,30 +10,67 @@ _fetch_all = fetch_all
 def close_billing_period(usage_month=None, location_id=None):
     """
     Finalise a billing period and generate or update billing records.
+
+    Previously anchored on chatbot_usage_monthly rows -- a location that
+    had never sent a single WhatsApp message (a brand new signup that
+    hasn't connected WhatsApp yet, or one that only uses bookings/
+    dashboard features) had no usage row to join against, so this
+    produced zero billing_records for them, silently, even though they
+    still owe the flat monthly base fee. Found while end-to-end testing
+    the payment wall: a genuinely fresh location with no usage never got
+    billed at all via this function.
+
+    Now anchored on locations (active=TRUE) instead, LEFT JOIN to
+    chatbot_usage_monthly -- every active location gets a bill each
+    period regardless of whether they've used any metered features yet.
+    A missing usage row is created (zero usage) before the existing
+    per-row update/insert logic below runs unchanged.
     """
     usage_month = (usage_month or utc_today()[:7]).strip()
-    clauses = ["cum.usage_month=%s"]
-    args = [usage_month]
+    clauses = ["l.active=TRUE"]
+    args = []
     if location_id:
-        clauses.append("cum.location_id=%s")
+        clauses.append("l.id=%s")
         args.append(location_id)
-    rows = _fetch_all(
+    locations = _fetch_all(
         """
-        SELECT cum.*, f.monthly_base_price, f.monthly_message_limit, f.overage_price_per_message
-        FROM chatbot_usage_monthly cum
-        LEFT JOIN locations f ON f.id = cum.location_id
+        SELECT l.id AS location_id, l.monthly_base_price, l.monthly_message_limit, l.overage_price_per_message,
+               cum.id AS usage_row_id, cum.message_count, cum.message_limit AS usage_message_limit,
+               cum.base_price AS usage_base_price, cum.overage_price AS usage_overage_price
+        FROM locations l
+        LEFT JOIN chatbot_usage_monthly cum ON cum.location_id = l.id AND cum.usage_month = %s
         WHERE
         """
         + " AND ".join(clauses),
-        tuple(args),
+        tuple([usage_month] + args),
     )
     with transaction():
         closed = 0
-        for row in rows:
-            limit = int(row.get("message_limit") or row.get("monthly_message_limit") or 2000)
-            overage_price = float(row.get("overage_price") or row.get("overage_price_per_message") or 0.5)
-            base_price = float(row.get("base_price") or row.get("monthly_base_price") or 0)
-            extra = max(int(row.get("message_count") or 0) - limit, 0)
+        for row in locations:
+            usage_row_id = row.get("usage_row_id")
+            if usage_row_id is None:
+                # No usage row for this location/period at all -- create a
+                # zero-usage one so the update below has something to
+                # update, matching what services/usage_service.py's
+                # track_message_usage() creates on a real message send.
+                execute_db(
+                    "INSERT INTO chatbot_usage_monthly (location_id, usage_month, message_count, base_price, overage_price, extra_messages, overage_cost, total_due, created_at, updated_at) "
+                    "VALUES (%s, %s, 0, %s, %s, 0, 0, %s, %s, %s)",
+                    (row["location_id"], usage_month, row.get("monthly_base_price") or 0, row.get("overage_price_per_message") or 0.5,
+                     row.get("monthly_base_price") or 0, utc_now(), utc_now()),
+                )
+                usage_row_id = _fetch_one(
+                    "SELECT id FROM chatbot_usage_monthly WHERE location_id=%s AND usage_month=%s",
+                    (row["location_id"], usage_month),
+                )["id"]
+                message_count = 0
+            else:
+                message_count = row.get("message_count") or 0
+
+            limit = int(row.get("usage_message_limit") or row.get("monthly_message_limit") or 2000)
+            overage_price = float(row.get("usage_overage_price") or row.get("overage_price_per_message") or 0.5)
+            base_price = float(row.get("usage_base_price") or row.get("monthly_base_price") or 0)
+            extra = max(int(message_count) - limit, 0)
             # round() here, not just at the Paystack charge boundary: plain
             # float multiplication produces artifacts like
             # 333 * 0.1 == 33.300000000000004. charge_overage() already
@@ -46,7 +83,7 @@ def close_billing_period(usage_month=None, location_id=None):
             total_due = round(base_price + usage_amount, 2)
             execute_db(
                 "UPDATE chatbot_usage_monthly SET message_limit=%s, extra_messages=%s, base_price=%s, overage_price=%s, overage_cost=%s, total_due=%s, updated_at=%s WHERE id=%s",
-                (limit, extra, base_price, overage_price, usage_amount, total_due, utc_now(), row["id"]),
+                (limit, extra, base_price, overage_price, usage_amount, total_due, utc_now(), usage_row_id),
             )
             existing = _fetch_one("SELECT id FROM billing_records WHERE location_id=%s AND billing_period=%s", (row["location_id"], usage_month))
             if existing:

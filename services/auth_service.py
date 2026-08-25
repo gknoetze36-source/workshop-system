@@ -1,6 +1,6 @@
 from functools import wraps
 from werkzeug.security import check_password_hash, generate_password_hash
-from flask import session, redirect, url_for, flash
+from flask import session, redirect, url_for, flash, request
 from database import query_db, execute_db, utc_now
 import logging
 
@@ -50,10 +50,22 @@ def active_location_required():
         return redirect(url_for("auth.logout"))
     if not location_id:
         return redirect(url_for("onboarding.onboarding_location"))
-    location=query_db("SELECT id,owner_id,active FROM locations WHERE id=%s AND owner_id=%s AND active=TRUE",(location_id,owner_id),one=True)
+    location=query_db("SELECT id,owner_id,active,access_locked FROM locations WHERE id=%s AND owner_id=%s AND active=TRUE",(location_id,owner_id),one=True)
     if not location:
         flash("Your location is inactive or unavailable. Please contact administrator.","error")
         return redirect(url_for("auth.logout"))
+    # "If you do not pay, you do not use the system" -- access_locked is set
+    # by services/automatic_billing_service.py when a bill goes unpaid with
+    # no working payment method. Every route in the app already calls this
+    # function via the inactive_redirect pattern, so this is the single
+    # enforcement point for the whole app rather than a separate check
+    # bolted onto each route. The wall route itself, login, and logout must
+    # stay reachable while locked, or a locked-out owner could never pay
+    # their way back in.
+    if location.get("access_locked") and request.endpoint not in {
+        "billing_wall.pay_wall", "billing_wall.attempt_payment", "auth.logout", "auth.login",
+    }:
+        return redirect(url_for("billing_wall.pay_wall"))
     return None
 
 def login_required(view):

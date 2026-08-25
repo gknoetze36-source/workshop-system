@@ -21,6 +21,19 @@ def _is_platform_admin():
 def workshop_dashboard():
     if _is_platform_admin():
         return redirect(url_for("platform_dashboard.platform_dashboard"))
+    # Every other route in the app gates on active_location_required() --
+    # this one, the single most important page in the app, never did.
+    # Found while verifying the new payment wall: locking a location
+    # (locations.access_locked=TRUE) correctly blocked every other route
+    # but not this one, since it only ever checked current_location_id()
+    # (session has a location_id) rather than whether that location is
+    # actually active/unlocked. Pre-existing gap, not introduced by the
+    # payment wall -- a deactivated location's dashboard was reachable
+    # before access_locked existed too.
+    from services.auth_service import active_location_required
+    inactive_redirect = active_location_required()
+    if inactive_redirect:
+        return inactive_redirect
     try:
         location_id = current_location_id()
     except PermissionError as exc:
@@ -48,6 +61,10 @@ def workshop_dashboard():
 
 @workshop_dashboard_bp.post("/notes")
 def create_subject_note():
+    from services.auth_service import active_location_required
+    inactive_redirect = active_location_required()
+    if inactive_redirect:
+        return jsonify({"error": "Access is currently restricted for this location."}), 403
     try:
         location_id = current_location_id()
     except PermissionError as exc:
@@ -86,6 +103,10 @@ def create_subject_note():
 
 @workshop_dashboard_bp.get("/data")
 def workshop_dashboard_data():
+    from services.auth_service import active_location_required
+    inactive_redirect = active_location_required()
+    if inactive_redirect:
+        return jsonify({"error": "Access is currently restricted for this location."}), 403
     try:
         location_id = current_location_id()
     except PermissionError as exc:

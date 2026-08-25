@@ -94,10 +94,21 @@ def ensure_owner_location_foundation(connection, backend):
             description TEXT,
             daily_capacity INTEGER DEFAULT 12,
             public_booking_enabled {boolean} DEFAULT TRUE,
+            access_locked {boolean} DEFAULT FALSE,
+            access_locked_reason TEXT,
+            access_locked_at TEXT,
             created_at TEXT,
             updated_at TEXT
         )
     """)
+
+    # Existing SQLite files created before these columns existed won't have
+    # them from the CREATE TABLE above (CREATE TABLE IF NOT EXISTS is a
+    # no-op against an already-present table) -- add_column for the same
+    # reason the block below does it for users/SCOPED_TABLES.
+    _add_column(connection, backend, "locations", "access_locked", f"{boolean} DEFAULT FALSE" if backend == "postgres" else f"{boolean} DEFAULT 0")
+    _add_column(connection, backend, "locations", "access_locked_reason", "TEXT")
+    _add_column(connection, backend, "locations", "access_locked_at", "TEXT")
 
     # Canonical identity/scope columns used by the active application.
     _add_column(connection, backend, "users", "owner_id", "INTEGER")

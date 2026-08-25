@@ -130,6 +130,7 @@ def charge_billing_record(location_id: int, record: dict) -> dict:
         # pay through that link, the charge.success webhook captures their
         # authorization and every subsequent period auto-charges normally.
         from services.billing_service import create_payment_link
+        from services.access_lock_service import lock_location
         message = "no saved Paystack authorization; sent a payment link instead"
         try:
             link = create_payment_link(billing_id)
@@ -139,6 +140,11 @@ def charge_billing_record(location_id: int, record: dict) -> dict:
             message = f"no saved authorization, and creating a payment link also failed: {exc}"
         _record_attempt(billing_id, error=message)
         _release_billing_record(billing_id, status="unpaid")
+        # Nothing to automatically charge -- lock immediately rather than
+        # wait for retries that can't succeed without a card on file.
+        # "If you do not pay, you do not use the system" applies from the
+        # very first unpaid bill, not just after repeated failures.
+        lock_location(location_id, "No payment method on file. Add one to keep using PHANTA.")
         return {"billing_id": billing_id, "status": "no_authorization", "error": message, "payment_link": link}
 
     reference = f"phanta-billing-{billing_id}-{record['billing_period']}-{uuid.uuid4().hex[:8]}"
@@ -159,19 +165,29 @@ def charge_billing_record(location_id: int, record: dict) -> dict:
     status = data.get("status")
     if status == "success":
         from services.billing_service import mark_billing_paid
+        from services.access_lock_service import unlock_location
         mark_billing_paid(location_id, record["billing_period"], payment_reference=data.get("reference") or reference)
         execute_db(
             "UPDATE billing_records SET charge_reference=%s, last_error=NULL, updated_at=%s WHERE id=%s",
             (data.get("reference") or reference, utc_now(), billing_id),
         )
+        # Payment resolved -- if this location had been locked out (this
+        # bill, or an earlier one), restore access immediately rather than
+        # wait for a human or another cron cycle to notice.
+        unlock_location(location_id)
         return {"billing_id": billing_id, "status": "paid", "amount": amount}
 
     # Paystack returns paused=true when a card is challenged (3DS/OTP).
     # That needs customer interaction, so it is not a retryable decline.
     if data.get("paused"):
+        from services.access_lock_service import lock_location
         message = "charge requires customer authentication (3DS/OTP)"
         _record_attempt(billing_id, error=message, charge_reference=reference)
         _release_billing_record(billing_id, status="action_required")
+        # Automatic retries can't resolve a 3DS/OTP challenge -- only the
+        # customer can, so lock immediately rather than let it sit unpaid
+        # and unattended until the next automatic attempt.
+        lock_location(location_id, "Your bank needs you to confirm this payment. Please try again.")
         return {"billing_id": billing_id, "status": "requires_authentication", "error": message}
 
     message = data.get("gateway_response") or "charge declined"
@@ -183,6 +199,13 @@ def charge_billing_record(location_id: int, record: dict) -> dict:
         # (status='unpaid'), which made the two impossible to tell apart
         # without cross-referencing the attempts column by hand.
         _release_billing_record(billing_id, status="payment_failed_final")
+        # Retries are exhausted with no resolution -- lock now. A single
+        # declined attempt does NOT lock immediately (see MAX_ATTEMPTS and
+        # the backoff in _attempt_is_due): a transient decline deserves a
+        # real retry window before cutting access, but repeated failure
+        # with no fix in sight does not.
+        from services.access_lock_service import lock_location
+        lock_location(location_id, f"Payment failed after {MAX_ATTEMPTS} attempts: {message}")
     else:
         _release_billing_record(billing_id, status="unpaid")
     return {"billing_id": billing_id, "status": "declined", "error": message}

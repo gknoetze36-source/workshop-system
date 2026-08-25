@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Payment Required{% endblock %}
+{% block content %}
+<div class="topbar">
+    <div class="heading">
+        <h1>Payment required</h1>
+        <p>{{ location.access_locked_reason or "Your account needs attention before you can continue." }}</p>
+    </div>
+</div>
+
+<section class="card" style="max-width: 640px;">
+    {% if recap %}
+    <h2>What PHANTA did for you in {{ recap.billing_period }}</h2>
+    <div class="grid two" style="margin: 1rem 0;">
+        <div>
+            <strong>{{ recap.bookings_handled }}</strong>
+            <p>Bookings handled{% if recap.bookings_completed %} ({{ recap.bookings_completed }} completed){% endif %}</p>
+        </div>
+        <div>
+            <strong>{{ recap.automations_sent }}</strong>
+            <p>Automated messages sent</p>
+        </div>
+        <div>
+            <strong>{{ recap.flyer_posts_published }}</strong>
+            <p>Flyer Lady posts published</p>
+        </div>
+        <div>
+            <strong>R{{ "%.2f"|format(recap.amount_due) }}</strong>
+            <p>Amount due (R{{ "%.2f"|format(recap.base_amount) }} base + R{{ "%.2f"|format(recap.usage_amount) }} usage)</p>
+        </div>
+    </div>
+    {% endif %}
+
+    <p>
+        {% if billing_record and billing_record.status == 'payment_failed_final' %}
+        We tried charging your card several times and it didn't go through. Update your payment method to keep using PHANTA.
+        {% elif billing_record and billing_record.status == 'action_required' %}
+        Your bank needs you to confirm this payment before we can complete it.
+        {% else %}
+        Add a payment method to continue. Once it's on file, PHANTA charges you automatically each month -- you won't see this screen again unless a payment genuinely fails.
+        {% endif %}
+    </p>
+
+    <form method="post" action="{{ url_for('billing_wall.attempt_payment') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-primary">Retry payment now</button>
+    </form>
+
+    {% if billing_record and billing_record.payment_link %}
+    <p style="margin-top: 1rem;">
+        Or <a href="{{ billing_record.payment_link }}" target="_blank" rel="noopener">pay securely via Paystack</a> to add your card.
+    </p>
+    {% endif %}
+</section>
+{% endblock %}

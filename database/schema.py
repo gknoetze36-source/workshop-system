@@ -172,7 +172,13 @@ def _create_tables(connection, backend):
             sent_at TEXT
         )
         """,
-        f"""
+        # SQLite-only: on Postgres, notes is created by migration 0015
+        # (with RLS policies this raw statement can't set up anyway), which
+        # has no existence guard -- creating it here too on a fresh Postgres
+        # deploy raced with that migration and made predeploy fail outright
+        # with "relation notes already exists". SQLite never runs Alembic
+        # at all (see tests/test_boot_smoke.py), so it still needs this.
+        (f"""
         CREATE TABLE IF NOT EXISTS notes (
             id {primary_key},
             location_id INTEGER,
@@ -183,7 +189,7 @@ def _create_tables(connection, backend):
             created_at TEXT,
             updated_at TEXT
         )
-        """,
+        """ if backend != "postgres" else "SELECT 1"),
         f"""
         CREATE TABLE IF NOT EXISTS communication_logs (
             id {primary_key},
