@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Connect Flyer Lady{% endblock %}
+{% block content %}
+<section class="v-card" style="max-width:760px;margin:32px auto;">
+  <div class="v-card-header">
+    <div>
+      <h1 class="v-card-title">Connect Flyer Lady</h1>
+      <p class="v-card-subtitle">Connect your workshop's Facebook Page so Flyer Lady can post specials to Facebook and Instagram.</p>
+    </div>
+  </div>
+
+  {% if connection %}
+    <div class="status-card" style="margin:20px 0;">
+      <strong>Current connection:</strong>
+      {{ connection.connection_status|replace('_', ' ')|title }}
+      {% if connection.page_name %} · {{ connection.page_name }}{% endif %}
+    </div>
+  {% endif %}
+
+  <p>PHANTA will open Meta's secure signup window. You will choose your workshop's Facebook Page there, and PHANTA will use it to publish specials to Facebook and Instagram.</p>
+
+  <a href="{{ url_for('flyer_lady.social_connect_start', onboarding='1') }}" class="button primary">{% if connection and connection.connection_status == "connected" %}Reconnect Flyer Lady{% else %}Connect Flyer Lady{% endif %}</a>
+
+  {% if onboarding %}
+    <p style="margin-top:24px;"><a href="{{ url_for('onboarding.onboarding_business') }}">Skip for now</a> &middot; <a href="{{ url_for('onboarding.onboarding') }}">Back to onboarding</a></p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 import secrets
 from urllib.parse import urlencode
-from flask import Blueprint, jsonify, redirect, request, session as flask_session, url_for
+from flask import Blueprint, jsonify, redirect, render_template, request, session as flask_session, url_for
 from sqlalchemy import select
 from database import get_session, get_platform_session, location_transaction
 from helpers.location import current_location_id
@@ -125,33 +125,58 @@ def social_connect_start():
     state = secrets.token_urlsafe(32)
     flask_session["flyer_lady_oauth_state"] = state
     flask_session["flyer_lady_oauth_redirect_uri"] = redirect_uri
+    # Carried via session, not appended to redirect_uri as a query param --
+    # Meta typically requires an exact match against the pre-registered
+    # redirect URI, so mutating it here to carry onboarding context risks
+    # breaking the OAuth callback entirely.
+    flask_session["flyer_lady_oauth_onboarding"] = request.args.get("onboarding") == "1"
     scopes = os.getenv("META_SOCIAL_OAUTH_SCOPES", "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,business_management,instagram_basic,instagram_content_publish")
     params = urlencode({"client_id": config.app_id, "config_id": config.social_config_id, "redirect_uri": redirect_uri, "state": state, "scope": scopes, "response_type": "code"})
     return redirect(f"https://www.facebook.com/{config.graph_api_version}/dialog/oauth?{params}")
 
 @flyer_lady_bp.get("/connect/callback")
 def social_connect_callback():
+    """Facebook redirects the user's real browser here after they approve
+    (or decline) the OAuth dialog -- this is always a full page navigation,
+    never a fetch/AJAX call. It previously returned bare JSON, which meant
+    a real person completing this flow saw a blank JSON page with no way
+    to actually pick their Facebook Page and finish connecting -- Flyer
+    Lady's social connection had never been completable through a browser
+    anywhere in the app; templates/flyer_lady.html's only entry point is a
+    plain link to /connect/start, and nothing existed to receive Facebook's
+    redirect back.
+
+    Now renders a real page listing the Pages Meta returned, so the user
+    can actually pick one and finish (see /connect/complete below, which
+    the page's own form submits to).
+    """
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
-    if request.args.get("state") != flask_session.get("flyer_lady_oauth_state"): return jsonify({"error": "invalid OAuth state"}), 400
+    onboarding = bool(flask_session.get("flyer_lady_oauth_onboarding"))
+    if request.args.get("state") != flask_session.get("flyer_lady_oauth_state"):
+        return render_template("flyer_lady_select_page.html", error="Your Meta session expired or is invalid. Please try connecting again.", onboarding=onboarding), 400
     code = request.args.get("code")
-    if not code: return jsonify({"error": request.args.get("error_description", "Meta authorization failed")}), 400
+    if not code:
+        return render_template("flyer_lady_select_page.html", error=request.args.get("error_description", "Meta authorization failed or was cancelled."), onboarding=onboarding), 400
     config = MetaAuthConfig.from_env()
     redirect_uri = flask_session.get("flyer_lady_oauth_redirect_uri")
     if not redirect_uri:
-        return jsonify({"error": "OAuth redirect URI session state is missing or expired"}), 400
+        return render_template("flyer_lady_select_page.html", error="Your session expired. Please try connecting again.", onboarding=onboarding), 400
     client = GraphApiClient(config)
     response = client.session.get(config.graph_base_url() + "/oauth/access_token", params={"client_id": config.app_id, "client_secret": config.app_secret, "redirect_uri": redirect_uri, "code": code}, headers={"Accept": "application/json"}, timeout=15)
     try: token_payload = response.json()
     except ValueError: token_payload = {}
-    if not response.ok or not token_payload.get("access_token"): return jsonify({"error": "Meta authorization token exchange failed"}), 502
+    if not response.ok or not token_payload.get("access_token"):
+        return render_template("flyer_lady_select_page.html", error="Meta authorization token exchange failed. Please try again.", onboarding=onboarding), 502
     db = get_session()
     try:
         oauth = MetaSocialOAuthSession(location_id=location_id, state_nonce=flask_session["flyer_lady_oauth_state"], encrypted_user_access_token="", redirect_uri=redirect_uri, status="started", expires_at=datetime.now(timezone.utc) + timedelta(minutes=15))
         db.add(oauth); db.flush(); MetaTokenStore().save_social_oauth_token(db, oauth, token_payload["access_token"])
         pages = MetaSocialGraphClient(client).list_pages(token_payload["access_token"]).get("data", [])
         oauth.status = "pages_loaded"; db.commit(); flask_session.pop("flyer_lady_oauth_state", None)
-        return jsonify({"status": "select_page", "oauth_session_id": oauth.id, "pages": [{"id": p.get("id"), "name": p.get("name"), "tasks": p.get("tasks", [])} for p in pages], "message": "POST oauth_session_id and page_id to /dashboard/flyer-lady/connect/complete"})
+        if not pages:
+            return render_template("flyer_lady_select_page.html", error="Meta didn't return any Facebook Pages for this account. Make sure you're an admin of the Page you want to connect.", onboarding=onboarding)
+        return render_template("flyer_lady_select_page.html", oauth_session_id=oauth.id, pages=pages, onboarding=onboarding)
     except Exception:
         db.rollback(); raise
     finally:
@@ -161,24 +186,49 @@ def social_connect_callback():
 def social_connect_complete():
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
-    payload = request.get_json(silent=True) or {}
+    is_form_post = request.form and not request.is_json
+    payload = request.form if is_form_post else (request.get_json(silent=True) or {})
+    onboarding = payload.get("onboarding") == "1" or payload.get("onboarding") is True
     oauth_session_id = payload.get("oauth_session_id")
     page_id = payload.get("page_id")
+
+    def _fail(message, status=400):
+        if is_form_post:
+            return render_template("flyer_lady_select_page.html", error=message, onboarding=onboarding), status
+        return jsonify({"error": message}), status
+
     db = get_session()
     try:
         oauth = db.scalar(select(MetaSocialOAuthSession).where(MetaSocialOAuthSession.id == oauth_session_id, MetaSocialOAuthSession.location_id == location_id))
-        if not oauth or oauth.status != "pages_loaded" or oauth.consumed_at is not None or oauth.expires_at <= datetime.now(timezone.utc): return jsonify({"error": "invalid or expired social connection session"}), 400
+        if not oauth or oauth.status != "pages_loaded" or oauth.consumed_at is not None:
+            return _fail("invalid or expired social connection session")
+        # expires_at is declared DateTime(timezone=True) and always written
+        # as an aware UTC value, but SQLAlchemy only round-trips that
+        # timezone info through Postgres -- SQLite silently returns it
+        # naive, which raised TypeError comparing it against an aware
+        # datetime.now(timezone.utc) here. Normalizing rather than
+        # assuming either backend's behavior, since this exact
+        # DateTime(timezone=True) pattern is used elsewhere in this
+        # codebase (integrations/meta/services/) and could hit the same
+        # gap under SQLite.
+        expires_at = oauth.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            return _fail("invalid or expired social connection session")
         user_token = MetaTokenStore().get_social_oauth_token(oauth)
         pages = MetaSocialGraphClient(GraphApiClient(MetaAuthConfig.from_env())).list_pages(user_token).get("data", [])
         page = next((p for p in pages if str(p.get("id")) == str(page_id)), None)
-        if not page: return jsonify({"error": "page_id was not returned by Meta for this connection"}), 400
+        if not page: return _fail("page_id was not returned by Meta for this connection")
         page_token = page.get("access_token")
-        if not page_token: return jsonify({"error": "selected Page did not return an access token"}), 400
+        if not page_token: return _fail("selected Page did not return an access token")
         connection = MetaSocialConnectionRepository().upsert(db, location_id, page_id=str(page["id"]), page_name=page.get("name"), instagram_business_account_id=(page.get("instagram_business_account") or {}).get("id"), permissions_json={"tasks": page.get("tasks", [])}, connection_status="connected")
         MetaTokenStore().save_social_token(db, connection, page_token)
         oauth.status = "consumed"; oauth.consumed_at = datetime.now(timezone.utc)
         db.add(AuditLog(location_id=location_id, actor=_actor(), action="flyer_social_connected", entity_type="MetaSocialConnection", entity_id=str(connection.id), after={"page_id": connection.page_id}))
         db.commit()
+        if is_form_post:
+            return redirect(url_for("onboarding.onboarding_business") if onboarding else url_for("flyer_lady.ui"))
         return jsonify({"status": "connected", "page_id": connection.page_id, "page_name": connection.page_name, "instagram_business_account_id": connection.instagram_business_account_id})
     except Exception:
         db.rollback(); raise

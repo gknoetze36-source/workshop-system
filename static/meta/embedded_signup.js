@@ -110,7 +110,7 @@
       setStatus("WhatsApp connected successfully.");
       setTimeout(() => {
         if (window.location.pathname === "/onboarding/whatsapp") {
-          window.location.href = "/onboarding/automation";
+          window.location.href = "/onboarding/flyer-lady";
         }
       }, 800);
     } catch (error) {

@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from database import query_db, execute_db, utc_now, get_session
 from sqlalchemy import select
-from models.integration_models import MetaBusinessConnection
+from models.integration_models import MetaBusinessConnection, MetaSocialConnection
 from services.auth_service import active_location_required, login_required, current_user
 from services.industry import get_industry_profile
 
@@ -76,7 +76,7 @@ def onboarding_location():
             session_user["location_id"] = existing["id"]
             from flask import session
             session["user"] = session_user
-        return redirect(url_for("onboarding.onboarding_business"))
+        return redirect(url_for("onboarding.onboarding_whatsapp"))
 
     industries = [
         {"value": key, "label": get_industry_profile(key)["label"]}
@@ -105,7 +105,7 @@ def onboarding_location():
         session_user["location_id"] = existing["id"]
         from flask import session
         session["user"] = session_user
-        return redirect(url_for("onboarding.onboarding_business"))
+        return redirect(url_for("onboarding.onboarding_whatsapp"))
 
     owner = query_db("SELECT id,name,email,active FROM owners WHERE id=%s", (owner_id,), one=True)
     if not owner or not owner.get("active", True):
@@ -126,7 +126,7 @@ def onboarding_location():
 
     _create_or_update_onboarding_state(location_id)
     flash("Location created. Continue with your location configuration.", "success")
-    return redirect(url_for("onboarding.onboarding_business"))
+    return redirect(url_for("onboarding.onboarding_whatsapp"))
 
 
 @onboarding_bp.route("/onboarding")
@@ -155,12 +155,20 @@ def onboarding():
     # Calculate completion percentage
     completion_percentage = onboarding_state.get('setup_progress', 0) if onboarding_state else 0
 
-    # Determine current step based on progress
-    current_step = 'business'
-    if completion_percentage >= 20:
+    # Determine current step based on progress. Order matches the actual
+    # redirect chain: location -> whatsapp -> flyer-lady -> business ->
+    # services -> automation -> team -> review. WhatsApp and Flyer Lady
+    # moved to the front of onboarding (Flyer Lady is new here entirely --
+    # it never had an onboarding step before) so both channel connections
+    # happen immediately after creating a location, ahead of the more
+    # administrative steps.
+    current_step = 'whatsapp'
+    if completion_percentage >= 15:
+        current_step = 'flyer_lady'
+    if completion_percentage >= 30:
+        current_step = 'business'
+    if completion_percentage >= 45:
         current_step = 'services'
-    if completion_percentage >= 40:
-        current_step = 'whatsapp'
     if completion_percentage >= 60:
         current_step = 'automation'
     if completion_percentage >= 80:
@@ -398,6 +406,39 @@ def onboarding_whatsapp():
         )
     finally:
         session_db.close()
+
+
+@onboarding_bp.route("/onboarding/flyer-lady", methods=["GET"])
+@login_required
+def onboarding_flyer_lady():
+    """Connect Flyer Lady's Facebook Page as part of initial account setup,
+    the same way onboarding_whatsapp() above connects WhatsApp -- moved
+    here (and WhatsApp moved earlier too, see the redirect chain through
+    this file) so both channel connections happen immediately after
+    creating a location, rather than being buried later in onboarding or,
+    for Flyer Lady specifically, never being part of onboarding at all."""
+    inactive_redirect = active_location_required()
+    if inactive_redirect:
+        return inactive_redirect
+
+    user = current_user()
+    location_id = user["location_id"]
+
+    session_db = get_session()
+    try:
+        connection = session_db.scalar(
+            select(MetaSocialConnection).where(
+                MetaSocialConnection.location_id == location_id
+            )
+        )
+        return render_template(
+            "connect_flyer_lady.html",
+            connection=connection,
+            onboarding=True,
+        )
+    finally:
+        session_db.close()
+
 
 @onboarding_bp.route("/onboarding/automation", methods=["GET", "POST"])
 @login_required
