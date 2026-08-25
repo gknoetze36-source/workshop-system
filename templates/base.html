@@ -483,8 +483,13 @@
         <aside class="sidebar" aria-label="Primary navigation">
             {% if g.is_phanta_admin %}
             <div>
-                <div class="brand-title">PHANTA</div>
-                <div class="brand-copy">Platform Operations</div>
+                <div class="brand-lockup">
+                    <img class="brand-mark" src="{{ url_for('static', filename='images/phanta-ghost-icon.jpg') }}" alt="" aria-hidden="true">
+                    <div>
+                        <div class="brand-title">PHANTA</div>
+                        <div class="brand-copy">Platform Operations</div>
+                    </div>
+                </div>
             </div>
             <nav class="nav-group">
                 <a class="nav-link {% if request.endpoint == 'platform_dashboard.platform_dashboard' %}active{% endif %}" href="{{ url_for('platform_dashboard.platform_dashboard') }}">Platform Overview</a>
@@ -495,7 +500,7 @@
             {% else %}
             <div>
                 <div class="brand-lockup">
-                    <div class="brand-mark" aria-hidden="true">P</div>
+                    <img class="brand-mark" src="{{ url_for('static', filename='images/phanta-ghost-icon.jpg') }}" alt="" aria-hidden="true">
                     <div>
                         <div class="brand-title">PHANTA</div>
                         <div class="brand-copy">Workshop Management</div>
