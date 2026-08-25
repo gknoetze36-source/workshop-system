@@ -66,14 +66,26 @@ def settings_business():
         ]
 
         aliases = {"email": "contact_email", "primary_whatsapp_number": "contact_phone", "secondary_phone_number": "contact_phone"}
+        # These form field names are checked to decide whether an empty
+        # submission should explicitly clear the target column, so the
+        # membership check must happen BEFORE aliasing renames `field` to
+        # its target column -- checking after (the previous order) tested
+        # the aliased name (e.g. "contact_phone") against a list that only
+        # ever contains the original form field name
+        # ("secondary_phone_number"), so an empty secondary_phone_number
+        # submission silently failed to clear contact_phone.
+        clearable_form_fields = [
+            'trading_name', 'business_registration_number', 'vat_number',
+            'secondary_phone_number', 'website', 'description',
+        ]
         for field in fields + ["email", "primary_whatsapp_number", "secondary_phone_number"]:
             if field in form_data:
                 value = form_data[field].strip()
+                is_clearable = field in clearable_form_fields
                 field = aliases.get(field, field)
                 if value:  # Only update if not empty
                     updates[field] = value
-                elif field in ['trading_name', 'business_registration_number', 'vat_number',
-                              'secondary_phone_number', 'website', 'description']:
+                elif is_clearable:
                     # These can be explicitly set to empty
                     updates[field] = ""
 
@@ -214,7 +226,7 @@ def settings_users():
                (owner_id,location_id,username,email,password,password_hash,full_name,role,active,must_reset_password,created_at,updated_at)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (user.get("owner_id"),location_id,email,email,"",generate_password_hash(temp_password),
-             form_data.get("full_name","").strip(),role,1,1,utc_now(),utc_now()),
+             form_data.get("full_name","").strip(),role,True,True,utc_now(),utc_now()),
         )
         flash(f"Invitation prepared for {email}. Temporary password: {temp_password}", "info")
     elif action == "toggle_status":
@@ -223,7 +235,7 @@ def settings_users():
             row = query_db("SELECT active FROM users WHERE id=%s AND location_id=%s", (user_id,location_id), one=True)
             if row:
                 execute_db("UPDATE users SET active=%s,updated_at=%s WHERE id=%s AND location_id=%s",
-                           (0 if row["active"] else 1,utc_now(),user_id,location_id))
+                           (not row["active"],utc_now(),user_id,location_id))
     elif action == "change_role":
         user_id = form_data.get("user_id")
         role = form_data.get("new_role","").strip().lower()

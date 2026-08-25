@@ -589,7 +589,7 @@ def onboarding_team():
                (location_id,username,email,password,password_hash,full_name,role,active,must_reset_password,created_at,updated_at)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (location_id,email,email,"",generate_password_hash(temp_password),
-             request.form.get("full_name","").strip(),role,1,1,utc_now(),utc_now()),
+             request.form.get("full_name","").strip(),role,True,True,utc_now(),utc_now()),
         )
         flash(f"Invitation prepared for {email}. Temporary password: {temp_password}", "info")
     elif action == "toggle_status":

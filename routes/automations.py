@@ -176,9 +176,13 @@ def automations_history():
     # Join with automation_rules and automation_templates to get meaningful names
     from database import query_db, utc_now
 
-    # Get successful/completed jobs from the last 30 days
-    from datetime import timedelta
-    cutoff = utc_now() - timedelta(days=30)
+    # Get successful/completed jobs from the last 30 days.
+    # utc_now() returns an ISO-format string (matching how every TEXT
+    # timestamp column in this codebase is stored), not a datetime object
+    # -- `utc_now() - timedelta(days=30)` raised TypeError immediately,
+    # before this route ever got as far as running a single query.
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).replace(microsecond=0, tzinfo=None).isoformat()
     automation_history = query_db("""
         SELECT sj.id,sj.status,sj.scheduled_for,sj.completed_at,sj.created_at,
                ar.event_type,at.name AS template_name,at.industry,sj.attempts,sj.last_error
@@ -189,13 +193,20 @@ def automations_history():
         ORDER BY sj.scheduled_for DESC LIMIT 50
     """, (location_id, cutoff))
 
-    # Get failed jobs from the failed_jobs table (these are permanently failed)
+    # Get failed jobs from the failed_jobs table (these are permanently failed).
+    # failed_jobs has no automation_rule_id, attempts, last_error, or
+    # created_at column -- it references scheduled_jobs via
+    # scheduled_job_id, and the real columns are error_message (not
+    # last_error) and no attempts count of its own at all. This query
+    # previously referenced four nonexistent columns and 500'd on every
+    # single view.
     failed_jobs = query_db("""
         SELECT fj.id,fj.failed_at AS scheduled_for,fj.resolved_at AS completed_at,
-               fj.created_at,ar.event_type,at.name AS template_name,at.industry,
-               fj.attempts,fj.last_error,'failed' AS status
+               ar.event_type,at.name AS template_name,at.industry,
+               sj.attempts,fj.error_message AS last_error,'failed' AS status
         FROM failed_jobs fj
-        JOIN automation_rules ar ON fj.automation_rule_id = ar.id
+        JOIN scheduled_jobs sj ON fj.scheduled_job_id = sj.id
+        JOIN automation_rules ar ON sj.automation_rule_id = ar.id
         JOIN automation_templates at ON ar.template_id = at.id
         WHERE ar.location_id = %s AND fj.failed_at >= %s
         ORDER BY fj.failed_at DESC LIMIT 20
@@ -203,7 +214,7 @@ def automations_history():
 
     # Combine and sort by date
     all_jobs = list(automation_history) + list(failed_jobs)
-    all_jobs.sort(key=lambda x: x['scheduled_for'] if x['scheduled_for'] else x['created_at'], reverse=True)
+    all_jobs.sort(key=lambda x: x['scheduled_for'] or x.get('created_at') or '', reverse=True)
 
     # Get statistics
     stats = {

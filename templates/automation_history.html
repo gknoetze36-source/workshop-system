@@ -67,9 +67,9 @@
             {% for job in automation_history %}
             <tr class="status-{{ job.status }}">
                 <td>
-                    {{ job.scheduled_for.strftime('%Y-%m-%d %H:%M') if job.scheduled_for else '' }}
+                    {{ job.scheduled_for | date('%Y-%m-%d %H:%M') if job.scheduled_for else '' }}
                     {% if job.completed_at %}
-                        <br><small>Completed: {{ job.completed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        <br><small>Completed: {{ job.completed_at | date('%Y-%m-%d %H:%M') }}</small>
                     {% endif %}
                 </td>
                 <td>{{ job.industry|title if job.industry else 'N/A' }}</td>

@@ -307,3 +307,54 @@ def test_onboarding_flow_survives_real_postgres_boolean_columns(rls_test_env):
     token3 = csrf_from("/onboarding/automation")
     r3 = client.post("/onboarding/automation", data={"csrf_token": token3}, follow_redirects=False)
     assert r3.status_code == 302
+
+
+def test_settings_and_onboarding_user_management_survives_real_postgres_booleans(rls_test_env):
+    """Regression test for a bug found 2026-08-25: routes/settings.py's
+    settings_users() (both the invite INSERT and the toggle_status UPDATE)
+    and routes/onboarding.py's team-invite handler all passed literal
+    1/0 for users.active/must_reset_password -- real Postgres BOOLEAN
+    columns. Confirmed directly against real Postgres before fixing
+    (DatatypeMismatch on the INSERT); this locks the fix in against the
+    actual backend where it manifests, not just SQLite."""
+    import re
+    import phanta_app
+
+    phanta_app.app.config["TESTING"] = True
+    client = phanta_app.app.test_client()
+
+    def csrf_from(path):
+        html = client.get(path).get_data(as_text=True)
+        m = re.search(r'name="csrf_token" value="([^"]+)"', html)
+        return m.group(1) if m else None
+
+    token = csrf_from("/register")
+    client.post("/register", data={
+        "full_name": "PG Settings Owner", "email": "pgsettingsbool@test.example",
+        "password": "SuperSecret123", "confirm_password": "SuperSecret123", "csrf_token": token,
+    })
+    token2 = csrf_from("/onboarding/location")
+    client.post("/onboarding/location", data={
+        "location_name": "PG Settings Bool Workshop", "industry": "workshop", "csrf_token": token2,
+    })
+
+    token3 = csrf_from("/settings/users")
+    invite_response = client.post("/settings/users", data={
+        "action": "invite", "email": "pgstaff@test.example", "role": "reception",
+        "full_name": "PG Staff", "csrf_token": token3,
+    }, follow_redirects=False)
+    assert invite_response.status_code == 302, "invite must not raise DatatypeMismatch on real Postgres"
+
+    from database import query_db
+    row = query_db("SELECT id, active FROM users WHERE email='pgstaff@test.example'", one=True)
+    assert row is not None
+    assert row["active"] is True
+
+    token4 = csrf_from("/settings/users")
+    toggle_response = client.post("/settings/users", data={
+        "action": "toggle_status", "user_id": str(row["id"]), "csrf_token": token4,
+    }, follow_redirects=False)
+    assert toggle_response.status_code == 302
+
+    row2 = query_db("SELECT active FROM users WHERE id=%s", (row["id"],), one=True)
+    assert row2["active"] is False
