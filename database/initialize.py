@@ -17,7 +17,8 @@ def initialize_database(*, run_migrations: bool = True):
     else:
         connection, backend = get_connection()
     try:
-        _create_tables(connection, backend)
+        if backend != "postgres":
+            _create_tables(connection, backend)
         # owners/locations must exist before _ensure_columns touches them.
         ensure_owner_location_foundation(connection, backend)
         _ensure_columns(connection, backend)
