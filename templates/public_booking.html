@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Book with {{ location.name }}{% endblock %}
+{% block content %}
+<div class="auth-container">
+  <div class="auth-card" style="max-width: 560px;">
+    <div class="auth-logo">
+      <img src="{{ url_for('static', filename='images/phanta-ghost-mascot.jpg') }}" alt="" style="width:80px;height:auto;border-radius:10px;display:block;margin:0 auto 16px;">
+    </div>
+    <h1>Book with {{ location.name }}</h1>
+    <p>Fill in your details and pick a day that works for you.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+        <p class="flash flash-{{ category }}">{{ message }}</p>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <label>Your name
+        <input type="text" name="full_name" value="{{ form.full_name if form else '' }}" required>
+      </label>
+
+      <label>WhatsApp number
+        <input type="tel" name="whatsapp_number" placeholder="+27821234567" value="{{ form.whatsapp_number if form else '' }}" required>
+      </label>
+
+      <label>Vehicle make
+        <input type="text" name="vehicle_make" placeholder="e.g. Toyota" value="{{ form.vehicle_make if form else '' }}">
+      </label>
+
+      <label>Vehicle model
+        <input type="text" name="vehicle_model" placeholder="e.g. Corolla" value="{{ form.vehicle_model if form else '' }}">
+      </label>
+
+      <label>Vehicle year (optional)
+        <input type="number" name="vehicle_year" min="1980" max="2100" value="{{ form.vehicle_year if form else '' }}">
+      </label>
+
+      <label>What do you need done?
+        <input type="text" name="service_type" placeholder="e.g. Oil change, brake check" value="{{ form.service_type if form else '' }}" required>
+      </label>
+
+      <label>Anything else we should know? (optional)
+        <textarea name="notes" rows="3">{{ form.notes if form else '' }}</textarea>
+      </label>
+
+      <label>Choose a day
+        <select name="booking_date" required>
+          <option value="" disabled {% if not form %}selected{% endif %}>Select a day</option>
+          {% for day in days %}
+          <option value="{{ day.date }}" {% if not day.open %}disabled{% endif %} {% if form and form.booking_date == day.date %}selected{% endif %}>
+            {{ day.label }}{% if day.open %} - opens {{ day.opens_at }}{% else %} - closed{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Book now</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

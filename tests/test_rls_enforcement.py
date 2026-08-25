@@ -452,3 +452,88 @@ def test_inbound_whatsapp_message_fires_generic_automation_trigger(rls_test_env)
     )
     assert log_row is not None, "fire_event() must have run for the real inbound message"
     assert log_row["status"] == "ok"
+
+
+def test_public_booking_form_survives_restricted_role(rls_test_env):
+    """Confirms whether routes/public_booking.py's use of a plain,
+    unscoped get_session() (no app.location_id set) for creating a
+    Customer/Vehicle/Booking actually works under the restricted phanta_app
+    role RLS enforces in production -- the same class of bug found and
+    fixed in routes/flyer_lady.py's redirect_special() earlier this
+    engagement (a public, unauthenticated route has no normal
+    authenticated-session mechanism to set app.location_id automatically).
+
+    An earlier version of this test used phanta_app.app.test_client()
+    without ever switching DATABASE_URL to the restricted role's
+    connection string -- it passed, but proved nothing, since it was
+    still connecting as the admin/superuser rls_test_env itself uses for
+    setup, which unconditionally bypasses RLS regardless of policy. Fixed
+    to actually reload both database and phanta_app against
+    rls_test_env["restricted_url"] before making the request, matching
+    the reload pattern this file's other tests already use for the
+    database module, extended to the Flask app itself since this test
+    needs a real HTTP round trip, not just a direct service-layer call.
+    """
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    location_id = rls_test_env["location_id"]
+    from database import execute_db, query_db
+
+    execute_db("UPDATE locations SET slug=%s, public_booking_enabled=TRUE WHERE id=%s", ("rls-public-booking-test", location_id))
+
+    all_hours = {}
+    for day_name in ["monday", "tuesday", "wednesday", "thursday", "friday"]:
+        all_hours[f"{day_name}_enabled"] = True
+        all_hours[f"{day_name}_open"] = "09:00"
+        all_hours[f"{day_name}_close"] = "17:00"
+    execute_db("UPDATE locations SET operating_hours_json=%s WHERE id=%s", (json.dumps(all_hours), location_id))
+
+    day = datetime.now(timezone.utc).date()
+    while day.weekday() != 0:
+        day += timedelta(days=1)
+
+    import os
+    os.environ["DATABASE_URL"] = rls_test_env["restricted_url"]
+    import sys
+    for name in list(sys.modules):
+        if name == "database" or name.startswith("database.") or name == "phanta_app":
+            del sys.modules[name]
+
+    import phanta_app as reloaded_app
+    reloaded_app.app.config["TESTING"] = True
+    client = reloaded_app.app.test_client()
+
+    import re
+    html = client.get("/book/rls-public-booking-test").get_data(as_text=True)
+    token = re.search(r'name="csrf_token" value="([^"]+)"', html).group(1)
+
+    response = client.post("/book/rls-public-booking-test", data={
+        "csrf_token": token, "full_name": "RLS Test Customer", "whatsapp_number": "+27821110000",
+        "vehicle_make": "Toyota", "vehicle_model": "Corolla", "service_type": "Oil change",
+        "booking_date": day.isoformat(),
+    }, follow_redirects=False)
+
+    assert response.status_code == 302, (
+        "public booking submission must succeed under the restricted role -- "
+        f"got {response.status_code}, body: {response.get_data(as_text=True)[:2000]}"
+    )
+
+    # Verify via a fresh admin connection, not the restricted role's own
+    # query_db -- an unscoped read under the restricted role would
+    # legitimately see nothing too (RLS applies to SELECT as much as
+    # INSERT), which would make this assertion fail even when the route
+    # worked perfectly correctly. What actually needs proving is "does the
+    # row genuinely exist in the database", which only an unrestricted
+    # connection can answer independently of the application's own scoping.
+    import psycopg2
+    import psycopg2.extras
+    admin_check = psycopg2.connect(POSTGRES_TEST_URL)
+    try:
+        with admin_check.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT status FROM bookings WHERE location_id=%s", (location_id,))
+            booking = cur.fetchone()
+    finally:
+        admin_check.close()
+    assert booking is not None, "booking must actually have been created by the restricted-role request, not silently dropped by RLS"
+    assert booking["status"] == "confirmed"

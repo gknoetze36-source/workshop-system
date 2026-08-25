@@ -47,6 +47,7 @@ from routes.webhooks import webhooks_bp
 from routes.paystack import paystack_bp
 from routes.flyer_lady import flyer_lady_bp
 from routes.google_business import google_business_bp
+from routes.public_booking import public_booking_bp
 from routes.billing_wall import billing_wall_bp
 from routes.billing_statement import billing_statement_bp
 from routes.ghost import ghost_bp
@@ -83,7 +84,38 @@ app.secret_key = _secret_key
 
 # Ensure schema/bootstrap exists before the first request (local SQLite or Railway PostgreSQL).
 from database import initialize_database
-initialize_database(run_migrations=False)
+try:
+    initialize_database(run_migrations=False)
+except Exception as _init_exc:
+    # In production, this app's own DATABASE_URL is the restricted
+    # phanta_app role (see the deployment guide) -- it deliberately has no
+    # CREATE privilege on the schema, since schema creation is
+    # predeploy.py's job alone, run once as the admin role before this
+    # process ever starts. initialize_database() unconditionally attempts
+    # schema-creation DDL regardless of caller, which is fine for local
+    # SQLite dev (no privilege system, no separate predeploy step) but
+    # means this call always fails under a correctly-configured
+    # production deployment -- confirmed directly: reproduced
+    # psycopg2.errors.InsufficientPrivilege ("permission denied for
+    # schema public") by actually booting this app against a genuinely
+    # restricted Postgres role, not assumed from reading the code.
+    #
+    # If predeploy already ran (the expected production sequence), the
+    # schema already exists and this call was always redundant for
+    # Postgres -- so a privilege error here is expected and safe to
+    # continue past. Anything else (a real connectivity problem, a
+    # missing predeploy run leaving genuinely absent tables) should still
+    # surface loudly rather than be swallowed.
+    _is_privilege_error = "permission denied" in str(_init_exc).lower() or "insufficientprivilege" in type(_init_exc).__name__.lower()
+    if _is_privilege_error and os.getenv("DATABASE_URL", "").startswith("postgres"):
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "Skipping boot-time schema initialization: the database role lacks CREATE "
+            "privilege, which is expected in production (predeploy.py already created the "
+            "schema as the admin role). If this is NOT expected, run predeploy first."
+        )
+    else:
+        raise
 csrf = CSRFProtect(app)
 app.config['WTF_CSRF_CHECK_DEFAULT'] = True
 limiter = Limiter(key_func=get_remote_address, default_limits=[os.getenv('DEFAULT_RATE_LIMIT', '300 per hour')], storage_uri=os.getenv('RATELIMIT_STORAGE_URI', 'memory://'))
@@ -115,6 +147,7 @@ csrf.exempt(webhooks_bp)
 csrf.exempt(paystack_bp)
 app.register_blueprint(flyer_lady_bp)
 app.register_blueprint(google_business_bp)
+app.register_blueprint(public_booking_bp)
 app.register_blueprint(billing_wall_bp)
 app.register_blueprint(billing_statement_bp)
 app.register_blueprint(ghost_bp)
