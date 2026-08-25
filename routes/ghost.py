@@ -21,8 +21,32 @@ def _is_platform_admin() -> bool:
     return user.get("role") in {"super_admin", "phanta_admin", "platform_admin"}
 
 
+_INTERNALS_KEYWORDS = (
+    "source code", "your code", "the code", "api key", "secret key", "encryption key",
+    "database schema", "what database", "which database", "your database",
+    "how are you built", "how is phanta built", "backend architecture",
+    "how does phanta work internally", "what language", "what framework", "server logs",
+    "environment variable", "how is this hosted", "your prompt", "system prompt",
+)
+_INTERNALS_REFUSAL = "I can help with using PHANTA, not with how it's built internally -- that's not something I can share."
+
+
+def _internals_guard(text: str) -> dict | None:
+    """Applies to both the workshop and platform-admin answer paths.
+    Deliberately checked first, ahead of every other category, so a
+    question phrased to slip past a more specific keyword match still
+    gets refused rather than accidentally answered by a category that
+    happens to also match a word in it."""
+    if any(k in text for k in _INTERNALS_KEYWORDS):
+        return {"answer": _INTERNALS_REFUSAL, "data": {}}
+    return None
+
+
 def _answer_workshop(question: str, q: WorkshopDashboardQueries) -> dict:
     text = question.lower().strip()
+    guard = _internals_guard(text)
+    if guard:
+        return guard
     live = {
         "todays_bookings": len(q.todays_bookings()),
         "vehicles_waiting": len(q.vehicles_waiting()),
@@ -32,6 +56,28 @@ def _answer_workshop(question: str, q: WorkshopDashboardQueries) -> dict:
         "connection_health": q.connection_health(),
         "billing_state": q.billing_state(),
     }
+
+    # Reception "how do I use this" help -- deliberately placed before the
+    # broader single-word categories below (today/booking/appointment
+    # etc.), since a phrase like "find a previous booking" would otherwise
+    # get caught by the generic "booking" keyword and return today's
+    # booking count instead of the search guidance actually being asked
+    # for. Every answer here describes only the real, existing features
+    # (the dashboard search bar, the Customers & Vehicles page, a
+    # customer's own booking history) in plain terms -- no mention of how
+    # any of it is actually built, no internal names, nothing beyond what
+    # a receptionist doing their job would need.
+    if any(k in text for k in ("find a customer", "search for a customer", "look up a customer", "find a client", "look up a client")):
+        return {"answer": "Use the search box at the top of the dashboard, or open Customers & Vehicles from the sidebar -- both search by name, WhatsApp number, or vehicle details.", "data": live}
+
+    if any(k in text for k in ("find a booking", "previous booking", "past booking", "old booking", "booking history")):
+        return {"answer": "Open Customers & Vehicles, find the customer, and open their profile -- their full booking history is listed there, including past and completed jobs.", "data": live}
+
+    if any(k in text for k in ("privacy", "private", "who can see", "is my data safe", "data safe", "confidential")):
+        return {"answer": "Your workshop's customer and booking information is kept separate from every other workshop using PHANTA. Only your own team can see it.", "data": live}
+
+    if any(k in text for k in ("how do i use", "how does this work", "getting started", "new here", "not sure how")):
+        return {"answer": "The sidebar covers the day-to-day: Dashboard for today's bookings, Customers & Vehicles to search or review history, Flyer Lady for promotions, and Settings for the workshop's own configuration.", "data": live}
 
     if any(k in text for k in ("whatsapp", "meta", "message")):
         status = live["connection_health"].get("status")
@@ -57,9 +103,6 @@ def _answer_workshop(question: str, q: WorkshopDashboardQueries) -> dict:
     if any(k in text for k in ("service advisor", "maintenance")):
         return {"answer": "Service Advisor is PHANTA's vehicle/service intelligence capability. It remains separate from customer messaging, pricing and repair authorisation.", "data": live}
 
-    if any(k in text for k in ("price", "pricing", "quote", "repair approval", "spending")):
-        return {"answer": "PHANTA does not determine workshop pricing or authorise repairs or spending. Those remain workshop decisions.", "data": live}
-
     return {
         "answer": "I can explain PHANTA workflows and the live workshop information available to this request. I will not claim access to data the backend has not supplied.",
         "data": live,
@@ -68,6 +111,9 @@ def _answer_workshop(question: str, q: WorkshopDashboardQueries) -> dict:
 
 def _answer_platform(question: str, q: PlatformAdminDashboardQueries) -> dict:
     text = question.lower().strip()
+    guard = _internals_guard(text)
+    if guard:
+        return guard
     live = {
         "connection_health": q.connection_health(),
         "billing_state": q.billing_state(),
