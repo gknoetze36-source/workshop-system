@@ -37,6 +37,10 @@ class LifecycleCommunicationService:
         "It has been about a year since your last service with us. "
         "Please contact the workshop if your vehicle is due for its next service."
     )
+    MISSED_BOOKING_TEXT = (
+        "We had you booked in today but didn't see your vehicle arrive. "
+        "No problem -- reply here and we'll find you a new time."
+    )
 
     def __init__(self, session, messaging: MetaMessagingService | None = None):
         self.session = session
@@ -156,6 +160,39 @@ class LifecycleCommunicationService:
         )
         # Phase 17 adds a deterministic nudge if the vehicle remains ready.
         DeterministicFollowUpService(self.session, self.messaging).schedule_ready_for_collection_nudge(booking)
+        return message
+
+    def booking_missed(self, booking_id: int, location_id: int):
+        """Send the missed-booking recovery message. Staff triggers this
+        from the dashboard after marking a booking no_show (see
+        routes/bookings.py's change_booking_status(), which calls this the
+        same way it already calls PostServiceReviewService for a
+        COMPLETED transition)."""
+        booking = self.session.scalar(select(Booking).where(
+            Booking.id == booking_id, Booking.location_id == location_id
+        ))
+        if not booking:
+            raise ValueError("booking not found")
+        already_sent = self.session.scalar(select(FollowUp).where(
+            FollowUp.location_id == location_id, FollowUp.customer_id == booking.customer_id,
+            FollowUp.type == "missed_booking_recovery",
+            FollowUp.payload["booking_id"].as_integer() == booking.id,
+            FollowUp.status.in_(["sent", "scheduled"]),
+        ))
+        prior_audit = self.session.scalar(select(AuditLog.id).where(
+            AuditLog.location_id == location_id,
+            AuditLog.action == "lifecycle.missed_booking_message_sent",
+            AuditLog.entity_id == str(booking.id),
+        ))
+        # Same idempotency guard as ready_for_collection(): don't send a
+        # second recovery message if staff presses the button twice.
+        if already_sent or prior_audit:
+            return None
+        message = self._send(location_id, booking.customer_id, self.MISSED_BOOKING_TEXT)
+        self.audit.record(
+            location_id, "staff", "lifecycle.missed_booking_message_sent",
+            "booking", booking.id, after={"message_id": message.id}
+        )
         return message
 
     def work_to_be_done(self, booking_id: int, location_id: int, *, completed: bool):

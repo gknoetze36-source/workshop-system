@@ -168,8 +168,20 @@ def change_booking_status(booking_id: int):
                 ),
             ).send_for_booking(location_id, booking.id)
             review_message_id = review_message.id if review_message else None
+        missed_message_id = None
+        if previous_status_value != BookingStatus.NO_SHOW and booking.status == BookingStatus.NO_SHOW:
+            from ai.communications.lifecycle import LifecycleCommunicationService
+            missed_message = LifecycleCommunicationService(
+                session,
+                MetaMessagingService(
+                    session,
+                    graph=GraphApiClient(MetaAuthConfig.from_env()),
+                    token_store=MetaTokenStore(),
+                ),
+            ).booking_missed(booking.id, location_id)
+            missed_message_id = missed_message.id if missed_message else None
         session.commit()
-        return jsonify({"id": booking.id, "status": booking.status, "review_message_id": review_message_id})
+        return jsonify({"id": booking.id, "status": booking.status, "review_message_id": review_message_id, "missed_message_id": missed_message_id})
     except (KeyError, ValueError) as exc:
         session.rollback()
         return jsonify({"error": str(exc)}), 409

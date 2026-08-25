@@ -99,11 +99,14 @@
               <div class="booking-actions-stack">
                 {% if booking.status == 'ready_for_collection' %}
                 <button type="button" class="button primary lifecycle-ready-btn" data-booking-id="{{ booking.id }}">Notify customer: ready</button>
+                {% else %}
+                <button type="button" class="button secondary mark-ready-btn" data-booking-id="{{ booking.id }}">Mark ready for pickup</button>
                 {% endif %}
                 <div class="booking-actions">
                   <button type="button" class="button secondary lifecycle-work-btn" data-booking-id="{{ booking.id }}" data-completed="true">Record work completed</button>
                   <button type="button" class="button secondary lifecycle-work-btn" data-booking-id="{{ booking.id }}" data-completed="false">Work still outstanding</button>
                 </div>
+                <button type="button" class="button ghost mark-missed-btn" data-booking-id="{{ booking.id }}">Mark as missed</button>
                 <a class="button ghost full-action" href="{{ url_for('vehicles.vehicle_profile', vehicle_id=booking.vehicle.id) }}">View vehicle</a>
               </div>
             </article>
@@ -306,7 +309,17 @@ window.PHANTA_GHOST_DATA = {
   }
 
   async function postJson(url, payload) {
-    const response = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify(payload || {})});
+    // Every action button on this dashboard (save note, mark work
+    // complete/outstanding, notify customer, and the two below) goes
+    // through this function -- it never attached a CSRF token, which
+    // Flask-WTF rejects by default for any POST outside the explicitly
+    // exempt webhook/Paystack blueprints. Confirmed directly: every one of
+    // these buttons has been failing with a CSRF error on every real
+    // click, not just in testing. templates/base.html already renders
+    // the token in a <meta name="csrf-token"> tag; it just needed to
+    // actually be read and sent.
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const response = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRFToken': csrfToken}, credentials:'same-origin', body:JSON.stringify(payload || {})});
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'PHANTA could not complete that action.');
     return data;
@@ -359,10 +372,51 @@ window.PHANTA_GHOST_DATA = {
     });
   });
 
+  document.querySelectorAll('.mark-ready-btn').forEach(button => {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        // Only sets the status. The "Notify customer: ready" button
+        // (lifecycle-ready-btn above) is what actually sends the WhatsApp
+        // message, and only appears once status is ready_for_collection --
+        // kept as two separate steps so staff can mark a vehicle ready
+        // without necessarily messaging the customer that same second.
+        await postJson('/bookings/' + button.dataset.bookingId + '/status', {status: 'ready_for_collection'});
+        window.location.reload();
+      } catch (error) {
+        button.disabled = false;
+        alert(error.message);
+      }
+    });
+  });
+
+  document.querySelectorAll('.mark-missed-btn').forEach(button => {
+    button.addEventListener('click', async () => {
+      if (!confirm('Mark this booking as missed and notify the customer?')) return;
+      button.disabled = true;
+      try {
+        await postJson('/bookings/' + button.dataset.bookingId + '/status', {status: 'no_show'});
+        button.textContent = 'Marked as missed';
+        button.disabled = true;
+      } catch (error) {
+        button.disabled = false;
+        alert(error.message);
+      }
+    });
+  });
+
   document.querySelectorAll('.lifecycle-work-btn').forEach(button => {
     button.addEventListener('click', async () => {
       const completed = button.dataset.completed === 'true';
-      const question = completed ? 'Record that the work is completed in PHANTA's audit trail?' : 'Record that work is still outstanding and schedule the existing follow-up?';
+      // Pre-existing bug found while testing new buttons on this page:
+      // the apostrophe in "PHANTA's" broke this single-quoted JS string,
+      // which is a fatal SyntaxError for the entire script block --
+      // confirmed with `node --check` against the actual rendered page.
+      // A parse error stops the whole block from executing at all, so
+      // every button on this dashboard (save note, work complete/
+      // outstanding, notify customer ready, and everything added today)
+      // has never had its click handler attached, for any user, ever.
+      const question = completed ? "Record that the work is completed in PHANTA's audit trail?" : 'Record that work is still outstanding and schedule the existing follow-up?';
       if (!confirm(question)) return;
       button.disabled = true;
       try {

@@ -29,10 +29,18 @@ class BookingStatus:
 
 _ALLOWED_TRANSITIONS = {
     BookingStatus.PENDING: {BookingStatus.CONFIRMED, BookingStatus.CANCELLED},
-    BookingStatus.CONFIRMED: {BookingStatus.VEHICLE_RECEIVED, BookingStatus.CANCELLED, BookingStatus.NO_SHOW},
-    BookingStatus.VEHICLE_RECEIVED: {BookingStatus.DIAGNOSIS_STARTED, BookingStatus.CANCELLED},
-    BookingStatus.DIAGNOSIS_STARTED: {BookingStatus.REPAIR_STARTED, BookingStatus.CANCELLED},
-    BookingStatus.REPAIR_STARTED: {BookingStatus.REPAIR_COMPLETED, BookingStatus.CANCELLED},
+    BookingStatus.CONFIRMED: {
+        BookingStatus.VEHICLE_RECEIVED, BookingStatus.CANCELLED, BookingStatus.NO_SHOW,
+        # Direct jump for a workshop that doesn't track intermediate repair
+        # stages (received/diagnosis/repair) and just wants "mark ready" as
+        # one action -- added alongside the granular chain below, not
+        # instead of it, so a workshop that does want to track each stage
+        # still can.
+        BookingStatus.READY_FOR_COLLECTION,
+    },
+    BookingStatus.VEHICLE_RECEIVED: {BookingStatus.DIAGNOSIS_STARTED, BookingStatus.CANCELLED, BookingStatus.READY_FOR_COLLECTION},
+    BookingStatus.DIAGNOSIS_STARTED: {BookingStatus.REPAIR_STARTED, BookingStatus.CANCELLED, BookingStatus.READY_FOR_COLLECTION},
+    BookingStatus.REPAIR_STARTED: {BookingStatus.REPAIR_COMPLETED, BookingStatus.CANCELLED, BookingStatus.READY_FOR_COLLECTION},
     BookingStatus.REPAIR_COMPLETED: {BookingStatus.READY_FOR_COLLECTION, BookingStatus.COMPLETED},
     BookingStatus.READY_FOR_COLLECTION: {BookingStatus.COLLECTED, BookingStatus.COMPLETED},
     BookingStatus.COLLECTED: {BookingStatus.COMPLETED},

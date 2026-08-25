@@ -92,9 +92,14 @@
     const q=normalize(query);
     if(!q) return DATA.admin ? 'Ask me about the platform information PHANTA has actually supplied.' : 'Ask me about the workshop information PHANTA has actually supplied.';
     try {
+      // Same CSRF gap as the dashboard's postJson() -- confirmed the exact
+      // same way: /api/ghost/ask is not CSRF-exempt, and this fetch never
+      // sent a token. Every real question asked through this widget would
+      // have failed with a CSRF error before ever reaching routes/ghost.py.
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
       const response = await fetch('/api/ghost/ask', {
         method:'POST',
-        headers:{'Content-Type':'application/json','Accept':'application/json'},
+        headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRFToken':csrfToken},
         credentials:'same-origin',
         body:JSON.stringify({question:String(query)})
       });
