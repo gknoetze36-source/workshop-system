@@ -16,7 +16,7 @@ if config.config_file_name:
 target_metadata = Base.metadata
 
 def get_url():
-    return os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    return config.get_main_option("sqlalchemy.url") or os.getenv("DATABASE_URL")
 
 def run_migrations_offline():
     context.configure(url=get_url(), target_metadata=target_metadata, literal_binds=True, compare_type=True)
