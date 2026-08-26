@@ -520,6 +520,9 @@
             {% if current_user.get('email') or current_user.get('username') %}<div class="workshop-user">
                 <strong>{{ current_user.get('email') or current_user.get('username') }}</strong>
                 <span>Workshop account</span>
+                <form method="POST" action="{{ url_for('auth.logout') }}" style="margin-top: 12px;">
+                    <button type="submit" class="logout-button">Logout</button>
+                </form>
             </div>{% endif %}
             {% endif %}
         </aside>
