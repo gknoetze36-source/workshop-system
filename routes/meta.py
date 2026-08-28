@@ -1,4 +1,6 @@
 from __future__ import annotations
+from services.integration_status import require_configured
+from helpers.permission import require_role, ADMIN_ROLES
 from helpers.location import current_location_id
 
 from flask import Blueprint, jsonify, request, g, session
@@ -9,13 +11,20 @@ from integrations.meta.whatsapp.phone_number_service import PhoneNumberService, 
 meta_bp = Blueprint("meta", __name__, url_prefix="/integrations/meta")
 
 @meta_bp.get("/embedded-signup/config")
+@require_role(*ADMIN_ROLES)
 def embedded_signup_config():
     try: current_location_id()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    # Without this guard, MetaOAuthClient() raises RuntimeError on a deployment
+    # that has no Meta credentials, and the caller sees an unhandled 500 that
+    # looks like a broken integration rather than an unconfigured one.
+    unconfigured = require_configured("whatsapp")
+    if unconfigured: return jsonify(unconfigured[0]), unconfigured[1]
     public = MetaOAuthClient().public_configuration()
     return jsonify({"app_id": public.app_id, "config_id": public.embedded_signup_config_id, "graph_api_version": public.graph_api_version})
 
 @meta_bp.post("/embedded-signup/start")
+@require_role(*ADMIN_ROLES)
 def embedded_signup_start():
     try: location_id = current_location_id()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -28,6 +37,7 @@ def embedded_signup_start():
     finally: session.close()
 
 @meta_bp.post("/embedded-signup/callback")
+@require_role(*ADMIN_ROLES)
 def embedded_signup_callback():
     try: location_id = current_location_id()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -44,11 +54,15 @@ def embedded_signup_callback():
     finally: session.close()
 
 @meta_bp.get("/connection-health")
+@require_role(*ADMIN_ROLES)
 def meta_connection_health():
     try:
         location_id = current_location_id()
     except PermissionError as exc:
         return jsonify({"error": str(exc)}), 401
+    unconfigured = require_configured("whatsapp")
+    if unconfigured:
+        return jsonify(unconfigured[0]), unconfigured[1]
     session = get_session()
     try:
         from integrations.meta.services.token_status_service import MetaTokenStatusService
@@ -80,6 +94,12 @@ def _phone_operation(action):
         location_id = current_location_id()
     except PermissionError as exc:
         return jsonify({"error": str(exc)}), 401
+    # Report an unconfigured deployment as such. Without this the call falls
+    # through to the generic handler and returns 502, which says "the upstream
+    # provider failed" when in fact PHANTA never had the credentials to call it.
+    unconfigured = require_configured("whatsapp")
+    if unconfigured:
+        return jsonify(unconfigured[0]), unconfigured[1]
     session = get_session()
     try:
         result = action(session, location_id)
@@ -106,6 +126,7 @@ def _registration_result(result):
 
 
 @meta_bp.post("/phone/register")
+@require_role(*ADMIN_ROLES)
 def register_phone():
     payload = request.get_json(silent=True) or {}
     return _phone_operation(lambda session, location_id: _registration_result(
@@ -114,6 +135,7 @@ def register_phone():
 
 
 @meta_bp.post("/phone/request-code")
+@require_role(*ADMIN_ROLES)
 def request_phone_code():
     payload = request.get_json(silent=True) or {}
     return _phone_operation(lambda session, location_id: _registration_result(
@@ -124,6 +146,7 @@ def request_phone_code():
 
 
 @meta_bp.post("/phone/verify-code")
+@require_role(*ADMIN_ROLES)
 def verify_phone_code():
     payload = request.get_json(silent=True) or {}
     return _phone_operation(lambda session, location_id: _registration_result(
@@ -132,6 +155,7 @@ def verify_phone_code():
 
 
 @meta_bp.post("/phone/pin")
+@require_role(*ADMIN_ROLES)
 def set_phone_pin():
     payload = request.get_json(silent=True) or {}
     return _phone_operation(lambda session, location_id: _registration_result(
@@ -140,10 +164,12 @@ def set_phone_pin():
 
 
 @meta_bp.get("/phone/info")
+@require_role(*ADMIN_ROLES)
 def phone_info():
     return _phone_operation(lambda session, location_id: PhoneNumberService().phone_info(session, location_id))
 
 
 @meta_bp.get("/phone/waba")
+@require_role(*ADMIN_ROLES)
 def waba_info():
     return _phone_operation(lambda session, location_id: PhoneNumberService().waba_info(session, location_id))

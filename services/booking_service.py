@@ -250,16 +250,20 @@ def insert_booking(location, form_data, source, status):
             location["id"], customer_id, make, model, year, registration, colour, vin, mileage,
         )
 
+        # ensure_service takes (location_id, service_name). It was being called
+        # with three arguments -- the scope id twice -- another franchise-era
+        # leftover that would raise TypeError if this path were reached.
         service_id = ensure_service(
             location["location_id"],
-            location["id"],
             service,
         )
 
         booking_data = {
             "booking_reference": booking_reference,
+            # "location_id" was specified twice here. Python keeps only the
+            # last occurrence, so the first value was silently discarded --
+            # no error, just the wrong value written. Franchise-era leftover.
             "location_id": location["location_id"],
-            "location_id": location["id"],
             "company": location.get("name") or "",
             "location": location.get("name") or "",
             "customer_id": customer_id,

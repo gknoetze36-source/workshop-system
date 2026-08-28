@@ -1,4 +1,7 @@
 from datetime import datetime, timedelta
+from constants.message_categories import (
+    BOOKING_CONFIRMATION, BOOKING_REMINDER, VEHICLE_READY, SERVICE_FOLLOWUP,
+)
 
 from database import execute_db, utc_now
 from helpers.common import boolish, fetch_all, fetch_one, scope_clause
@@ -38,12 +41,12 @@ def send_booking_confirmation(reference):
     if not booking:
         return False, "booking not found"
     subject, body = build_booking_confirmation_message(booking)
-    return send_cheapest_message(booking, subject, body)
+    return send_cheapest_message(booking, subject, body, category=BOOKING_CONFIRMATION)
 
 
 def send_vehicle_ready_notification(booking, actor_user_id=None):
     subject, body = build_vehicle_ready_message(booking)
-    return send_cheapest_message(booking, subject, body, actor_user_id=actor_user_id)
+    return send_cheapest_message(booking, subject, body, actor_user_id=actor_user_id, category=VEHICLE_READY)
 
 
 def send_booking_reminders(days_ahead=1, label=None):
@@ -79,7 +82,7 @@ def send_booking_reminders(days_ahead=1, label=None):
         reminder = ensure_reminder_campaign(booking, reminder_kind, target_date, subject, body)
         if reminder.get("status") == "Sent":
             continue
-        success, channel = send_cheapest_message(booking, subject, body, reminder=reminder)
+        success, channel = send_cheapest_message(booking, subject, body, reminder=reminder, category=BOOKING_REMINDER)
         if success:
             update_reminder_status(reminder["id"], "Sent", channel, count_as_send=True)
             sent += 1
@@ -104,11 +107,13 @@ def ensure_reminder_campaign(booking, reminder_kind, scheduled_for, subject, bod
             campaign_round, scheduled_for, status, message_subject,
             message_body, send_count, created_at, updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'Pending', %s, %s, 0, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, 'Pending', %s, %s, 0, %s, %s)
         """,
         (
             booking["id"],
-            booking["location_id"],
+            # location_id was passed twice here -- a leftover of the
+            # franchise -> location migration, which made the statement supply
+            # 13 values for 12 columns so every insert raised.
             booking["location_id"],
             reminder_kind,
             booking.get("scheduled_date") or scheduled_for,
@@ -201,11 +206,11 @@ def generate_due_reminders(user_scope=None, as_of=None, force=False):
                         campaign_round, scheduled_for, status, message_subject,
                         message_body, send_count, created_at, updated_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'Pending', %s, %s, 0, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'Pending', %s, %s, 0, %s, %s)
                     """,
                     (
                         booking["id"],
-                        booking["location_id"],
+                        # location_id was passed twice -- franchise-era leftover.
                         booking["location_id"],
                         reminder_kind,
                         due_value,
@@ -244,7 +249,7 @@ def auto_send_reminder(reminder, actor_user=None):
         return False, "Booking not found."
 
     subject, body = build_booking_message(booking, reminder)
-    if not can_send_outbound(booking, subject, body):
+    if not can_send_outbound(booking, subject, body, category=BOOKING_REMINDER):
         return False, "Outbound messaging is disabled for this client account."
     if not boolish(booking.get("whatsapp_opt_in", 0)):
         return False, "WhatsApp opt-in is disabled for this customer."
@@ -312,7 +317,7 @@ def send_missed_booking_followups():
             f"Hello {booking.get('first_name') or 'Customer'}, we missed you for your booking on "
             f"{human_date(booking.get('scheduled_date'))}. Reply here if you would like us to reschedule."
         )
-        success, channel = send_cheapest_message(booking, subject, body)
+        success, channel = send_cheapest_message(booking, subject, body, category=SERVICE_FOLLOWUP)
         if success:
             execute_db(
                 "UPDATE bookings SET missed_followup_count=%s, last_missed_followup_at=%s, updated_at=%s WHERE id=%s AND location_id=%s",

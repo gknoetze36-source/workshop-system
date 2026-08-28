@@ -1,5 +1,6 @@
 """Phase 11 booking engine API."""
 from __future__ import annotations
+from helpers.permission import require_role, OPERATIONAL_ROLES
 
 from helpers.location import current_location_id
 
@@ -82,6 +83,7 @@ def _dt(value: str) -> datetime:
 
 
 @bookings_bp.post("/availability")
+@require_role(*OPERATIONAL_ROLES)
 def availability():
     """Return morning availability only; exact time slots are not exposed."""
     try:
@@ -97,6 +99,7 @@ def availability():
         return jsonify({"error": str(exc)}), 400
 
 @bookings_bp.post("")
+@require_role(*OPERATIONAL_ROLES)
 def create_booking():
     """Create a booking from date + morning; no customer-selected time slots."""
     try:
@@ -140,6 +143,7 @@ def create_booking():
         session.close()
 
 @bookings_bp.post("/<int:booking_id>/status")
+@require_role(*OPERATIONAL_ROLES)
 def change_booking_status(booking_id: int):
     try:
         location_id = current_location_id()
@@ -190,6 +194,7 @@ def change_booking_status(booking_id: int):
 
 
 @bookings_bp.post("/<int:booking_id>/confirm")
+@require_role(*OPERATIONAL_ROLES)
 def confirm_booking(booking_id: int):
     try:
         location_id = current_location_id()

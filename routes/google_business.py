@@ -7,6 +7,7 @@ a mutated redirect_uri (Google, like Meta, requires an exact match
 against the pre-registered redirect URI).
 """
 from __future__ import annotations
+from services.integration_status import require_configured
 
 import secrets
 from urllib.parse import urlencode
@@ -31,6 +32,10 @@ def _location() -> int:
 @google_business_bp.get("/connect/start")
 @login_required
 def connect_start():
+    # A deployment without credentials must say so, not raise.
+    unconfigured = require_configured("google_business")
+    if unconfigured:
+        return jsonify(unconfigured[0]), unconfigured[1]
     try:
         _location()
     except PermissionError as exc:

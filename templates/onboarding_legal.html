@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Legal Agreements{% endblock %}
+
+{% block content %}
+
+<div class="topbar">
+    <div class="heading">
+        <h1>Legal Agreements</h1>
+        <p>Please read and confirm each document. Click a document name to read it in full.</p>
+    </div>
+</div>
+
+{% with current_stage = 'legal' %}
+{% include "_onboarding_progress.html" %}
+{% endwith %}
+
+{% if errors %}
+<div class="card card-error">
+    <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="card">
+
+    <form method="post" novalidate>
+
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <ul class="legal-list">
+            {% for document in documents %}
+            <li class="legal-item">
+
+                <div class="legal-item-name">
+                    <button type="button" class="link-button"
+                            data-document-key="{{ document.key }}"
+                            data-document-label="{{ document.label }}">
+                        {{ document.label }}
+                    </button>
+                    <small>Version {{ document.version }}</small>
+                    {% if document.previously_accepted_version
+                          and document.previously_accepted_version != document.version %}
+                    <small class="legal-updated">
+                        Updated since you accepted version {{ document.previously_accepted_version }}.
+                        Please review and confirm the new version.
+                    </small>
+                    {% endif %}
+                </div>
+
+                <div class="legal-item-confirm">
+                    {% if document.accepted %}
+                    <span class="legal-confirmed">CONFIRMED</span>
+                    {% else %}
+                    <label>
+                        <input type="checkbox" name="confirm_{{ document.key }}">
+                        I CONFIRM
+                    </label>
+                    <span class="legal-not-confirmed">NOT CONFIRMED</span>
+                    {% endif %}
+                </div>
+
+            </li>
+            {% endfor %}
+        </ul>
+
+        <p class="field-note">
+            You are confirming these on behalf of the business. Each confirmation is
+            recorded with the document version, the date, and who confirmed it.
+        </p>
+
+        <button type="submit" class="btn btn-primary">Confirm and continue</button>
+
+    </form>
+
+</div>
+
+<!-- Document modal. The full text is fetched on demand and shown scrollable
+     and complete; documents are never truncated or inlined into this page. -->
+<div id="legal-modal" class="legal-modal" hidden>
+    <div class="legal-modal-panel" role="dialog" aria-modal="true" aria-labelledby="legal-modal-title">
+        <div class="legal-modal-header">
+            <h2 id="legal-modal-title"></h2>
+            <button type="button" id="legal-modal-close" class="btn">Close</button>
+        </div>
+        <div class="legal-modal-body" id="legal-modal-body">Loading...</div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var modal = document.getElementById('legal-modal');
+    var title = document.getElementById('legal-modal-title');
+    var body  = document.getElementById('legal-modal-body');
+
+    function openDocument(key, label) {
+        title.textContent = label;
+        body.textContent = 'Loading...';
+        modal.hidden = false;
+
+        fetch("{{ url_for('onboarding.legal_document', document_key='__KEY__') }}".replace('__KEY__', key), {
+            credentials: 'same-origin'
+        })
+        .then(function (response) {
+            if (!response.ok) { throw new Error('unavailable'); }
+            return response.json();
+        })
+        .then(function (data) {
+            title.textContent = data.label + ' (version ' + data.version + ')';
+            // textContent, not innerHTML: the document is displayed as text and
+            // must never be interpreted as markup.
+            body.textContent = data.text;
+            body.scrollTop = 0;
+        })
+        .catch(function () {
+            body.textContent = 'This document could not be loaded. Please try again, ' +
+                               'or contact support if the problem continues.';
+        });
+    }
+
+    document.querySelectorAll('[data-document-key]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            openDocument(button.dataset.documentKey, button.dataset.documentLabel);
+        });
+    });
+
+    document.getElementById('legal-modal-close').addEventListener('click', function () {
+        modal.hidden = true;
+    });
+
+    modal.addEventListener('click', function (event) {
+        if (event.target === modal) { modal.hidden = true; }
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && !modal.hidden) { modal.hidden = true; }
+    });
+})();
+</script>
+
+{% endblock %}

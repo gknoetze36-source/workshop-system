@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}
+Security Events
+{% endblock %}
+
+{% block content %}
+
+<!-- ========================================================= -->
+<!-- Header -->
+<!-- ========================================================= -->
+
+<div class="topbar">
+
+    <div class="heading">
+
+        <h1>
+            Security Events
+        </h1>
+
+        <p>
+            PHANTA's own authentication and account event log. This is platform
+            data, not workshop data &mdash; no workshop account can read it.
+        </p>
+
+    </div>
+
+</div>
+
+<!-- ========================================================= -->
+<!-- Filter -->
+<!-- ========================================================= -->
+
+<div class="card">
+
+    <form method="get">
+
+        <div class="form-field">
+            <label for="event_type">Event type</label>
+            <select id="event_type" name="event_type">
+                <option value="">All events</option>
+                {% for value, label in [
+                    ("auth.login_succeeded", "Login succeeded"),
+                    ("auth.login_failed", "Login failed"),
+                    ("auth.logout", "Logout"),
+                    ("auth.password_changed", "Password changed"),
+                    ("auth.password_reset_by_admin", "Password reset by admin"),
+                    ("auth.account_deactivated", "Account deactivated"),
+                    ("auth.account_reactivated", "Account reactivated"),
+                    ("auth.session_revoked", "Session revoked")
+                ] %}
+                <option value="{{ value }}" {% if event_type == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-field">
+            <label for="limit">Show</label>
+            <input type="number" id="limit" name="limit" value="{{ limit }}" min="1" max="500">
+        </div>
+
+        <button type="submit" class="btn btn-primary">Filter</button>
+
+    </form>
+
+</div>
+
+<!-- ========================================================= -->
+<!-- Events -->
+<!-- ========================================================= -->
+
+<div class="card">
+
+    {% if events %}
+    <table class="data-table">
+
+        <thead>
+            <tr>
+                <th>When</th>
+                <th>Event</th>
+                <th>Outcome</th>
+                <th>Account</th>
+                <th>IP</th>
+                <th>Detail</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for event in events %}
+            <tr>
+                <td>{{ event.created_at }}</td>
+                <td>{{ event.event_type }}</td>
+                <td>{{ event.outcome }}</td>
+                <td>
+                    {% if event.identifier %}
+                        {{ event.identifier }}
+                    {% elif event.identifier_hash %}
+                        <span title="Unrecognised identifier. Only a keyed hash is stored, never the submitted value.">
+                            unknown ({{ event.identifier_hash[:12] }})
+                        </span>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </td>
+                <td>{{ event.ip_address or "&mdash;" | safe }}</td>
+                <td>{{ event.details_json or "" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+
+    </table>
+
+    <p>
+        Showing {{ events | length }} event(s).
+        Unrecognised sign-in identifiers are stored only as a keyed hash, because
+        a failed login may contain a password typed into the username field.
+    </p>
+
+    {% else %}
+
+    <p>
+        No security events recorded yet.
+    </p>
+
+    {% endif %}
+
+</div>
+
+{% endblock %}

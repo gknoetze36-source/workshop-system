@@ -70,6 +70,11 @@ def _create_tables(connection, backend):
             phone TEXT,
             email TEXT,
             accepts_whatsapp {integer_boolean} DEFAULT TRUE,
+            marketing_consent_state TEXT,
+            marketing_consent_at TEXT,
+            marketing_consent_source TEXT,
+            marketing_consent_method TEXT,
+            marketing_consent_note TEXT,
             metadata_json TEXT,
             created_at TEXT,
             updated_at TEXT
@@ -381,6 +386,57 @@ def _create_tables(connection, backend):
         )
         """,
         f"""
+        CREATE TABLE IF NOT EXISTS security_incidents (
+            id {primary_key},
+            incident_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT,
+            detected_by TEXT,
+            detected_at TEXT,
+            location_id INTEGER,
+            system_affected TEXT,
+            data_categories_json TEXT,
+            containment_actions TEXT,
+            investigation_notes TEXT,
+            recovery_actions TEXT,
+            affected_record_count INTEGER,
+            notifications_sent TEXT,
+            resolved_at TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS legal_acceptances (
+            id {primary_key},
+            document_key TEXT NOT NULL,
+            document_version TEXT NOT NULL,
+            document_label TEXT,
+            user_id INTEGER,
+            owner_id INTEGER,
+            location_id INTEGER,
+            method TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            accepted_at TEXT
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS security_events (
+            id {primary_key},
+            event_type TEXT NOT NULL,
+            outcome TEXT DEFAULT 'success',
+            user_id INTEGER,
+            location_id INTEGER,
+            identifier TEXT,
+            identifier_hash TEXT,
+            ip_address TEXT,
+            details_json TEXT,
+            created_at TEXT
+        )
+        """,
+        f"""
         CREATE TABLE IF NOT EXISTS paystack_webhook_events (
             id {primary_key},
             event_id TEXT,
@@ -587,6 +643,13 @@ def _ensure_columns(connection, backend):
             "company": "TEXT",
             "active": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
             "must_reset_password": "BOOLEAN DEFAULT FALSE" if backend == "postgres" else "INTEGER DEFAULT 0",
+            # Incremented whenever every existing session for this user must
+            # stop working: password change, admin-issued reset, or account
+            # deactivation. The value is copied into the session cookie at
+            # login and compared on each request, which gives revocation
+            # without a server-side session store. See phanta_app.py's
+            # _populate_location_context.
+            "session_version": "INTEGER DEFAULT 1",
             "created_at": "TEXT",
             "updated_at": "TEXT",
         },
@@ -659,11 +722,6 @@ def _ensure_columns(connection, backend):
             "created_at": "TEXT",
             "sent_at": "TEXT",
         },
-        "services": {
-            "description": "TEXT",
-            "display_order": "INTEGER DEFAULT 0",
-            "metadata_json": "TEXT",
-        },
         "service_prices": {
             "service_name": "TEXT",
             "service_category": "TEXT",
@@ -694,6 +752,15 @@ def _ensure_columns(connection, backend):
             "phone": "TEXT",
             "email": "TEXT",
             "accepts_whatsapp": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
+            # Customer-level marketing consent with its evidence. accepts_whatsapp
+            # defaults TRUE (opt-out semantics) so it cannot by itself evidence an
+            # affirmative marketing opt-in; these columns record what was decided,
+            # when, by what means and from where. See services/consent_service.py.
+            "marketing_consent_state": "TEXT",
+            "marketing_consent_at": "TEXT",
+            "marketing_consent_source": "TEXT",
+            "marketing_consent_method": "TEXT",
+            "marketing_consent_note": "TEXT",
             "metadata_json": "TEXT",
             "created_at": "TEXT",
             "updated_at": "TEXT",
@@ -738,9 +805,15 @@ def _ensure_columns(connection, backend):
             "event_type": "TEXT",
             "created_at": "TEXT",
         },
+        # NOTE: "services" appeared TWICE in this dict. Python keeps only the
+        # last occurrence, so the earlier block (description, display_order)
+        # was silently discarded and those columns were never ensured. The two
+        # blocks are merged here.
         "services": {
             "name": "TEXT",
             "category": "TEXT",
+            "description": "TEXT",
+            "display_order": "INTEGER DEFAULT 0",
             "duration_minutes": "INTEGER DEFAULT 60",
             "price_amount": "REAL DEFAULT 0",
             "active": "BOOLEAN DEFAULT TRUE" if backend == "postgres" else "INTEGER DEFAULT 1",
@@ -914,6 +987,26 @@ def _ensure_columns(connection, backend):
             "extra_cost": "REAL DEFAULT 0",
             "created_at": "TEXT",
             "updated_at": "TEXT",
+        },
+        # Business identity lives on the OWNER, not the location. A business
+        # has one legal identity (CIPC registration, legal name, trading name)
+        # regardless of how many locations it later operates; putting these on
+        # locations meant a second branch would either duplicate or strand the
+        # company's identity. See migrations/0029_owner_business_identity.py.
+        "locations": {
+            "postal_code": "TEXT",
+        },
+        "owners": {
+            "legal_name": "TEXT",
+            "business_registration_number": "TEXT",
+            "trading_name": "TEXT",
+            "business_email": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+        # Legal acceptance is given by the business (owner), not by a branch.
+        "legal_acceptances": {
+            "owner_id": "INTEGER",
         },
         "onboarding_sessions": {
             "industry": "TEXT",

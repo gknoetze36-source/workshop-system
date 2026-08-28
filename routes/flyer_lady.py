@@ -1,4 +1,6 @@
 from __future__ import annotations
+from services.integration_status import require_configured
+from helpers.permission import require_role, MANAGER_ROLES
 import os
 import secrets
 from urllib.parse import urlencode
@@ -30,6 +32,7 @@ def _actor():
     return str(user.get("username") or user.get("name") or user.get("id") or "workshop")[:100]
 
 @flyer_lady_bp.get("/ui")
+@require_role(*MANAGER_ROLES)
 def ui():
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -37,6 +40,7 @@ def ui():
     return __import__("flask").render_template("flyer_lady.html", locations=get_locations_for_owner(location_id))
 
 @flyer_lady_bp.get("")
+@require_role(*MANAGER_ROLES)
 def index():
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -50,6 +54,7 @@ def index():
     finally: db.close()
 
 @flyer_lady_bp.post("/specials")
+@require_role(*MANAGER_ROLES)
 def create_special():
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -64,6 +69,7 @@ def create_special():
     finally: db.close()
 
 @flyer_lady_bp.post("/specials/<int:special_id>/approval")
+@require_role(*MANAGER_ROLES)
 def approve_special(special_id):
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -77,6 +83,7 @@ def approve_special(special_id):
     finally: db.close()
 
 @flyer_lady_bp.post("/specials/<int:special_id>/queue")
+@require_role(*MANAGER_ROLES)
 def queue_special(special_id):
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -92,6 +99,7 @@ def queue_special(special_id):
     finally: db.close()
 
 @flyer_lady_bp.post("/special-posts/<int:post_id>/publish")
+@require_role(*MANAGER_ROLES)
 def publish_now(post_id):
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -105,6 +113,7 @@ def publish_now(post_id):
     finally: db.close()
 
 @flyer_lady_bp.get("/specials/<int:special_id>/whatsapp-status")
+@require_role(*MANAGER_ROLES)
 def whatsapp_status(special_id):
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -117,7 +126,12 @@ def whatsapp_status(special_id):
     finally: db.close()
 
 @flyer_lady_bp.get("/connect/start")
+@require_role(*MANAGER_ROLES)
 def social_connect_start():
+    # A deployment without credentials must say so, not raise.
+    unconfigured = require_configured("flyer_lady")
+    if unconfigured:
+        return jsonify(unconfigured[0]), unconfigured[1]
     try: _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
     config = MetaAuthConfig.from_env()
@@ -137,6 +151,7 @@ def social_connect_start():
     return redirect(f"https://www.facebook.com/{config.graph_api_version}/dialog/oauth?{params}")
 
 @flyer_lady_bp.get("/connect/callback")
+@require_role(*MANAGER_ROLES)
 def social_connect_callback():
     """Facebook redirects the user's real browser here after they approve
     (or decline) the OAuth dialog -- this is always a full page navigation,
@@ -185,6 +200,7 @@ def social_connect_callback():
         db.close()
 
 @flyer_lady_bp.post("/connect/complete")
+@require_role(*MANAGER_ROLES)
 def social_connect_complete():
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401

@@ -1,7 +1,9 @@
 """Phase 9 authenticated Meta messaging endpoints for internal/human testing."""
 from __future__ import annotations
+from helpers.permission import require_role, OPERATIONAL_ROLES
 
 from helpers.location import current_location_id
+from extensions import limiter
 
 from flask import Blueprint, jsonify, request, g
 
@@ -20,6 +22,8 @@ def _service(session):
 
 
 @meta_messaging_bp.post("/send")
+@require_role(*OPERATIONAL_ROLES)
+@limiter.limit("60 per minute")
 def send_message():
     try:
         location_id = current_location_id()

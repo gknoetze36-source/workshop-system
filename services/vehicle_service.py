@@ -93,7 +93,7 @@ def upsert_vehicle(location_id, customer_id, make, model, year, registration, co
                 current_mileage, mileage, fuel_type, last_service_date, last_service_mileage,
                 next_service_due_date, next_service_due_mileage, service_notes,
                 metadata_json, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 location_id, customer_id,

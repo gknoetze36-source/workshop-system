@@ -1,5 +1,6 @@
 """Phase 16 dashboard lifecycle actions."""
 from __future__ import annotations
+from helpers.permission import require_role, OPERATIONAL_ROLES
 
 from helpers.location import current_location_id
 
@@ -27,6 +28,7 @@ def _service(session):
 
 
 @lifecycle_bp.post("/bookings/<int:booking_id>/ready-for-collection")
+@require_role(*OPERATIONAL_ROLES)
 def ready_for_collection(booking_id):
     try: location_id = current_location_id()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
@@ -48,6 +50,7 @@ def ready_for_collection(booking_id):
 
 
 @lifecycle_bp.post("/bookings/<int:booking_id>/work-to-be-done")
+@require_role(*OPERATIONAL_ROLES)
 def work_to_be_done(booking_id):
     try: location_id = current_location_id()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401

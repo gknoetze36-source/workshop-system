@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}
+Export Your Data
+{% endblock %}
+
+{% block content %}
+
+<!-- ========================================================= -->
+<!-- Header -->
+<!-- ========================================================= -->
+
+<div class="topbar">
+
+    <div class="heading">
+
+        <h1>
+            Export Your Data
+        </h1>
+
+        <p>
+            Download a copy of your workshop's records held by PHANTA.
+        </p>
+
+    </div>
+
+</div>
+
+<!-- ========================================================= -->
+<!-- Export -->
+<!-- ========================================================= -->
+
+<div class="card">
+
+    <p>
+        The export is a JSON file containing your customers, vehicles,
+        bookings, service records, quotes, invoices, conversations and
+        messages, along with your consent and legal acceptance records.
+    </p>
+
+    <p>
+        Integration credentials and PHANTA's internal system logs are not
+        included &mdash; they are not your business records, and a file
+        containing access tokens should not be downloadable.
+    </p>
+
+    <p>
+        <strong>The file contains your customers' personal information.</strong>
+        Store it somewhere secure and delete it when you no longer need it.
+        Every export is recorded in your audit log.
+    </p>
+
+    <form method="post">
+
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <button type="submit" class="btn btn-primary">
+            Download export
+        </button>
+
+    </form>
+
+</div>
+
+{% endblock %}

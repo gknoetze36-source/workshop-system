@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Integration Status{% endblock %}
+
+{% block content %}
+
+<div class="topbar">
+    <div class="heading">
+        <h1>Integration Status</h1>
+        <p>
+            Whether each integration has its credentials on this deployment.
+            This is about configuration, not about whether a particular workshop
+            has connected their account.
+        </p>
+    </div>
+</div>
+
+<div class="card">
+
+    {% if all_configured %}
+    <p><strong>All integrations are configured.</strong></p>
+    {% else %}
+    <p>
+        Some integrations are missing configuration. Requests to them return
+        503 with an explanation rather than failing silently or appearing broken.
+    </p>
+    {% endif %}
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Integration</th>
+                <th>Configured</th>
+                <th>Missing variables</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for key, status in statuses.items() %}
+            <tr>
+                <td>{{ key.replace('_', ' ')|title }}</td>
+                <td>{% if status.configured %}Yes{% else %}<strong>No</strong>{% endif %}</td>
+                <td>
+                    {% if status.missing %}
+                        <code>{{ status.missing|join(', ') }}</code>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <p class="field-note">
+        Only variable names are shown here &mdash; never their values.
+    </p>
+
+</div>
+
+{% endblock %}

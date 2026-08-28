@@ -1,7 +1,8 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, abort, g, send_file
 from flask_wtf.csrf import CSRFProtect
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+from extensions import limiter
 from database import execute_db, query_db, utc_now, iso_date, classify_service_level, get_session
 from helpers.common import boolish, db_bool
 from helpers.dates import utc_today, compute_service_due_date
@@ -73,6 +74,13 @@ init_sentry()
 # Initialize Flask app
 app = Flask(__name__)
 
+# Railway terminates TLS at its edge proxy and forwards the request over HTTP.
+# Without this, request.remote_addr is the proxy's address (so every client
+# shares one rate-limit bucket) and request.is_secure is always False.
+# x_for=1 / x_proto=1 matches a single trusted proxy hop; raise these only if
+# additional trusted proxies are actually placed in front of the app.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 _secret_key = os.getenv('FLASK_SECRET_KEY')
 if not _secret_key and os.getenv('FLASK_ENV', '').lower() == 'production':
     raise RuntimeError('FLASK_SECRET_KEY is required in production')
@@ -118,11 +126,29 @@ except Exception as _init_exc:
         raise
 csrf = CSRFProtect(app)
 app.config['WTF_CSRF_CHECK_DEFAULT'] = True
-limiter = Limiter(key_func=get_remote_address, default_limits=[os.getenv('DEFAULT_RATE_LIMIT', '300 per hour')], storage_uri=os.getenv('RATELIMIT_STORAGE_URI', 'memory://'))
+
+# The limiter instance is defined in extensions.py and MUST be bound to the
+# app here. It was previously constructed in this file but never bound, so
+# every limit it declared -- including the default -- was silently ignored.
+#
+# RATELIMIT_ENABLED exists so the automated test suite (which drives hundreds
+# of requests from a single client address) is not throttled. It defaults to
+# enabled: a deployment has to opt out explicitly, and production must never
+# set it. Flask-Limiter reads this config key itself.
+app.config['RATELIMIT_ENABLED'] = os.getenv('RATELIMIT_ENABLED', 'true').strip().lower() not in {'0', 'false', 'no', 'off'}
+limiter.init_app(app)
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_ENV', '').lower() == 'production' or bool(os.getenv('RAILWAY_ENVIRONMENT'))
+# Sessions previously had no lifetime at all, so a signed cookie stayed valid
+# indefinitely. SESSION_REFRESH_EACH_REQUEST keeps an active user signed in by
+# sliding the window, so this is an inactivity timeout rather than a hard cap.
+from datetime import timedelta as _timedelta
+app.config['PERMANENT_SESSION_LIFETIME'] = _timedelta(
+    hours=int(os.getenv('SESSION_LIFETIME_HOURS', '12'))
+)
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 app.register_blueprint(auth_bp)
 app.register_blueprint(workshop_dashboard_bp)
 app.register_blueprint(platform_dashboard_bp)
@@ -198,6 +224,57 @@ def _protect_form_requests():
     if request.endpoint in {"webhooks.meta_webhook_receive", "paystack.webhook"}:
         return
     csrf.protect()
+
+
+@app.before_request
+def _enforce_session_state():
+    """Revocation and forced-password-reset checks for every request.
+
+    Flask's signed-cookie sessions cannot be deleted server-side, so a session
+    is validated instead: it carries the user's session_version, and any
+    mismatch against the database means the session was revoked (password
+    change, admin reset, deactivation) and must stop working immediately.
+
+    This is also the single enforcement point for must_reset_password, which
+    was previously written in four places and read in none -- an invited user's
+    temporary password was effectively permanent.
+
+    The exemption list mirrors the pattern active_location_required() already
+    uses for the billing wall: a user who must change their password has to be
+    able to reach the change-password page, log out, and load static assets.
+    """
+    user = session.get("user") or {}
+    if not user:
+        return
+
+    exempt = {
+        "auth.login", "auth.logout", "static",
+        "settings.change_password", "health", "favicon",
+    }
+    if request.endpoint in exempt:
+        return
+
+    row = query_db(
+        "SELECT active, session_version, must_reset_password FROM users WHERE id=%s",
+        (user.get("id"),),
+        one=True,
+    )
+
+    # Deleted or deactivated account: drop the session immediately.
+    if not row or not boolish(row.get("active", True)):
+        session.pop("user", None)
+        flash("Your account is no longer active. Please sign in again.", "error")
+        return redirect(url_for("auth.login"))
+
+    # Revoked session: the stored version has moved on from this cookie's.
+    if int(row.get("session_version") or 1) != int(user.get("session_version") or 1):
+        session.pop("user", None)
+        flash("Your session has ended because your password was changed. Please sign in again.", "error")
+        return redirect(url_for("auth.login"))
+
+    # Temporary password still in force: everything else is out of bounds.
+    if boolish(row.get("must_reset_password")):
+        return redirect(url_for("settings.change_password"))
 
 
 @app.before_request

@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Workshop Details{% endblock %}
+
+{% block content %}
+
+<div class="topbar">
+    <div class="heading">
+        <h1>Workshop Details</h1>
+        <p>Where you are, and when you are open.</p>
+    </div>
+</div>
+
+{% with current_stage = 'workshop' %}
+{% include "_onboarding_progress.html" %}
+{% endwith %}
+
+<div class="card">
+
+    <form method="post" novalidate>
+
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <h2>Workshop</h2>
+
+        <div class="field">
+            <label for="name">Workshop name</label>
+            <input type="text" id="name" name="name" value="{{ form.name or '' }}" required>
+            <small>Pre-filled from your trading name. Change it if this branch trades under
+                   a different name.</small>
+            {% if errors.name %}<p class="field-error">{{ errors.name }}</p>{% endif %}
+        </div>
+
+        <div class="field">
+            <label for="physical_address">Street address</label>
+            <input type="text" id="physical_address" name="physical_address"
+                   value="{{ form.physical_address or '' }}" required>
+            {% if errors.physical_address %}<p class="field-error">{{ errors.physical_address }}</p>{% endif %}
+        </div>
+
+        <div class="field">
+            <label for="city">City or town</label>
+            <input type="text" id="city" name="city" value="{{ form.city or '' }}" required>
+            {% if errors.city %}<p class="field-error">{{ errors.city }}</p>{% endif %}
+        </div>
+
+        <div class="field">
+            <label for="province">Province</label>
+            <select id="province" name="province" required>
+                <option value="">Select a province</option>
+                {% for province in ["Eastern Cape", "Free State", "Gauteng", "KwaZulu-Natal",
+                                    "Limpopo", "Mpumalanga", "Northern Cape", "North West",
+                                    "Western Cape"] %}
+                <option value="{{ province }}" {% if form.province == province %}selected{% endif %}>{{ province }}</option>
+                {% endfor %}
+            </select>
+            {% if errors.province %}<p class="field-error">{{ errors.province }}</p>{% endif %}
+        </div>
+
+        <div class="field">
+            <label for="postal_code">Postal code <span class="optional">(optional)</span></label>
+            <input type="text" id="postal_code" name="postal_code" value="{{ form.postal_code or '' }}">
+        </div>
+
+        <h2>Operating hours</h2>
+
+        <p class="field-note">
+            These tell PHANTA when you are open. They are not appointment slots.
+        </p>
+
+        <fieldset class="hours-group">
+            <legend>Monday to Friday</legend>
+            <div class="hours-row">
+                <label for="weekday_open">Opens</label>
+                <input type="time" id="weekday_open" name="weekday_open"
+                       value="{{ form.weekday_open or '08:00' }}">
+                <label for="weekday_close">Closes</label>
+                <input type="time" id="weekday_close" name="weekday_close"
+                       value="{{ form.weekday_close or '17:00' }}">
+            </div>
+            {% if errors.weekday %}<p class="field-error">{{ errors.weekday }}</p>{% endif %}
+        </fieldset>
+
+        {% for day in ['saturday', 'sunday'] %}
+        <fieldset class="hours-group">
+            <legend>{{ day.title() }} <span class="optional">(optional)</span></legend>
+            <div class="hours-row">
+                <label>
+                    <input type="checkbox" name="{{ day }}_closed"
+                           {% if form.get(day ~ '_closed') %}checked{% endif %}>
+                    Closed
+                </label>
+                <label for="{{ day }}_open">Opens</label>
+                <input type="time" id="{{ day }}_open" name="{{ day }}_open"
+                       value="{{ form.get(day ~ '_open') or '' }}">
+                <label for="{{ day }}_close">Closes</label>
+                <input type="time" id="{{ day }}_close" name="{{ day }}_close"
+                       value="{{ form.get(day ~ '_close') or '' }}">
+            </div>
+            {% if errors.get(day) %}<p class="field-error">{{ errors.get(day) }}</p>{% endif %}
+        </fieldset>
+        {% endfor %}
+
+        <p class="field-note">
+            Leave a weekend day closed if you do not work it. You can change your hours
+            at any time in settings.
+        </p>
+
+        <button type="submit" class="btn btn-primary">Save and continue</button>
+
+    </form>
+
+</div>
+
+{% endblock %}

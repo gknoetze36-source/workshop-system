@@ -803,12 +803,13 @@ input:checked + .slider:before {
         </div>
 
         <div class="progress-actions">
-            {% if current_step != 'review' and current_step != 'completed' %}
-            <a href="{{ url_for('onboarding.onboarding_' + current_step) }}" class="button primary">Continue to {{ current_step|title }}</a>
-            {% elif current_step == 'review' %}
+            {# next_stage is resolved to a real registered endpoint in the view.
+               Building an endpoint name by string concatenation here caused a
+               500 whenever the derived step had no matching route. #}
+            {% if next_stage %}
+            <a href="{{ url_for(next_stage.endpoint) }}" class="button primary">Continue to {{ next_stage.label }}</a>
+            {% else %}
             <a href="{{ url_for('onboarding.onboarding_review') }}" class="button primary">Review Your Setup</a>
-            {% elif current_step == 'completed' %}
-            <a href="{{ url_for('index') }}" class="button primary">Go to Dashboard</a>
             {% endif %}
         </div>
     </div>

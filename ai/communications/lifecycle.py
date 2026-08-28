@@ -5,15 +5,23 @@ repairs. Booking communication is date + morning only for customers.
 """
 from __future__ import annotations
 
+import logging
+
 from calendar import monthrange
 from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 
+from constants.message_categories import (
+    BOOKING_CONFIRMATION, BOOKING_REMINDER, VEHICLE_READY, SERVICE_FOLLOWUP,
+)
 from models.core import AuditLog, Booking, Conversation, Customer, FollowUp, Service
 from ai.follow_up.service import DeterministicFollowUpService
 from repositories.audit_repo import AuditLogRepository
 from integrations.meta.messaging.messaging_service import MetaMessagingService
+
+
+logger = logging.getLogger(__name__)
 
 
 class LifecycleCommunicationService:
@@ -75,7 +83,28 @@ class LifecycleCommunicationService:
         day = min(value.day, monthrange(year, month)[1])
         return value.replace(year=year, month=month, day=day)
 
-    def _send(self, location_id: int, customer_id: int, text: str, *, now=None):
+    def _send(self, location_id: int, customer_id: int, text: str, *,
+              category=None, now=None):
+        """Send one lifecycle message, subject to the customer's consent.
+
+        THIS IS THE LIVE OUTBOUND PATH. Marketing suppression was originally
+        implemented only in services/messaging_service.can_send_outbound(),
+        which is reached exclusively from services/reminder_service.py and
+        services/inquiry_followup_service.py -- and neither of those modules is
+        imported by anything. They never load. So a customer's marketing
+        opt-out was being recorded correctly by the WhatsApp STOP handler and
+        then never consulted at send time.
+
+        The gate therefore has to live here, on the path the application
+        actually executes. The category rules are unchanged: operational
+        messages about a booking the customer arranged are never suppressed by
+        a marketing opt-out; anything in MARKETING_CATEGORIES requires
+        affirmative consent.
+
+        `category` defaults to None, which is treated as operational, because
+        every existing caller in this class sends operational content. A caller
+        that sends promotional content MUST pass its category.
+        """
         if self.messaging is None:
             raise RuntimeError("MetaMessagingService is required for outbound lifecycle communication")
         customer = self.session.scalar(select(Customer).where(
@@ -83,6 +112,14 @@ class LifecycleCommunicationService:
         ))
         if not customer:
             raise ValueError("customer not found")
+
+        if not self._may_send(location_id, customer_id, category):
+            logger.info(
+                "lifecycle_message_suppressed customer_id=%s location_id=%s category=%s",
+                customer_id, location_id, category,
+            )
+            return None
+
         conversation = self._customer_conversation(self.session, location_id, customer_id)
         return self.messaging.send_auto(
             location_id=location_id,
@@ -91,10 +128,26 @@ class LifecycleCommunicationService:
             body=text,
         )
 
+    @staticmethod
+    def _may_send(location_id: int, customer_id: int, category) -> bool:
+        """Consent check for one outbound message.
+
+        Only marketing categories are gated. Absence of a recorded opt-in is
+        NOT consent, so an unknown consent state suppresses marketing -- the
+        same rule services/consent_service.py applies everywhere else.
+        """
+        from constants.message_categories import is_marketing
+        from services.consent_service import may_send_marketing
+
+        if not is_marketing(category):
+            return True
+        return may_send_marketing(customer_id, location_id)
+
     def booking_confirmed(self, booking: Booking):
         """Send the booking confirmation after the customer's YES is recorded."""
         text = self.BOOKING_CONFIRMATION_TEXT.format(date=booking.start_time.date().isoformat())
-        message = self._send(booking.location_id, booking.customer_id, text)
+        message = self._send(booking.location_id, booking.customer_id, text,
+                             category=BOOKING_CONFIRMATION)
         self.audit.record(
             booking.location_id, "system", "lifecycle.booking_confirmed_message_sent",
             "booking", booking.id, after={"message_id": message.id}
@@ -152,7 +205,8 @@ class LifecycleCommunicationService:
         if already_sent or prior_audit:
             return None
         message = self._send(
-            location_id, booking.customer_id, self.READY_FOR_COLLECTION_TEXT
+            location_id, booking.customer_id, self.READY_FOR_COLLECTION_TEXT,
+            category=VEHICLE_READY,
         )
         self.audit.record(
             location_id, "staff", "lifecycle.ready_for_collection_message_sent",
@@ -188,7 +242,8 @@ class LifecycleCommunicationService:
         # second recovery message if staff presses the button twice.
         if already_sent or prior_audit:
             return None
-        message = self._send(location_id, booking.customer_id, self.MISSED_BOOKING_TEXT)
+        message = self._send(location_id, booking.customer_id, self.MISSED_BOOKING_TEXT,
+                             category=SERVICE_FOLLOWUP)
         self.audit.record(
             location_id, "staff", "lifecycle.missed_booking_message_sent",
             "booking", booking.id, after={"message_id": message.id}
@@ -287,11 +342,14 @@ class LifecycleCommunicationService:
                         item.status = "cancelled"
                         continue
                     self._send(location_id, item.customer_id,
-                               self.BOOKING_REMINDER_TEXT.format(date=booking.start_time.date().isoformat()))
+                               self.BOOKING_REMINDER_TEXT.format(date=booking.start_time.date().isoformat()),
+                               category=BOOKING_REMINDER)
                 elif kind == "work_to_be_done":
-                    self._send(location_id, item.customer_id, self.WORK_TO_BE_DONE_TEXT)
+                    self._send(location_id, item.customer_id, self.WORK_TO_BE_DONE_TEXT,
+                               category=SERVICE_FOLLOWUP)
                 elif kind == "yearly_message":
-                    self._send(location_id, item.customer_id, self.YEARLY_MESSAGE_TEXT)
+                    self._send(location_id, item.customer_id, self.YEARLY_MESSAGE_TEXT,
+                               category=SERVICE_FOLLOWUP)
                 item.status = "sent"
                 sent_ids.append(item.id)
                 self.audit.record(location_id, "system", f"lifecycle.{kind}_sent", "follow_up", item.id)

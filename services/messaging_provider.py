@@ -47,12 +47,18 @@ def active_messaging_account(context=None, provider=None, channel="whatsapp", ph
     if provider not in (None, "meta") or channel != "whatsapp":
         return None
 
-    from database import get_platform_session
+    from database import session_scope
     from sqlalchemy import select
     from models.integration_models import MetaBusinessConnection
 
-    db = get_platform_session()
-    try:
+    # This used to open get_platform_session(), which sets app.platform_admin
+    # and disables location isolation at the database layer -- for an ordinary
+    # outbound-message lookup. The SQL filtered on location_id, so no leak was
+    # demonstrated, but the RLS guarantee was switched off during a routine
+    # operation. A location-scoped session gives the same result with the
+    # database still enforcing isolation, so a future change to this query
+    # cannot reach another workshop's connection.
+    with session_scope(location_id=int(location_id)) as db:
         stmt = select(MetaBusinessConnection).where(
             MetaBusinessConnection.location_id == int(location_id),
             MetaBusinessConnection.connection_status.in_(("connected", "expiring_soon")),
@@ -81,8 +87,6 @@ def active_messaging_account(context=None, provider=None, channel="whatsapp", ph
         }
         validate_messaging_account(account)
         return account
-    finally:
-        db.close()
 
 
 

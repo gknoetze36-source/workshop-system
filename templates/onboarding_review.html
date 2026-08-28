@@ -1,22 +1,101 @@
 {% extends "base.html" %}
-{% block title %}Onboarding — Review{% endblock %}
+
+{% block title %}Review and Finish{% endblock %}
+
 {% block content %}
-<section class="topbar"><div class="heading"><h1>Review setup</h1><p>Confirm the workshop configuration before going live.</p></div></section>
-<div class="dashboard-grid">
-  <div class="v-card"><strong>Business</strong><p>{{ location.name if location else 'Not configured' }}</p></div>
-  <div class="v-card"><strong>Services</strong><p>{{ services|length }}</p></div>
-  <div class="v-card"><strong>WhatsApp</strong><p>{% if whatsapp_config %}Connected{% else %}Not connected{% endif %}</p></div>
-  <div class="v-card"><strong>Automations</strong><p>{{ automation_rules.total_count or 0 }}</p></div>
-  <div class="v-card"><strong>Team</strong><p>{{ team_members.total_count or 0 }}</p></div>
+
+<div class="topbar">
+    <div class="heading">
+        <h1>Review and Finish</h1>
+        <p>Check your details before entering PHANTA.</p>
+    </div>
 </div>
-<div class="v-card" style="margin-top:24px;">
-  {% if is_complete %}
-    <p><strong>Setup is complete.</strong> You can finish onboarding.</p>
+
+{% with current_stage = 'review' %}
+{% include "_onboarding_progress.html" %}
+{% endwith %}
+
+<div class="card">
+    <h2>Business</h2>
+    <dl class="review-list">
+        <dt>Registered name</dt><dd>{{ owner.legal_name or '—' }}</dd>
+        <dt>Registration number</dt><dd>{{ owner.business_registration_number or '—' }}</dd>
+        <dt>Trading name</dt><dd>{{ owner.trading_name or '—' }}</dd>
+        <dt>Business email</dt><dd>{{ owner.business_email or '—' }}</dd>
+    </dl>
+    <a href="{{ url_for('onboarding.onboarding_business') }}">Edit business details</a>
+</div>
+
+<div class="card">
+    <h2>Workshop</h2>
+    <dl class="review-list">
+        <dt>Name</dt><dd>{{ location.name or '—' }}</dd>
+        <dt>Address</dt>
+        <dd>
+            {{ location.physical_address or '—' }}{% if location.city %}, {{ location.city }}{% endif %}
+            {% if location.province %}, {{ location.province }}{% endif %}
+            {% if location.postal_code %} {{ location.postal_code }}{% endif %}
+        </dd>
+    </dl>
+
+    <h3>Operating hours</h3>
+    <dl class="review-list">
+        {% for day in ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] %}
+        {% set entry = hours.get(day) %}
+        <dt>{{ day.title() }}</dt>
+        <dd>
+            {% if entry and not entry.closed %}{{ entry.open }} – {{ entry.close }}
+            {% else %}Closed{% endif %}
+        </dd>
+        {% endfor %}
+    </dl>
+    <a href="{{ url_for('onboarding.onboarding_workshop') }}">Edit workshop details</a>
+</div>
+
+<div class="card">
+    <h2>Connections</h2>
+    <dl class="review-list">
+        <dt>WhatsApp</dt>
+        <dd>
+            {% if status.whatsapp %}Connected
+            {% else %}
+                Not connected ({{ status.whatsapp_state|replace('_', ' ')|title }}).
+                You can finish onboarding without it, but PHANTA cannot message
+                your customers until it is connected.
+            {% endif %}
+        </dd>
+        <dt>Flyer Lady</dt>
+        <dd>{% if status.flyer_lady %}Connected{% else %}Not connected (optional){% endif %}</dd>
+        <dt>Automation</dt>
+        <dd>{% if status.automation %}Active{% else %}No active rules yet{% endif %}</dd>
+        <dt>Legal agreements</dt>
+        <dd>{% if status.legal %}All confirmed{% else %}Not yet confirmed{% endif %}</dd>
+    </dl>
+</div>
+
+{% if outstanding %}
+<div class="card card-error">
+    <h2>Still to do</h2>
+    <ul>
+        {% for stage in stages %}
+        {% if stage.key in outstanding %}
+        <li><a href="{{ url_for(stage.endpoint) }}">{{ stage.label }}</a></li>
+        {% endif %}
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<div class="card">
     <form method="POST" action="{{ url_for('onboarding.onboarding_complete') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button primary" type="submit">Complete onboarding</button></form>
-  {% else %}
-    <p>Complete all required steps before finishing onboarding.</p>
-    <a class="button" href="{{ url_for('onboarding.onboarding') }}">Return to onboarding</a>
-  {% endif %}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-primary" type="submit" {% if not can_complete %}disabled{% endif %}>
+            Complete onboarding
+        </button>
+        {% if not can_complete %}
+        <p class="field-note">Finish the outstanding steps above to enable this.</p>
+        {% endif %}
+    </form>
 </div>
+
 {% endblock %}

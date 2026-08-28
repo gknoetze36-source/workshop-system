@@ -17,8 +17,24 @@ def initialize_database(*, run_migrations: bool = True):
     else:
         connection, backend = get_connection()
     try:
-        if backend != "postgres":
-            _create_tables(connection, backend)
+        # _create_tables was previously skipped on PostgreSQL, on the assumption
+        # that alembic owned the schema there. It does not: `users` is defined
+        # ONLY in database/schema.py -- it is not an ORM model, so
+        # Base.metadata.create_all() does not create it, and no migration
+        # creates it either. The result was that a FRESH PostgreSQL database
+        # could never be bootstrapped: ensure_owner_location_foundation() below
+        # immediately tried to ALTER TABLE users and failed with
+        # "relation users does not exist".
+        #
+        # This went unnoticed because an existing production database already
+        # had the table, so the gap only appeared on a brand-new database --
+        # which is exactly the disaster-recovery path (restore into a fresh
+        # instance) that must work.
+        #
+        # Every statement in _create_tables is CREATE TABLE IF NOT EXISTS and is
+        # backend-parameterised, so running it on PostgreSQL is idempotent and a
+        # no-op against an existing database.
+        _create_tables(connection, backend)
         # owners/locations must exist before _ensure_columns touches them.
         ensure_owner_location_foundation(connection, backend)
         _ensure_columns(connection, backend)

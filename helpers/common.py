@@ -4,17 +4,33 @@ from database.query import fetch_one, fetch_all
 Common Helper Functions for Workshop System Version 2.
 
 Shared helper functions used across multiple services.
+
+ROLE_LABELS previously listed location_admin, location_manager, accounts and
+viewer -- names no route ever accepted, so a user given one of them could not
+reach any page. The display labels are now derived from the canonical role
+vocabulary in helpers/permission.py, which is the only place role names are
+defined. Imported lazily to avoid a circular import at module load.
 """
 
-ROLE_LABELS = {
-    "reception": "Reception",
-    "location_admin": "Location Admin",
-    "super_admin": "Platform Super Admin",
-    "location_manager": "Location Manager",
-    "technician": "Technician",
-    "accounts": "Accounts",
-    "viewer": "Viewer",
-}
+
+def _canonical_role_labels():
+    from helpers.permission import ALL_USER_ROLES, PLATFORM_ROLES
+
+    labels = {
+        "owner": "Owner",
+        "admin": "Administrator",
+        "manager": "Manager",
+        "reception": "Reception",
+        "technician": "Technician",
+        "readonly": "Read Only",
+    }
+    result = {role: labels.get(role, role.replace("_", " ").title()) for role in ALL_USER_ROLES}
+    for role in sorted(PLATFORM_ROLES):
+        result[role] = "Platform Super Admin" if role == "super_admin" else role.replace("_", " ").title()
+    return result
+
+
+ROLE_LABELS = _canonical_role_labels()
 
 
 def boolish(value):

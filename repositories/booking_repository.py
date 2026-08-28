@@ -378,8 +378,8 @@ def create_booking(booking_data):
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s
         )
         """,
         (

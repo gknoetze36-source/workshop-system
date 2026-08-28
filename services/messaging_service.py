@@ -1,5 +1,10 @@
 import re
 from urllib.parse import quote
+import logging
+from constants.message_categories import (
+    normalise_category, is_marketing, is_reminder, UNCATEGORISED,
+)
+from services.consent_service import may_send_marketing
 from datetime import datetime, timedelta
 
 from database import fetch_one
@@ -35,8 +40,14 @@ def lowest_cost_channels(booking):
     return seen
 
 
-def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=None):
-    if not can_send_outbound(booking, subject, body):
+def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=None, category=None):
+    """Send one message on the cheapest available channel.
+
+    `category` must be a value from constants/message_categories.py. It is
+    what allows marketing suppression to block promotional sends without
+    blocking operational ones, so every caller should declare it.
+    """
+    if not can_send_outbound(booking, subject, body, category=category):
         return False, "suppressed"
     recipient_phone = booking.get("phone")
     if recipient_phone and boolish(booking.get("whatsapp_opt_in", 0)):
@@ -53,14 +64,60 @@ def send_cheapest_message(booking, subject, body, actor_user_id=None, reminder=N
 
 
 
-def can_send_outbound(booking, subject, body):
+logger = logging.getLogger(__name__)
+
+
+def can_send_outbound(booking, subject, body, category=None):
+    """Decide whether one outbound message may be sent.
+
+    This is the single chokepoint every send path passes through, including
+    the cron-driven reminder jobs, so suppression applied here is inherited by
+    background work automatically.
+
+    ORDER OF CHECKS
+    ---------------
+    1. Location may send at all (billing/access state).
+    2. MARKETING requires affirmative customer-level consent. Operational
+       messages about a booking the customer actually made are never blocked
+       by a marketing opt-out -- that is the whole point of categorising.
+    3. Reminders honour the pre-existing per-booking reminder opt-out.
+    4. Duplicate suppression: same recipient and subject within 12 hours.
+
+    `category` is optional so existing call sites keep working; an unlabelled
+    message is treated as operational and logged, so remaining call sites can
+    be found and labelled rather than silently dropped.
+    """
     if not booking:
         return False
     location = fetch_one("SELECT * FROM locations WHERE id=%s", (booking.get("location_id"),))
     if not can_send_messages(location):
         return False
-    if not boolish(booking.get("reminder_opt_in", 1)) and "reminder" in (subject or "").lower():
-        return False
+
+    resolved = normalise_category(category)
+    if resolved == UNCATEGORISED and category is None:
+        logger.info(
+            "outbound_message_uncategorised subject=%r booking_id=%s",
+            (subject or "")[:40], booking.get("id"),
+        )
+
+    # Marketing requires an affirmative opt-in. Absence of an opt-out is not
+    # consent, so an unknown state suppresses.
+    if is_marketing(resolved):
+        customer_id = booking.get("customer_id")
+        location_id = booking.get("location_id")
+        if not customer_id or not may_send_marketing(customer_id, location_id):
+            logger.info(
+                "marketing_suppressed customer_id=%s location_id=%s category=%s",
+                customer_id, location_id, resolved,
+            )
+            return False
+
+    # Pre-existing per-booking reminder opt-out. Retained, but now keyed on the
+    # declared category rather than a substring match on the subject line.
+    if not boolish(booking.get("reminder_opt_in", 1)):
+        if is_reminder(resolved) or (category is None and "reminder" in (subject or "").lower()):
+            return False
+
     recipient = booking.get("phone") or ""
     if not recipient:
         return False

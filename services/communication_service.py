@@ -2,25 +2,47 @@ from database import execute_db, fetch_all, fetch_one, utc_now
 from helpers.common import scope_clause
 
 def log_communication(booking, reminder, channel, recipient, subject, body, status, user_id=None, external_target=""):
+    """Record that an outbound message was attempted.
+
+    Two defects were fixed here:
+
+    1. The INSERT declared 12 columns but supplied 13 placeholders and 13
+       values -- booking["location_id"] was passed twice, once for
+       location_id and once in the position belonging to user_id. Every call
+       therefore raised, so communication_logs was never written. That also
+       silently disabled the duplicate-send guard in
+       services/messaging_service.py::can_send_outbound(), which suppresses a
+       repeat of the same subject to the same recipient within 12 hours by
+       looking for a prior row in this table. With no rows ever written, that
+       guard could never fire.
+
+    2. The rendered message body is no longer persisted. Outbound text is
+       generated from templates and can be re-derived, so storing it turned
+       this table into a store of personal information for no operational
+       benefit. `subject` is still stored because can_send_outbound() matches
+       on it, and the delivery metadata (channel, recipient, status, times)
+       is what the operational dashboards actually read.
+
+    The `body` parameter is retained in the signature so the four existing
+    call sites do not need to change; it is deliberately not written.
+    """
     sent = str(status or "").startswith("sent")
     execute_db(
         """
         INSERT INTO communication_logs (
             booking_id, reminder_id, location_id, user_id, channel,
-            recipient, subject, body, status, external_target, created_at, sent_at
+            recipient, subject, status, external_target, created_at, sent_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             booking["id"],
             reminder["id"] if reminder else None,
             booking["location_id"],
-            booking["location_id"],
             user_id,
             channel,
             recipient,
             subject,
-            body,
             status,
             external_target,
             utc_now(),

@@ -82,10 +82,14 @@ def get_monthly_revenue(location_id, year_month):
 
 
 def refresh_subscription_status(location):
+    """Update subscription status if the subscription has expired.
+
+    The docstring previously sat two statements down, which made it a no-op
+    string expression rather than the function's documentation.
+    """
     if not location:
         return None
     subscription_end = parse_date(location.get("subscription_end"))
-    """Update subscription status if the subscription has expired."""
     current_status = (location.get("subscription_status") or "active").lower()
     if subscription_end and subscription_end.date() < datetime.utcnow().date() and current_status not in {"inactive", "cancelled"}:
         execute_db(

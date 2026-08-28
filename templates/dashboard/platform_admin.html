@@ -21,6 +21,11 @@
       <p>This page displays only platform information that the current backend actually supplies.</p>
     </div>
     <div class="phanta-admin-actions">
+      {# PHANTA's own authentication/account event log. Platform data, not
+         workshop data -- the table's RLS grants SELECT only in the
+         platform-admin context. #}
+      <a class="button alt" href="{{ url_for('platform_dashboard.security_events') }}">Security events</a>
+      <a class="button alt" href="{{ url_for('platform_dashboard.integration_status_page') }}">Integration status</a>
       <button class="button primary" type="button" id="platform-refresh">Refresh status</button>
     </div>
   </header>

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from constants.message_categories import SERVICE_FOLLOWUP
 
 from database import execute_db, fetch_all, fetch_one
 from helpers.dates import parse_date
@@ -83,7 +84,7 @@ def send_inquiry_followups(as_of=None):
         }
         subject = _followup_subject(inquiry, location, stage)
         body = _followup_message(inquiry, location, stage)
-        success, channel = send_cheapest_message(booking_stub, subject, body)
+        success, channel = send_cheapest_message(booking_stub, subject, body, category=SERVICE_FOLLOWUP)
         status = "sent" if success else f"failed:{channel}"
         execute_db(
             """

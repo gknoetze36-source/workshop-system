@@ -111,6 +111,14 @@ def ensure_owner_location_foundation(connection, backend):
     _add_column(connection, backend, "locations", "access_locked_at", "TEXT")
 
     # Canonical identity/scope columns used by the active application.
+    # Business identity columns on owners. Added here (rather than only in the
+    # alembic migration) so a fresh SQLite development database gets them too.
+    for column in ("legal_name", "business_registration_number", "trading_name", "business_email"):
+        _add_column(connection, backend, "owners", column, "TEXT")
+
+    # Postal code completes the workshop address captured during onboarding.
+    _add_column(connection, backend, "locations", "postal_code", "TEXT")
+
     _add_column(connection, backend, "users", "owner_id", "INTEGER")
     _add_column(connection, backend, "users", "location_id", "INTEGER")
     for table in SCOPED_TABLES:

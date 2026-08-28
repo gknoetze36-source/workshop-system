@@ -29,8 +29,24 @@ def _verify_token() -> str:
 
 @webhooks_bp.get("/meta")
 def meta_webhook_verify():
+    # Meta calls this endpoint to verify the webhook subscription. When the
+    # deployment has no verify token, _verify_token() raises and the endpoint
+    # returned an unhandled 500 -- which to Meta, and to anyone testing, looks
+    # like a broken webhook rather than an unconfigured one. Answer 503 with
+    # the reason instead. Note this is the UNAUTHENTICATED verification
+    # endpoint, so the response deliberately names only the missing variable,
+    # never any value.
     try:
-        challenge = MetaHandshakeHandler(_verify_token()).verify(
+        verify_token = _verify_token()
+    except RuntimeError:
+        logger.error("meta_webhook_verify_unconfigured missing=META_WEBHOOK_VERIFY_TOKEN")
+        return jsonify({
+            "error": "webhook not configured",
+            "detail": "META_WEBHOOK_VERIFY_TOKEN is not set on this deployment.",
+        }), 503
+
+    try:
+        challenge = MetaHandshakeHandler(verify_token).verify(
             request.args.get("hub.mode"),
             request.args.get("hub.verify_token"),
             request.args.get("hub.challenge"),
@@ -99,6 +115,53 @@ def meta_webhook_receive():
             event_location_id = item.get("location_id") or location_id
             if not isinstance(event_location_id, int) or event_location_id <= 0:
                 raise RuntimeError("location context missing for webhook AI processing")
+
+            # Marketing opt-out is handled BEFORE the Service Advisor sees the
+            # message. A customer replying STOP is making a consent decision,
+            # not opening a conversation, and the AI must not be given the
+            # chance to answer it conversationally or to ignore it.
+            #
+            # This suppresses MARKETING only. Booking confirmations, reminders
+            # and vehicle-ready messages continue, which is what the
+            # confirmation reply tells the customer.
+            from services.whatsapp_optout import (
+                process_consent_keyword,
+                confirmation_text,
+            )
+
+            consent_action = process_consent_keyword(
+                customer_id=event_result.get("customer_id"),
+                location_id=event_location_id,
+                text=str(event_result.get("body") or ""),
+                native_signal=event_result.get("marketing_opt_out_signal"),
+            )
+            if consent_action:
+                with location_transaction(event_location_id) as consent_session:
+                    try:
+                        deliver_whatsapp(
+                            consent_session,
+                            location_id=event_location_id,
+                            conversation_id=int(event_result["conversation_id"]),
+                            customer_id=int(event_result["customer_id"]),
+                            text=confirmation_text(
+                                consent_action["action"],
+                                item.get("workshop_name"),
+                            ),
+                        )
+                    except Exception:
+                        # The consent decision is already recorded and is the
+                        # part that matters. A failed confirmation must not
+                        # roll it back or retry the webhook.
+                        logger.exception(
+                            "consent_confirmation_delivery_failed location_id=%s",
+                            event_location_id,
+                        )
+                ai_results.append({
+                    "event_id": item.get("event_id"),
+                    "ok": True,
+                    "consent": consent_action["action"],
+                })
+                continue
 
             with location_transaction(event_location_id) as ai_session:
                 advisor = build_service_advisor(ai_session)

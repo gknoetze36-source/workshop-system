@@ -1,0 +1,34 @@
+{# Shared onboarding progress bar.
+
+   The customer should always be able to see where they are and return to a
+   previous step without losing information (§23 of the onboarding brief).
+   Completion state comes from services/onboarding_service.stage_status(),
+   which derives it from the data rather than from a stored percentage. #}
+
+<div class="onboarding-progress">
+
+    <ol class="onboarding-steps">
+        {% for stage in stages %}
+        {% if stage.key not in ('account', 'review') %}
+        <li class="onboarding-step
+                   {% if status.get(stage.key) %}is-complete{% endif %}
+                   {% if stage.key == current_stage %}is-current{% endif %}">
+            {% if status.get(stage.key) %}
+            <a href="{{ url_for(stage.endpoint) }}">{{ stage.label }}</a>
+            {% else %}
+            <span>{{ stage.label }}</span>
+            {% endif %}
+            {% if not stage.required %}<small>optional</small>{% endif %}
+        </li>
+        {% endif %}
+        {% endfor %}
+    </ol>
+
+    <div class="onboarding-progress-bar" role="progressbar"
+         aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100">
+        <div class="onboarding-progress-fill" style="width: {{ progress }}%"></div>
+    </div>
+
+    <p class="onboarding-progress-label">{{ progress }}% complete</p>
+
+</div>

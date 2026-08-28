@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+
+<div class="topbar">
+    <div class="heading">
+        <h1>Settings</h1>
+        <p>Manage your workshop's configuration and your own account.</p>
+    </div>
+</div>
+
+<div class="settings-grid">
+    {% for section in sections %}
+    <a class="settings-card" href="{{ url_for(section.endpoint) }}">
+        <h2>{{ section.label }}</h2>
+        <p>{{ section.description }}</p>
+    </a>
+    {% endfor %}
+</div>
+
+{% endblock %}

@@ -1,0 +1,42 @@
+# Keep secrets, local state and dev-only files out of the built image.
+# The Dockerfile does `COPY . .`, so anything not excluded here ends up
+# inside the deployed container.
+
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Version control and CI
+.git
+.gitignore
+.github
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+
+# Coverage / test artefacts
+coverage.xml
+htmlcov/
+.coverage
+
+# Tests are not needed at runtime
+tests/
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+.idea/

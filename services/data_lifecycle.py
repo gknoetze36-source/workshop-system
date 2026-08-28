@@ -42,8 +42,16 @@ class DataLifecycleService:
         customer.deleted_at = datetime.now(timezone.utc)
         # Minimize directly identifying profile data while retaining relational
         # history required for operational/audit purposes.
-        before = {"first_name": customer.first_name, "last_name": customer.last_name,
-                  "whatsapp_number": customer.whatsapp_number, "email": customer.email}
+        #
+        # ERASURE vs EVIDENCE: this used to write the erased values themselves
+        # into the audit `before` blob, which meant "deleting" a customer
+        # copied their name, number and email into a table retained
+        # indefinitely -- defeating the erasure. The audit now records WHICH
+        # fields were cleared, not what they contained. That still evidences
+        # who deleted what and when (the accountability requirement) without
+        # retaining the personal information the request asked PHANTA to remove.
+        cleared_fields = ["first_name", "last_name", "whatsapp_number", "email"]
+        before = {"cleared_fields": cleared_fields}
         customer.first_name = "Deleted"
         customer.last_name = "Customer"
         customer.whatsapp_number = f"deleted:{customer.id}@invalid"

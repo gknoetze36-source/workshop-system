@@ -9,7 +9,15 @@ from integrations.paystack.repositories.webhook_event_repo import PaystackWebhoo
 from integrations.paystack.webhooks.event_handlers.charge_handlers import handle_charge_success, handle_charge_failed
 from integrations.paystack.webhooks.event_handlers.subscription_handlers import handle_subscription_create, handle_subscription_disable, handle_subscription_not_renew, handle_expiring_cards
 from integrations.paystack.webhooks.event_handlers.invoice_handlers import handle_invoice
-from integrations.paystack.webhooks.event_handlers.dispute_handlers import handle
+# Imported under an explicit name. It was imported as a bare `handle`, which
+# is the same name as WebhookHandler.handle below. That resolves correctly --
+# a method name is not in scope inside the method body, so the call reaches
+# the module-level import -- but it reads as though the method calls itself,
+# and any future refactor that adds a module-level `handle` would silently
+# change which function runs.
+from integrations.paystack.webhooks.event_handlers.dispute_handlers import (
+    handle as handle_dispute_created,
+)
 from models.integration_models import Payment, PaymentCustomer, Subscription
 from database import set_location_id
 
@@ -80,7 +88,7 @@ class WebhookHandler:
             from integrations.paystack.webhooks.event_handlers.refund_handlers import handle_refund_processed
             handle_refund_processed(session, data, resolved_location)
         elif event_type == "charge.dispute.create":
-            handle(session, data, resolved_location)
+            handle_dispute_created(session, data, resolved_location)
 
         event.processing_status = "processed"
         event.processed_at = datetime.now(timezone.utc)

@@ -1,5 +1,6 @@
 """Phase 18 workshop review-link configuration."""
 from __future__ import annotations
+from helpers.permission import require_role, MANAGER_ROLES
 
 from helpers.location import current_location_id
 
@@ -13,6 +14,7 @@ reviews_bp = Blueprint("reviews", __name__, url_prefix="/dashboard/reviews")
 
 
 @reviews_bp.get("")
+@require_role(*MANAGER_ROLES)
 def get_review_configuration():
     try:
         location_id = current_location_id()
@@ -35,6 +37,7 @@ def get_review_configuration():
 
 
 @reviews_bp.put("")
+@require_role(*MANAGER_ROLES)
 def update_review_configuration():
     try:
         location_id = current_location_id()

@@ -1,7 +1,9 @@
 """Phase 12 Service Advisor route for controlled internal testing."""
 from __future__ import annotations
+from helpers.permission import require_role, OPERATIONAL_ROLES
 
 from helpers.location import current_location_id
+from extensions import limiter
 
 from flask import Blueprint, jsonify, request, g, session
 from database import get_session
@@ -12,6 +14,8 @@ service_advisor_bp = Blueprint("service_advisor", __name__, url_prefix="/service
 
 
 @service_advisor_bp.post("/reply")
+@require_role(*OPERATIONAL_ROLES)
+@limiter.limit("30 per minute")
 def reply():
     try:
         location_id = current_location_id()

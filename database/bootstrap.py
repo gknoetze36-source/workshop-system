@@ -171,6 +171,13 @@ def _upsert_bootstrap_user(connection, backend, username, password, role, full_n
 
     now = utc_now()
     existing = _run(connection, backend, "SELECT id FROM users WHERE lower(username)=lower(%s)", (username,), one=True)
+    # NOTE: this tuple previously carried the location id twice, a leftover
+    # from the removed franchise/branch model where the second slot was a
+    # separate scope column. That left two defects behind:
+    #   - the UPDATE assigned location_id twice in one statement, which
+    #     PostgreSQL rejects outright ("multiple assignments to same column")
+    #   - the INSERT listed 12 columns against 13 placeholders
+    # Both are fixed by carrying each value exactly once.
     user_values = (
         "",
         generate_password_hash(password),
@@ -178,7 +185,6 @@ def _upsert_bootstrap_user(connection, backend, username, password, role, full_n
         role,
         location["name"] if location else "",
         location["name"] if location else "",
-        location["id"] if location else None,
         location["id"] if location else None,
         _db_bool(True, backend),
         _db_bool(False, backend),
@@ -191,7 +197,7 @@ def _upsert_bootstrap_user(connection, backend, username, password, role, full_n
             """
             UPDATE users
             SET password=%s, password_hash=%s, full_name=%s, role=%s, location=%s, company=%s,
-                location_id=%s, location_id=%s, active=%s, must_reset_password=%s, updated_at=%s
+                location_id=%s, active=%s, must_reset_password=%s, updated_at=%s
             WHERE id=%s
             """,
             (*user_values, existing["id"]),
@@ -206,7 +212,7 @@ def _upsert_bootstrap_user(connection, backend, username, password, role, full_n
             username, password, password_hash, full_name, role, location, company,
             location_id, active, must_reset_password, created_at, updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (username, *user_values[:-1], now, now),
     )

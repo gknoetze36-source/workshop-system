@@ -47,6 +47,23 @@ def run_scheduled_jobs() -> dict:
     }
 
 
+def run_retention_jobs() -> dict:
+    """Execute data retention rules once, then return.
+
+    Deliberately NOT part of run_scheduled_jobs(). That runs every 5 minutes,
+    which is right for message queues but pointless for retention -- a 14-day
+    expiry does not need re-evaluating 288 times a day, and running an UPDATE
+    across the messages table that often is wasteful. This is the entry point
+    for a daily Railway cron service (railway-cron-retention.toml).
+
+    Retention periods themselves live in services/retention_service.py. Only
+    the message-body rule is defined; every other data type is awaiting legal
+    confirmation of its period and must not be given one here.
+    """
+    from services.retention_service import run_retention
+    return {"retention": _run("retention", run_retention)}
+
+
 def run_billing_jobs() -> dict:
     """Execute the billing cycle once, then return.
 

@@ -49,17 +49,25 @@ def _register_and_create_location(client, suffix):
     }, follow_redirects=False), email
 
 
-def test_account_creation_lands_on_whatsapp_step_not_business():
-    """The actual sequence change: previously location creation redirected
-    straight to business details; WhatsApp (and now Flyer Lady) come
-    first."""
+def test_account_creation_lands_on_business_step():
+    """Location creation now leads into BUSINESS, not WhatsApp.
+
+    This test previously asserted the opposite. The onboarding sequence was
+    restructured on 2026-08-28: business identity (CIPC registration, legal
+    name, trading name) is captured immediately after the location is created,
+    because the trading name is what the workshop is called and everything
+    customer-facing depends on it.
+
+    WhatsApp and Flyer Lady now follow the workshop step and are both
+    skippable, so neither can be a required landing point.
+    """
     import phanta_app
     phanta_app.app.config["TESTING"] = True
     client = phanta_app.app.test_client()
 
     csrf_from, response, _ = _register_and_create_location(client, "sequence")
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/onboarding/whatsapp")
+    assert response.headers["Location"].endswith("/onboarding/business")
 
 
 def test_skip_chain_reaches_business_via_flyer_lady():

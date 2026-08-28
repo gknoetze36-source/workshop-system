@@ -12,6 +12,28 @@
     </div>
 </div>
 
+{# POPIA erasure. Owner/admin only -- the route enforces this server-side too;
+   hiding the button is a courtesy, not the control. The confirm() is
+   deliberate: the action is irreversible and clears the customer's name,
+   number and email while keeping the workshop's service history intact. #}
+{% if session.get('user', {}).get('role') in ['owner', 'admin'] and not customer.deleted_at %}
+<section class="panel panel-danger">
+    <h2>Erase personal details</h2>
+    <p>
+        Removes this customer's name, contact number and email at their request,
+        as required by POPIA. Their bookings, invoices and service history stay in
+        your records, but can no longer be linked back to them.
+        <strong>This cannot be undone.</strong>
+    </p>
+    <form method="POST"
+          action="{{ url_for('customer.customer_delete', customer_id=customer.id) }}"
+          onsubmit="return confirm('Erase this customer\'s personal details? This cannot be undone.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="button danger">Erase personal details</button>
+    </form>
+</section>
+{% endif %}
+
 {% if customer %}
 <section class="panel">
     <div class="grid two">

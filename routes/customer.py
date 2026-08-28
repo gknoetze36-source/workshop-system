@@ -33,6 +33,14 @@ correct", so no template needed to change.
 """
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from services.auth_service import active_location_required, login_required, current_user
+from database import get_session
+from helpers.permission import require_role, ADMIN_ROLES
+from helpers.security_events import record_security_event
+from repositories.audit_repo import AuditLogRepository
+from services.data_lifecycle import DataLifecycleService
+import logging
+
+logger = logging.getLogger(__name__)
 from database import query_db
 from helpers.dates import utc_today
 
@@ -375,3 +383,62 @@ def customer_edit(customer_id):
 
         flash('Customer updated successfully', 'success')
         return redirect(url_for('customer.customer_profile', customer_id=customer_id))
+
+
+@customer_bp.route("/customers/<int:customer_id>/delete", methods=["POST"])
+@login_required
+@require_role(*ADMIN_ROLES)
+def customer_delete(customer_id):
+    """Execute a POPIA erasure request for one customer.
+
+    Wires up services/data_lifecycle.DataLifecycleService, which was written
+    and unit-tested but had no route -- its only callers were in tests/, so
+    PHANTA had no reachable deletion capability at all.
+
+    WHAT THIS DOES: an anonymising soft delete. Directly identifying fields
+    are cleared, deleted_at is stamped, and relational history (bookings,
+    invoices, service records) is preserved so the workshop's operational and
+    financial records stay intact and foreign keys do not break.
+
+    WHAT IT DELIBERATELY DOES NOT DO: hard deletion, cascading removal of
+    vehicles/bookings/messages, or anything about backups. Those belong with
+    retention (item 16 of the security plan) once the legal retention periods
+    are confirmed, and are a different decision from honouring an erasure
+    request against the live record.
+
+    Restricted to owner/admin: erasure is irreversible through the UI.
+    """
+    inactive_redirect = active_location_required()
+    if inactive_redirect:
+        return inactive_redirect
+
+    user = current_user()
+    location_id = user["location_id"]
+    actor = user.get("email") or user.get("username") or str(user.get("id"))
+
+    session = get_session()
+    try:
+        service = DataLifecycleService(session, AuditLogRepository(session))
+        service.soft_delete_customer(location_id, customer_id, actor)
+        session.commit()
+    except LookupError:
+        session.rollback()
+        abort(404)
+    except Exception:
+        session.rollback()
+        logger.exception(
+            "customer_delete_failed customer_id=%s location_id=%s", customer_id, location_id
+        )
+        flash("The customer could not be deleted. Please try again.", "error")
+        return redirect(url_for("customer.customer_profile", customer_id=customer_id))
+    finally:
+        session.close()
+
+    record_security_event(
+        "privacy.customer_erased",
+        user_id=user.get("id"),
+        location_id=location_id,
+        details={"customer_id": customer_id},
+    )
+    flash("The customer's personal details have been erased.", "success")
+    return redirect(url_for("customer.customers"))

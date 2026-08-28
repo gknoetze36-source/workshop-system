@@ -12,6 +12,9 @@
   {% endwith %}
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if invite_required %}
+    <div class="form-field"><label>Invitation code</label><input name="invite_code" required autocomplete="off"></div>
+    {% endif %}
     <div class="form-field"><label>Full name</label><input name="full_name" required></div>
     <div class="form-field"><label>Email</label><input type="email" name="email" required autocomplete="email"></div>
     <div class="form-field"><label>Password</label><input type="password" name="password" required minlength="8" autocomplete="new-password"></div>

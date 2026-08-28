@@ -13,7 +13,9 @@ def ensure_service(location_id, service_name):
         SELECT id
         FROM services
         WHERE location_id=%s
-          AND COALESCE(location_id,0)=COALESCE(%s,0)
+          -- A second COALESCE(location_id,0)=COALESCE(%%s,0) clause used to sit
+          -- here: a franchise-era scope check rewritten onto location_id, which
+          -- left the statement with three placeholders for two parameters.
           AND lower(name)=lower(%s)
         ORDER BY id DESC
         LIMIT 1
@@ -29,7 +31,7 @@ def ensure_service(location_id, service_name):
         INSERT INTO services (
             location_id, name, category, active, created_at, updated_at
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s)
         """,
         (location_id, service_name, None, db_bool(True), utc_now(), utc_now()),
     )

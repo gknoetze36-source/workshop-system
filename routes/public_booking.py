@@ -19,6 +19,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+
+from extensions import limiter
 from sqlalchemy import select
 
 from database import location_transaction
@@ -54,6 +56,7 @@ def show(slug):
 
 
 @public_booking_bp.post("/book/<slug>")
+@limiter.limit("5 per minute; 30 per hour")
 def submit(slug):
     location = location_for_public_booking(slug)
     if not location:

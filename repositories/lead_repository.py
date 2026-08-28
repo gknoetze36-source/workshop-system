@@ -116,7 +116,8 @@ def create_lead(data):
     """Create a new lead record and return its ID."""
     now = utc_now()
     params = (
-        data["location_id"],
+        # location_id was passed twice -- a franchise-era leftover that made
+        # this supply 9 values for 8 columns, so every lead insert raised.
         data["location_id"],
         data["contact_name"],
         data.get("contact_phone"),
@@ -136,7 +137,7 @@ def create_lead(data):
                     location_id, contact_name, contact_phone,
                     contact_email, source, status, created_at, updated_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s
                 ) RETURNING id
                 """
             result = query_db(sql, params)
@@ -147,7 +148,7 @@ def create_lead(data):
                     location_id, contact_name, contact_phone,
                     contact_email, source, status, created_at, updated_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s
                 )
             """
             query_db(sql, params)

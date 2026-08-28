@@ -201,3 +201,65 @@ def client_audit_data(location_id: int):
         return jsonify(data)
     finally:
         db.close()
+
+
+@platform_dashboard_bp.get("/security-events")
+def security_events():
+    """Platform-admin view of PHANTA's own authentication/account event log.
+
+    The underlying table is append-only with a SELECT policy gated on
+    app.platform_admin (migrations/versions/0025_security_events.py), so no
+    workshop session can read it regardless of what this route does. The
+    explicit _is_platform_admin() check is the application-layer half of the
+    same rule -- both are kept, matching the pattern the client-audit routes
+    already use.
+
+    Reads through the raw query layer, whose per-request RLS context sets
+    app.platform_admin from g.platform_admin (database/connection.py), so the
+    platform policy applies without opening a second session.
+    """
+    if not _is_platform_admin():
+        return jsonify({"error": "PHANTA platform-admin access required"}), 403
+
+    from helpers.security_events import fetch_security_events
+
+    event_type = (request.args.get("event_type") or "").strip() or None
+    try:
+        limit = min(max(int(request.args.get("limit", 200)), 1), 500)
+    except (TypeError, ValueError):
+        limit = 200
+
+    events = fetch_security_events(limit=limit, event_type=event_type)
+    return render_template(
+        "dashboard/security_events.html",
+        events=events,
+        event_type=event_type or "",
+        limit=limit,
+    )
+
+
+@platform_dashboard_bp.get("/integration-status")
+def integration_status_page():
+    """Which integrations are configured on THIS deployment.
+
+    Added because an unconfigured integration previously surfaced only as a
+    failing request, which is indistinguishable from a broken one. This answers
+    the question directly: is the credential set, yes or no.
+
+    Reports variable NAMES only, never values, so it is safe for an
+    authenticated platform admin to view and safe to screenshot when asking for
+    help.
+    """
+    if not _is_platform_admin():
+        return jsonify({"error": "PHANTA platform-admin access required"}), 403
+
+    from services.integration_status import all_integration_status
+
+    statuses = all_integration_status()
+    if request.args.get("format") == "json":
+        return jsonify(statuses)
+    return render_template(
+        "dashboard/integration_status.html",
+        statuses=statuses,
+        all_configured=all(s["configured"] for s in statuses.values()),
+    )

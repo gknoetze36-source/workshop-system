@@ -1,9 +1,25 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+import json
+import logging
+
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from services.onboarding_service import (
+    STAGES, stage_status, required_outstanding, is_onboarding_complete,
+    next_incomplete_stage, progress_percent,
+)
+from services.legal_acceptance_service import (
+    REQUIRED_DOCUMENTS, DOCUMENT_LABELS, DOCUMENT_ORDER, document_text,
+    record_acceptance, outstanding_documents, accepted_documents,
+    has_accepted_all, METHOD_ONBOARDING_CHECKBOX,
+)
+from validators.cipc_validator import validate as validate_cipc
 from database import query_db, execute_db, utc_now, get_session
 from sqlalchemy import select
 from models.integration_models import MetaBusinessConnection, MetaSocialConnection
 from services.auth_service import active_location_required, login_required, current_user
+from helpers.audit import record_audit
 from services.industry import get_industry_profile
+
+logger = logging.getLogger(__name__)
 
 onboarding_bp = Blueprint("onboarding", __name__)
 
@@ -76,7 +92,7 @@ def onboarding_location():
             session_user["location_id"] = existing["id"]
             from flask import session
             session["user"] = session_user
-        return redirect(url_for("onboarding.onboarding_whatsapp"))
+        return redirect(url_for("onboarding.onboarding_business"))
 
     industries = [
         {"value": key, "label": get_industry_profile(key)["label"]}
@@ -105,7 +121,7 @@ def onboarding_location():
         session_user["location_id"] = existing["id"]
         from flask import session
         session["user"] = session_user
-        return redirect(url_for("onboarding.onboarding_whatsapp"))
+        return redirect(url_for("onboarding.onboarding_business"))
 
     owner = query_db("SELECT id,name,email,active FROM owners WHERE id=%s", (owner_id,), one=True)
     if not owner or not owner.get("active", True):
@@ -125,8 +141,8 @@ def onboarding_location():
     session["user"] = session_user
 
     _create_or_update_onboarding_state(location_id)
-    flash("Location created. Continue with your location configuration.", "success")
-    return redirect(url_for("onboarding.onboarding_whatsapp"))
+    flash("Location created. Continue with your business details.", "success")
+    return redirect(url_for("onboarding.onboarding_business"))
 
 
 @onboarding_bp.route("/onboarding")
@@ -152,232 +168,280 @@ def onboarding():
         )
         onboarding_state = _get_onboarding_state(location_id)
 
-    # Calculate completion percentage
-    completion_percentage = onboarding_state.get('setup_progress', 0) if onboarding_state else 0
-
-    # Determine current step based on progress. Order matches the actual
-    # redirect chain: location -> whatsapp -> flyer-lady -> business ->
-    # services -> automation -> team -> review. WhatsApp and Flyer Lady
-    # moved to the front of onboarding (Flyer Lady is new here entirely --
-    # it never had an onboarding step before) so both channel connections
-    # happen immediately after creating a location, ahead of the more
-    # administrative steps.
-    current_step = 'whatsapp'
-    if completion_percentage >= 15:
-        current_step = 'flyer_lady'
-    if completion_percentage >= 30:
-        current_step = 'business'
-    if completion_percentage >= 45:
-        current_step = 'services'
-    if completion_percentage >= 60:
-        current_step = 'automation'
-    if completion_percentage >= 80:
-        current_step = 'team'
-    if completion_percentage >= 100:
-        current_step = 'review'
+    # Stage completion is derived from the actual data by
+    # services/onboarding_service, not from the stored percentage. The
+    # previous version of this page mapped setup_progress onto a hardcoded
+    # ladder of step names and then built an endpoint by string concatenation
+    # ("onboarding." + current_step). That produced a BuildError -- a 500 --
+    # for any step name without a matching route, which is exactly what
+    # happened once the services step was removed from onboarding.
+    #
+    # The next stage is now resolved to a real registered endpoint in Python,
+    # so the template can never be asked to build a route that does not exist.
+    status = stage_status(user)
+    completion_percentage = progress_percent(user)
+    next_stage = next_incomplete_stage(user)
 
     return render_template("onboarding.html",
                          onboarding_state=onboarding_state,
                          completion_percentage=completion_percentage,
-                         current_step=current_step)
+                         stages=STAGES,
+                         status=status,
+                         next_stage=next_stage,
+                         current_step=(next_stage or {}).get("key", "review"))
 
 
 @onboarding_bp.route("/onboarding/business", methods=["GET", "POST"])
 @login_required
 def onboarding_business():
-    """Business information step of onboarding."""
-    inactive_redirect = active_location_required()
-    if inactive_redirect:
-        return inactive_redirect
+    """Business identity. Belongs to the OWNER, not the location.
 
+    A business has one legal identity regardless of how many locations it
+    later operates, so legal name, CIPC number, trading name and business
+    email are stored on `owners`.
+
+    Deliberately NOT collected here:
+      * VAT number -- billing information, captured at the paywall. Collecting
+        it twice invites the two copies disagreeing.
+      * owner personal details -- the person completing onboarding may well be
+        reception rather than the owner, so no personal profile is built.
+      * phone, website, description, timezone/currency/language -- none are
+        needed to operate the Service.
+    """
     user = current_user()
-    location_id = user["location_id"]
+    owner_id = user.get("owner_id")
+    if not owner_id:
+        flash("Owner account context is required.", "error")
+        return redirect(url_for("auth.logout"))
+
+    owner = query_db(
+        """
+        SELECT id, legal_name, business_registration_number, trading_name, business_email, email
+        FROM owners WHERE id=%s
+        """,
+        (owner_id,), one=True,
+    ) or {}
+
+    def _render(form, errors=None):
+        return render_template(
+            "onboarding_business.html",
+            form=form, errors=errors or {},
+            stages=STAGES, status=stage_status(user), progress=progress_percent(user),
+        )
 
     if request.method == "GET":
-        # Get existing business information
-        location = query_db("SELECT * FROM locations WHERE id = %s", (location_id,), one=True)
-        if not location:
-            location = {
-                'name': '', 'trading_name': '', 'business_registration_number': '',
-                'vat_number': '', 'email': '', 'phone': '', 'whatsapp_number': '',
-                'timezone': 'UTC', 'currency': 'USD', 'language': 'en',
-                'description': '', 'physical_address': '', 'postal_address': '',
-                'website': ''
-            }
+        return _render({
+            "legal_name": owner.get("legal_name") or "",
+            "business_registration_number": owner.get("business_registration_number") or "",
+            "trading_name": owner.get("trading_name") or "",
+            "business_email": owner.get("business_email") or owner.get("email") or "",
+        })
 
-        timezones = [
-            {"value": "Africa/Johannesburg", "label": "South Africa (Johannesburg)"},
-            {"value": "UTC", "label": "UTC"},
-            {"value": "America/New_York", "label": "Eastern Time (New York)"},
-            {"value": "America/Chicago", "label": "Central Time (Chicago)"},
-            {"value": "America/Denver", "label": "Mountain Time (Denver)"},
-            {"value": "America/Los_Angeles", "label": "Pacific Time (Los Angeles)"},
-            {"value": "Europe/London", "label": "Greenwich Mean Time (London)"},
-            {"value": "Europe/Paris", "label": "Central European Time (Paris)"},
-            {"value": "Asia/Tokyo", "label": "Japan Standard Time (Tokyo)"},
-            {"value": "Asia/Shanghai", "label": "China Standard Time (Shanghai)"},
-            {"value": "Australia/Sydney", "label": "Australian Eastern Time (Sydney)"}
-        ]
+    form = {key: (request.form.get(key) or "").strip() for key in
+            ("legal_name", "business_registration_number", "trading_name", "business_email")}
+    errors = {}
 
-        form = {
-            "business_name": location.get("name", ""),
-            "trading_name": location.get("trading_name", ""),
-            "business_email": location.get("contact_email", ""),
-            "business_phone": location.get("contact_phone", ""),
-            "province": location.get("province", ""),
-            "city": location.get("city", ""),
-            "address": location.get("physical_address", ""),
-            "workshop_type": location.get("workshop_type", "") if location.get("industry") == "workshop" else "",
-            "timezone": location.get("timezone", "Africa/Johannesburg"),
-            "currency": location.get("currency", "ZAR"),
-            "language": location.get("language", "en"),
-            "description": location.get("description", ""),
-        }
-        return render_template("onboarding_business.html",
-                             location=location, form=form, timezones=timezones)
+    if not form["legal_name"]:
+        errors["legal_name"] = "Enter the registered name of the business."
+    if not form["trading_name"]:
+        errors["trading_name"] = "Enter the trading name. This is the name your customers see."
 
-    elif request.method == "POST":
-        # Process business information form
-        form_data = request.form
-
-        # Map the onboarding form to the canonical location columns.
-        field_map = {
-            'business_name': 'name',
-            'business_email': 'contact_email',
-            'business_phone': 'contact_phone',
-            'address': 'physical_address',
-            'trading_name': 'trading_name',
-            'province': 'province',
-            'city': 'city',
-            'workshop_type': 'workshop_type',
-            'timezone': 'timezone',
-            'currency': 'currency',
-            'language': 'language',
-            'description': 'description',
-        }
-        updates = {}
-        for source, target in field_map.items():
-            if source in form_data:
-                value = form_data[source].strip()
-                updates[target] = value if value else None
-
-        # workshop_type belongs to the workshop industry layer, not the
-        # universal location contract.
-        location_row = query_db(
-            "SELECT industry FROM locations WHERE id=%s AND owner_id=%s",
-            (location_id, user["owner_id"]), one=True
-        )
-        if (location_row or {}).get("industry") != "workshop":
-            updates.pop("workshop_type", None)
-
-        if updates:
-            updates["updated_at"] = utc_now()
-            set_clause = ", ".join([f"{key}=%s" for key in updates.keys()])
-            query = f"UPDATE locations SET {set_clause} WHERE id=%s"
-            params = list(updates.values()) + [location_id]
-            execute_db(query, tuple(params))
-
-        # Update onboarding progress to 20% (business info complete)
-        _update_onboarding_state(location_id, setup_progress=20)
-
-        flash('Business information saved successfully', 'success')
-        return redirect(url_for('onboarding.onboarding_services'))
-
-
-@onboarding_bp.route("/onboarding/services", methods=["GET", "POST"])
-@login_required
-def onboarding_services():
-    """Configure services using the canonical services schema."""
-    inactive_redirect = active_location_required()
-    if inactive_redirect:
-        return inactive_redirect
-    user = current_user()
-    location_id = user["location_id"]
-
-    if request.method == "GET":
-        services = query_db(
-            """SELECT id, name, description, duration_minutes,
-                      active AS is_enabled, display_order
-               FROM services
-               WHERE location_id=%s
-               ORDER BY display_order, name""",
-            (location_id,),
-        )
-        if not services:
-            location = query_db(
-                "SELECT industry FROM locations WHERE id=%s", (location_id,), one=True
-            )
-            industry = (location or {}).get("industry") or "workshop"
-            profile = get_industry_profile(industry)
-            for order, (name, description, duration) in enumerate(profile["default_services"], 1):
-                execute_db(
-                    """INSERT INTO services
-                       (location_id,name,description,duration_minutes,active,display_order,created_at,updated_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (location_id,name,description,duration,True,order,utc_now(),utc_now()),
-                )
-            services = query_db(
-                """SELECT id,name,description,duration_minutes,
-                          active AS is_enabled,display_order
-                   FROM services WHERE location_id=%s
-                   ORDER BY display_order,name""",
-                (location_id,),
-            )
-        return render_template("onboarding_services.html", services=services)
-
-    form_data = request.form
-    service_id = form_data.get("service_id")
-    action = form_data.get("action")
-    if service_id and action == "delete":
-        execute_db("DELETE FROM services WHERE id=%s AND location_id=%s", (service_id, location_id))
-        flash("Service deleted successfully", "success")
-        return redirect(url_for("onboarding.onboarding_services"))
-
-    name = form_data.get("name", "").strip()
-    description = form_data.get("description", "").strip()
-    if not name:
-        flash("Service name is required", "error")
-        return redirect(url_for("onboarding.onboarding_services"))
-    try:
-        duration = max(5, int(form_data.get("duration", 60)))
-    except (TypeError, ValueError):
-        flash("Duration must be a number greater than or equal to 5", "error")
-        return redirect(url_for("onboarding.onboarding_services"))
-    active = form_data.get("is_enabled", "1") == "1"
-    try:
-        display_order = int(form_data.get("display_order", 0))
-    except ValueError:
-        display_order = 0
-
-    if service_id:
-        existing = query_db(
-            "SELECT id FROM services WHERE id=%s AND location_id=%s", (service_id, location_id), one=True
-        )
-        if not existing:
-            flash("Service not found or access denied", "error")
-            return redirect(url_for("onboarding.onboarding_services"))
-        execute_db(
-            """UPDATE services SET name=%s,description=%s,duration_minutes=%s,
-               active=%s,display_order=%s,updated_at=%s
-               WHERE id=%s AND location_id=%s""",
-            (name,description,duration,active,display_order,utc_now(),service_id,location_id),
-        )
-        flash("Service updated successfully", "success")
+    ok, normalised_cipc, cipc_error = validate_cipc(form["business_registration_number"])
+    if not ok:
+        errors["business_registration_number"] = cipc_error
     else:
-        if display_order <= 0:
-            row = query_db(
-                "SELECT COALESCE(MAX(display_order),0) AS max_order FROM services WHERE location_id=%s",
-                (location_id,), one=True
+        form["business_registration_number"] = normalised_cipc
+
+    email = form["business_email"]
+    if not email:
+        errors["business_email"] = "Enter the business email address."
+    elif "@" not in email or "." not in email.split("@")[-1]:
+        errors["business_email"] = "Enter a valid email address."
+
+    if errors:
+        return _render(form, errors)
+
+    execute_db(
+        """
+        UPDATE owners
+        SET legal_name=%s, business_registration_number=%s, trading_name=%s,
+            business_email=%s, updated_at=%s
+        WHERE id=%s
+        """,
+        (form["legal_name"], form["business_registration_number"], form["trading_name"],
+         form["business_email"], utc_now(), owner_id),
+    )
+
+    # The shop name is the trading name: the registered name is frequently not
+    # what is on the door, and the trading name is what appears on a customer's
+    # WhatsApp message. The location name is kept in step with it, but remains
+    # editable in the workshop step for a branch trading under its own name.
+    location_id = user.get("location_id")
+    if location_id:
+        existing_name = query_db("SELECT name FROM locations WHERE id=%s", (location_id,), one=True)
+        if not (existing_name or {}).get("name"):
+            execute_db(
+                "UPDATE locations SET name=%s, updated_at=%s WHERE id=%s",
+                (form["trading_name"], utc_now(), location_id),
             )
-            display_order = int((row or {}).get("max_order") or 0) + 1
-        execute_db(
-            """INSERT INTO services
-               (location_id,name,description,duration_minutes,active,display_order,created_at,updated_at)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-            (location_id,name,description,duration,active,display_order,utc_now(),utc_now()),
+
+    flash("Business information saved.", "success")
+    return redirect(url_for("onboarding.onboarding_workshop"))
+
+
+DAY_KEYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+WEEKDAY_KEYS = DAY_KEYS[:5]
+
+
+def _parse_operating_hours(form):
+    """Build the operating-hours structure from the workshop form.
+
+    PHANTA does not use appointment time slots -- this records WHEN the
+    workshop is open, nothing more.
+
+    Weekdays are submitted as a single Mon-Fri pair, because a workshop that
+    keeps different hours on a Wednesday is rare enough not to justify five
+    rows of inputs during signup. Saturday and Sunday are independent and
+    default to CLOSED: not working weekends is normal and must be recordable
+    as a fact rather than as missing information.
+    """
+    hours, errors = {}, {}
+
+    weekday_closed = form.get("weekday_closed") == "on"
+    weekday_open = (form.get("weekday_open") or "").strip()
+    weekday_close = (form.get("weekday_close") or "").strip()
+
+    if weekday_closed:
+        errors["weekday"] = "The workshop must be open on at least one weekday."
+    elif not weekday_open or not weekday_close:
+        errors["weekday"] = "Enter the weekday opening and closing times."
+    elif weekday_close <= weekday_open:
+        errors["weekday"] = "The weekday closing time must be after the opening time."
+
+    for day in WEEKDAY_KEYS:
+        hours[day] = ({"closed": True} if weekday_closed
+                      else {"closed": False, "open": weekday_open, "close": weekday_close})
+
+    for day in ("saturday", "sunday"):
+        closed = form.get(f"{day}_closed") == "on"
+        open_at = (form.get(f"{day}_open") or "").strip()
+        close_at = (form.get(f"{day}_close") or "").strip()
+        if closed or (not open_at and not close_at):
+            hours[day] = {"closed": True}
+            continue
+        if not open_at or not close_at:
+            errors[day] = f"Enter both an opening and a closing time for {day.title()}, or mark it closed."
+            hours[day] = {"closed": True}
+            continue
+        if close_at <= open_at:
+            errors[day] = f"The {day.title()} closing time must be after the opening time."
+            hours[day] = {"closed": True}
+            continue
+        hours[day] = {"closed": False, "open": open_at, "close": close_at}
+
+    return hours, errors
+
+
+@onboarding_bp.route("/onboarding/workshop", methods=["GET", "POST"])
+@login_required
+def onboarding_workshop():
+    """Workshop operating detail. Belongs to the LOCATION.
+
+    Collects the name, address and operating hours. Services are deliberately
+    NOT collected here -- they are configured later in settings, so onboarding
+    is not blocked on constructing a service catalogue, and no pricing matrix
+    is forced on the customer during signup.
+    """
+    inactive_redirect = active_location_required()
+    if inactive_redirect:
+        return inactive_redirect
+
+    user = current_user()
+    location_id = user.get("location_id")
+    owner_id = user.get("owner_id")
+
+    location = query_db(
+        """
+        SELECT name, physical_address, city, province, postal_code, operating_hours_json
+        FROM locations WHERE id=%s
+        """,
+        (location_id,), one=True,
+    ) or {}
+
+    def _render(form, errors=None):
+        return render_template(
+            "onboarding_workshop.html",
+            form=form, errors=errors or {},
+            stages=STAGES, status=stage_status(user), progress=progress_percent(user),
         )
-        flash("Service added successfully", "success")
-    _update_onboarding_state(location_id, setup_progress=40)
+
+    if request.method == "GET":
+        try:
+            hours = json.loads(location.get("operating_hours_json") or "{}")
+        except (ValueError, TypeError):
+            hours = {}
+        monday = hours.get("monday") or {}
+        saturday = hours.get("saturday") or {}
+        sunday = hours.get("sunday") or {}
+
+        name = location.get("name") or ""
+        if not name and owner_id:
+            owner = query_db("SELECT trading_name FROM owners WHERE id=%s", (owner_id,), one=True) or {}
+            name = owner.get("trading_name") or ""
+
+        return _render({
+            "name": name,
+            "physical_address": location.get("physical_address") or "",
+            "city": location.get("city") or "",
+            "province": location.get("province") or "",
+            "postal_code": location.get("postal_code") or "",
+            "weekday_open": monday.get("open", "08:00"),
+            "weekday_close": monday.get("close", "17:00"),
+            "weekday_closed": bool(monday.get("closed")),
+            "saturday_open": saturday.get("open", ""),
+            "saturday_close": saturday.get("close", ""),
+            "saturday_closed": saturday.get("closed", True),
+            "sunday_open": sunday.get("open", ""),
+            "sunday_close": sunday.get("close", ""),
+            "sunday_closed": sunday.get("closed", True),
+        })
+
+    form = dict(request.form)
+    errors = {}
+
+    name = (request.form.get("name") or "").strip()
+    address = (request.form.get("physical_address") or "").strip()
+    city = (request.form.get("city") or "").strip()
+    province = (request.form.get("province") or "").strip()
+    postal_code = (request.form.get("postal_code") or "").strip()
+
+    if not name:
+        errors["name"] = "Enter the workshop name."
+    if not address:
+        errors["physical_address"] = "Enter the street address."
+    if not city:
+        errors["city"] = "Enter the city or town."
+    if not province:
+        errors["province"] = "Select the province."
+
+    hours, hour_errors = _parse_operating_hours(request.form)
+    errors.update(hour_errors)
+
+    if errors:
+        return _render(form, errors)
+
+    execute_db(
+        """
+        UPDATE locations
+        SET name=%s, physical_address=%s, city=%s, province=%s, postal_code=%s,
+            operating_hours_json=%s, updated_at=%s
+        WHERE id=%s
+        """,
+        (name, address, city, province, postal_code or None,
+         json.dumps(hours, separators=(",", ":")), utc_now(), location_id),
+    )
+
+    flash("Workshop details saved.", "success")
     return redirect(url_for("onboarding.onboarding_whatsapp"))
 
 
@@ -648,157 +712,187 @@ def onboarding_team():
         elif user_id:
             execute_db("UPDATE users SET role=%s,updated_at=%s WHERE id=%s AND location_id=%s",
                        (role,utc_now(),user_id,location_id))
-    _update_onboarding_state(location_id, setup_progress=100)
+    # Team is the last location-scoped step; legal acceptance follows so the
+    # customer confirms the documents after seeing what they have configured.
+    return redirect(url_for("onboarding.onboarding_legal"))
+
+
+@onboarding_bp.route("/onboarding/legal", methods=["GET", "POST"])
+@login_required
+def onboarding_legal():
+    """Per-document legal acceptance.
+
+    Each document is confirmed separately (§16 of the onboarding brief) rather
+    than with one blanket checkbox, and each acceptance is recorded as its own
+    row against the exact version shown. When a document's version is later
+    bumped, only that document becomes outstanding -- the customer is not made
+    to re-accept four unrelated documents.
+
+    The documents themselves are opened in a modal and served in full by
+    legal_document(); they are never truncated or inlined into this page.
+
+    Acceptance belongs to the BUSINESS (owner), not to the branch or to
+    whichever staff member happened to click.
+    """
+    inactive_redirect = active_location_required()
+    if inactive_redirect:
+        return inactive_redirect
+
+    user = current_user()
+    owner_id = user.get("owner_id")
+    location_id = user.get("location_id")
+
+    accepted = accepted_documents(user.get("id"), location_id, owner_id=owner_id)
+
+    documents = [{
+        "key": key,
+        "label": DOCUMENT_LABELS.get(key, key),
+        "version": REQUIRED_DOCUMENTS[key],
+        "accepted": accepted.get(key) == REQUIRED_DOCUMENTS[key],
+        "previously_accepted_version": accepted.get(key),
+    } for key in DOCUMENT_ORDER]
+
+    def _render(errors=None):
+        return render_template(
+            "onboarding_legal.html",
+            documents=documents, errors=errors or [],
+            stages=STAGES, status=stage_status(user), progress=progress_percent(user),
+        )
+
+    if request.method == "GET":
+        return _render()
+
+    # Never auto-tick: each confirmation must be an active choice.
+    missing = []
+    for document in documents:
+        if document["accepted"]:
+            continue
+        if request.form.get(f"confirm_{document['key']}") != "on":
+            missing.append(document["label"])
+            continue
+        record_acceptance(
+            document_key=document["key"],
+            version=document["version"],
+            user_id=user.get("id"),
+            location_id=location_id,
+            owner_id=owner_id,
+            method=METHOD_ONBOARDING_CHECKBOX,
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get("User-Agent"),
+        )
+
+    if missing:
+        accepted = accepted_documents(user.get("id"), location_id, owner_id=owner_id)
+        for document in documents:
+            document["accepted"] = accepted.get(document["key"]) == document["version"]
+        return _render([f"Please confirm the {label}." for label in missing])
+
+    flash("Legal documents confirmed.", "success")
     return redirect(url_for("onboarding.onboarding_review"))
+
+
+@onboarding_bp.route("/onboarding/legal/<document_key>")
+@login_required
+def legal_document(document_key):
+    """Serve one legal document in full for the acceptance modal.
+
+    Returned as JSON so the modal can present it scrollable and complete. The
+    version is returned alongside the text so the page confirms the same
+    version it is about to record.
+    """
+    if document_key not in REQUIRED_DOCUMENTS:
+        return jsonify({"error": "unknown document"}), 404
+    try:
+        text = document_text(document_key)
+    except (LookupError, OSError):
+        logger.exception("legal_document_unavailable key=%s", document_key)
+        return jsonify({"error": "document unavailable"}), 503
+    return jsonify({
+        "key": document_key,
+        "label": DOCUMENT_LABELS.get(document_key, document_key),
+        "version": REQUIRED_DOCUMENTS[document_key],
+        "text": text,
+    })
 
 
 @onboarding_bp.route("/onboarding/review")
 @login_required
 def onboarding_review():
-    """Onboarding review step showing all configured settings."""
+    """Final review before completion."""
     inactive_redirect = active_location_required()
     if inactive_redirect:
         return inactive_redirect
 
     user = current_user()
-    location_id = user["location_id"]
+    owner_id = user.get("owner_id")
+    location_id = user.get("location_id")
 
-    # Get location information
-    location = query_db("SELECT * FROM locations WHERE id = %s", (location_id,), one=True)
+    owner = query_db(
+        """
+        SELECT legal_name, business_registration_number, trading_name, business_email
+        FROM owners WHERE id=%s
+        """,
+        (owner_id,), one=True,
+    ) or {}
+    location = query_db(
+        """
+        SELECT name, physical_address, city, province, postal_code, operating_hours_json
+        FROM locations WHERE id=%s
+        """,
+        (location_id,), one=True,
+    ) or {}
 
-    # Get onboarding state
-    onboarding_state = _get_onboarding_state(location_id)
-
-    # Get services count and details
-    services = query_db("""
-        SELECT id, name, description, duration_minutes, active AS is_enabled
-        FROM services
-        WHERE location_id = %s
-        ORDER BY name
-    """, (location_id,))
-
-    # Phase 5 WhatsApp status comes from the canonical Meta connection table.
-    session_db = get_session()
     try:
-        meta_connection = session_db.scalar(
-            select(MetaBusinessConnection).where(
-                MetaBusinessConnection.location_id == location_id
-            )
-        )
-    finally:
-        session_db.close()
-    whatsapp_config = {
-        "phone_number_id": getattr(meta_connection, "phone_number_id", None),
-        "business_account_id": getattr(meta_connection, "business_id", None),
-        "is_verified": bool(meta_connection and getattr(meta_connection, "connection_status", "") == "connected"),
-        "webhook_verified": bool(meta_connection and getattr(meta_connection, "connection_status", "") == "connected"),
-    } if meta_connection else None
+        hours = json.loads(location.get("operating_hours_json") or "{}")
+    except (ValueError, TypeError):
+        hours = {}
 
-    # Get automation rules count and status
-    automation_rules = query_db("""
-        SELECT COUNT(*) as total_count,
-               SUM(CASE WHEN active THEN 1 ELSE 0 END) as active_count
-        FROM automation_rules
-        WHERE location_id = %s
-    """, (location_id,), one=True)
-
-    # Get team members count
-    team_members = query_db("""
-        SELECT COUNT(*) as total_count,
-               SUM(CASE WHEN active THEN 1 ELSE 0 END) as active_count,
-               SUM(CASE WHEN role IN ('owner', 'manager') THEN 1 ELSE 0 END) as management_count
-        FROM users
-        WHERE location_id = %s
-    """, (location_id,), one=True)
-
-    # Determine if onboarding is complete
-    is_complete = (
-        location and
-        onboarding_state and
-        onboarding_state.get('setup_progress', 0) >= 100 and
-        bool(location.get('name')) and
-        len(services) > 0 and
-        whatsapp_config is not None and
-        (automation_rules['total_count'] or 0) > 0 and
-        (team_members['total_count'] or 0) >= 1  # At least the owner
+    status = stage_status(user)
+    return render_template(
+        "onboarding_review.html",
+        owner=owner, location=location, hours=hours,
+        stages=STAGES, status=status, progress=progress_percent(user),
+        outstanding=required_outstanding(user),
+        can_complete=is_onboarding_complete(user),
     )
-
-    return render_template("onboarding_review.html",
-                         location=location,
-                         onboarding_state=onboarding_state,
-                         services=services,
-                         whatsapp_config=whatsapp_config,
-                         automation_rules=automation_rules,
-                         team_members=team_members,
-                         is_complete=is_complete)
 
 
 @onboarding_bp.route("/onboarding/complete", methods=["POST"])
 @login_required
 def onboarding_complete():
-    """Complete the onboarding process."""
+    """Finish onboarding.
+
+    Completion is verified SERVER-SIDE against the actual data, not inferred
+    from the customer having reached this page. Every required stage is
+    re-derived here; reaching the final screen proves nothing on its own.
+
+    WhatsApp and Flyer Lady are intentionally not required: a customer may
+    skip them and connect later, and the account is marked as having no
+    messaging channel rather than being blocked from finishing.
+    """
     inactive_redirect = active_location_required()
     if inactive_redirect:
         return inactive_redirect
 
     user = current_user()
-    location_id = user["location_id"]
-
-    # Verify that onboarding is actually complete before allowing completion
-    location = query_db("SELECT * FROM locations WHERE id = %s", (location_id,), one=True)
-    onboarding_state = _get_onboarding_state(location_id)
-    services = query_db("SELECT id FROM services WHERE location_id = %s", (location_id,))
-    session_db = get_session()
-    try:
-        meta_connection = session_db.scalar(
-            select(MetaBusinessConnection).where(
-                MetaBusinessConnection.location_id == location_id
-            )
+    outstanding = required_outstanding(user)
+    if outstanding:
+        labels = {stage["key"]: stage["label"] for stage in STAGES}
+        flash(
+            "Please complete these steps before finishing: "
+            + ", ".join(labels.get(key, key) for key in outstanding),
+            "error",
         )
-    finally:
-        session_db.close()
-    whatsapp_config = meta_connection
-    automation_rules = query_db("SELECT id FROM automation_rules WHERE location_id = %s", (location_id,), one=True)
-    team_members = query_db("SELECT id FROM users WHERE location_id = %s", (location_id,), one=True)
+        return redirect(url_for("onboarding.onboarding_review"))
 
-    is_complete = (
-        location and
-        onboarding_state and
-        bool(location.get('name')) and
-        len(services) > 0 and
-        whatsapp_config is not None and
-        automation_rules is not None and
-        team_members is not None
+    location_id = user.get("location_id")
+    _update_onboarding_state(location_id, setup_progress=100, go_live_ready=True)
+
+    record_audit(
+        "onboarding.completed", "location", entity_id=location_id,
+        actor_user=user, location_id=location_id, user_id=user.get("id"),
+        details={"whatsapp_connected": stage_status(user).get("whatsapp")},
     )
 
-    if not is_complete:
-        flash('Please complete all required steps before finishing onboarding.', 'error')
-        return redirect(url_for('onboarding.onboarding_review'))
-
-    # Mark onboarding as complete
-    if onboarding_state:
-        execute_db("""
-            UPDATE onboarding_state
-            SET setup_progress = 100,
-                services_created = 1,
-                automations_enabled = 1,
-                go_live_ready = 1,
-                updated_at = %s
-            WHERE location_id = %s
-        """, (utc_now(), location_id))
-
-    # Also update the onboarding session if it exists
-    onboarding_session = query_db("SELECT id FROM onboarding_sessions WHERE location_id = %s ORDER BY id DESC LIMIT 1", (location_id,), one=True)
-    if onboarding_session:
-        execute_db("""
-            UPDATE onboarding_sessions
-            SET status = 'completed',
-                current_step = 'completed',
-                completed_at = %s,
-                updated_at = %s
-            WHERE id = %s
-        """, (utc_now(), utc_now(), onboarding_session['id']))
-
-    flash('Congratulations! Your workshop setup is now complete. You\'re ready to start using PHANTA.', 'success')
-    return redirect(url_for('index'))
-
+    flash("Onboarding complete. Welcome to PHANTA.", "success")
+    return redirect(url_for("workshop_dashboard.workshop_dashboard"))

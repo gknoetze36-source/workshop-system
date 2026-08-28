@@ -1,0 +1,15 @@
+# Dedicated Railway Cron service for data retention.
+# Use this as the custom config path for a SEPARATE Railway service.
+# Do not apply it to the web service or the 5-minute scheduler service.
+#
+# Runs daily. A 14-day retention window does not need re-evaluating every
+# five minutes, and the rules issue table-wide UPDATEs.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python -c 'from jobs.scheduler import run_retention_jobs; run_retention_jobs()'"
+cronSchedule = "30 2 * * *"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

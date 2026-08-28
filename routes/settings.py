@@ -1,8 +1,97 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+import json
+import logging
+from datetime import datetime, timezone
+
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, Response
+from werkzeug.security import check_password_hash, generate_password_hash
 from database import query_db, execute_db, utc_now
-from services.auth_service import login_required, active_location_required, current_user
+from helpers.audit import record_audit
+from helpers.permission import require_role, ADMIN_ROLES
+from services.export_service import export_to_json, ExportError
+from helpers.security_events import (
+    record_security_event, PASSWORD_CHANGED, PASSWORD_RESET_BY_ADMIN,
+    ACCOUNT_DEACTIVATED, ACCOUNT_REACTIVATED,
+)
+from services.auth_service import login_required, active_location_required, current_user, bump_session_version
 
 settings_bp = Blueprint("settings", __name__)
+
+logger = logging.getLogger(__name__)
+
+MIN_PASSWORD_LENGTH = 8
+
+
+@settings_bp.route("/settings/password", methods=["GET", "POST"])
+@login_required
+def change_password():
+    """Let a signed-in user change their own password.
+
+    Deliberately NOT gated on active_location_required(): a user carrying a
+    temporary password is redirected here from _enforce_session_state before
+    they can reach anything else, including onboarding, so this page has to be
+    reachable in that state.
+
+    Changing the password revokes every other session for the account, then
+    re-stamps this one so the user who just changed it stays signed in.
+    """
+    user = current_user()
+    must_reset = bool(user.get("must_reset_password"))
+
+    if request.method == "GET":
+        return render_template("settings_password.html", must_reset=must_reset)
+
+    current_password = request.form.get("current_password") or ""
+    new_password = request.form.get("new_password") or ""
+    confirm_password = request.form.get("confirm_password") or ""
+
+    row = query_db("SELECT id, password_hash FROM users WHERE id=%s", (user.get("id"),), one=True)
+    if not row:
+        flash("Account not found.", "error")
+        return redirect(url_for("auth.logout"))
+
+    stored_hash = row.get("password_hash") or ""
+    try:
+        current_ok = bool(stored_hash and check_password_hash(stored_hash, current_password))
+    except (ValueError, TypeError):
+        current_ok = False
+
+    if not current_ok:
+        flash("Your current password is incorrect.", "error")
+        return render_template("settings_password.html", must_reset=must_reset)
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        flash(f"New password must be at least {MIN_PASSWORD_LENGTH} characters.", "error")
+        return render_template("settings_password.html", must_reset=must_reset)
+    if new_password != confirm_password:
+        flash("New passwords do not match.", "error")
+        return render_template("settings_password.html", must_reset=must_reset)
+    if new_password == current_password:
+        flash("New password must be different from your current password.", "error")
+        return render_template("settings_password.html", must_reset=must_reset)
+
+    execute_db(
+        "UPDATE users SET password_hash=%s, must_reset_password=%s, updated_at=%s WHERE id=%s",
+        (generate_password_hash(new_password), False, utc_now(), user["id"]),
+    )
+    # Revoke every session for this account, then re-stamp the current one so
+    # the person who just changed their password is not signed out.
+    new_version = bump_session_version(user["id"])
+    session_user = dict(user)
+    session_user["session_version"] = new_version
+    session_user["must_reset_password"] = False
+    session["user"] = session_user
+
+    record_audit(
+        "user.password_changed", "user", entity_id=user["id"],
+        actor_user=user, location_id=user.get("location_id"), user_id=user["id"],
+        details={"self_service": True},
+    )
+    record_security_event(
+        PASSWORD_CHANGED, user_id=user["id"], identifier=user.get("email"),
+        identifier_is_known_account=True, location_id=user.get("location_id"),
+        details={"self_service": True},
+    )
+    flash("Your password has been changed. Other sessions have been signed out.", "success")
+    return redirect(url_for("settings.settings_overview"))
 
 
 
@@ -10,7 +99,36 @@ settings_bp = Blueprint("settings", __name__)
 @settings_bp.route("/settings/")
 @login_required
 def settings_overview():
-    return redirect(url_for('settings.settings_business'))
+    """Settings hub.
+
+    This previously redirected straight to /settings/business, which meant no
+    other settings page was reachable from the interface at all -- including
+    the password change and data export pages, whose routes existed but which
+    nothing linked to. The hub lists the sections the signed-in user is
+    actually allowed to open, so a reception user is not shown links that will
+    bounce them back with an access-denied message.
+    """
+    user = current_user()
+    role = (user.get("role") or "").strip().lower()
+    is_admin = role in {"owner", "admin"} or role in {"super_admin", "phanta_admin", "platform_admin"}
+
+    sections = [
+        {"endpoint": "settings.settings_business", "label": "Business Information",
+         "description": "Your business name, contact details and address.", "admin_only": True},
+        {"endpoint": "settings.settings_hours", "label": "Operating Hours",
+         "description": "When the workshop is open.", "admin_only": True},
+        {"endpoint": "settings.settings_users", "label": "Users",
+         "description": "Invite staff, change roles, and reset passwords.", "admin_only": True},
+        {"endpoint": "settings.settings_notifications", "label": "Notifications",
+         "description": "What PHANTA sends, and when.", "admin_only": True},
+        {"endpoint": "settings.change_password", "label": "Change Password",
+         "description": "Change your own password. Signs out your other devices.",
+         "admin_only": False},
+        {"endpoint": "settings.data_export", "label": "Export Your Data",
+         "description": "Download a copy of your workshop's records.", "admin_only": True},
+    ]
+    visible = [s for s in sections if is_admin or not s["admin_only"]]
+    return render_template("settings_overview.html", sections=visible)
 
 # Business information settings
 @settings_bp.route("/settings/business", methods=["GET", "POST"])
@@ -234,8 +352,59 @@ def settings_users():
         if user_id:
             row = query_db("SELECT active FROM users WHERE id=%s AND location_id=%s", (user_id,location_id), one=True)
             if row:
+                now_active = not row["active"]
                 execute_db("UPDATE users SET active=%s,updated_at=%s WHERE id=%s AND location_id=%s",
-                           (not row["active"],utc_now(),user_id,location_id))
+                           (now_active,utc_now(),user_id,location_id))
+                # Deactivating must take effect immediately, not whenever the
+                # user's existing session happens to expire.
+                if not now_active:
+                    bump_session_version(user_id)
+                record_audit(
+                    "user.deactivated" if not now_active else "user.reactivated",
+                    "user", entity_id=user_id, actor_user=user,
+                    location_id=location_id, user_id=user_id,
+                )
+                record_security_event(
+                    ACCOUNT_DEACTIVATED if not now_active else ACCOUNT_REACTIVATED,
+                    user_id=user_id, location_id=location_id,
+                    details={"actor_user_id": user.get("id")},
+                )
+    elif action == "reset_password":
+        # No email provider exists in PHANTA, so password recovery is an
+        # owner/admin action: a temporary password is generated, shown once to
+        # the administrator to pass on out of band, and the user is forced to
+        # change it at next login by must_reset_password.
+        target_id = form_data.get("user_id")
+        target = query_db(
+            "SELECT id, email, username FROM users WHERE id=%s AND location_id=%s",
+            (target_id, location_id), one=True,
+        ) if target_id else None
+        if not target:
+            flash("User not found.", "error")
+        else:
+            import secrets
+            from werkzeug.security import generate_password_hash as _hash
+            temp_password = secrets.token_urlsafe(9)
+            execute_db(
+                "UPDATE users SET password_hash=%s, must_reset_password=%s, updated_at=%s WHERE id=%s AND location_id=%s",
+                (_hash(temp_password), True, utc_now(), target_id, location_id),
+            )
+            # Any session the user (or an attacker) currently holds is dead.
+            bump_session_version(target_id)
+            record_audit(
+                "user.password_reset_by_admin", "user", entity_id=target_id,
+                actor_user=user, location_id=location_id, user_id=target_id,
+            )
+            record_security_event(
+                PASSWORD_RESET_BY_ADMIN, user_id=target_id, location_id=location_id,
+                identifier=target.get("email"), identifier_is_known_account=True,
+                details={"actor_user_id": user.get("id")},
+            )
+            flash(
+                f"Temporary password for {target.get('email') or target.get('username')}: {temp_password} "
+                "-- give this to them directly. They must change it at next sign-in.",
+                "info",
+            )
     elif action == "change_role":
         user_id = form_data.get("user_id")
         role = form_data.get("new_role","").strip().lower()
@@ -306,3 +475,67 @@ def settings_whatsapp():
         return redirect(url_for("workshop_dashboard.workshop_dashboard"))
     return render_template("connect_whatsapp.html", onboarding=False)
 
+
+
+@settings_bp.route("/settings/export", methods=["GET", "POST"])
+@login_required
+@require_role(*ADMIN_ROLES)
+def data_export():
+    """Produce a copy of this workshop's data.
+
+    Implements the pipeline the security plan requires:
+      REQUEST -> AUTHORISATION -> TENANT-SCOPED DATA -> EXPORT
+              -> SECURE DELIVERY -> AUDIT LOG
+
+    AUTHORISATION: owner/admin only. An export is a complete copy of the
+    workshop's customer records, so it is not something reception should be
+    able to produce.
+
+    TENANT SCOPE: the location comes from the authenticated session and is
+    never read from the request. services/export_service.py filters every
+    query on it, and PostgreSQL RLS enforces the same boundary independently.
+
+    DELIVERY: streamed as a download rather than written to disk, so no export
+    file is left sitting in the container filesystem or in a publicly
+    reachable path.
+
+    AUDIT: every export is recorded in both the tenant audit log and the
+    platform security log, because a bulk extract of personal information is
+    exactly the event a breach investigation needs to be able to find.
+    """
+    user = current_user()
+    location_id = user.get("location_id")
+
+    if request.method == "GET":
+        return render_template("settings_export.html")
+
+    try:
+        payload = export_to_json(location_id)
+        summary = json.loads(payload).get("counts", {})
+    except ExportError:
+        logger.exception("data_export_refused location_id=%s", location_id)
+        flash("The export could not be produced. Please contact support.", "error")
+        return redirect(url_for("settings.data_export"))
+
+    record_audit(
+        "data.exported", "location", entity_id=location_id,
+        actor_user=user, location_id=location_id, user_id=user.get("id"),
+        details={"counts": summary},
+    )
+    record_security_event(
+        "privacy.data_exported",
+        user_id=user.get("id"), location_id=location_id,
+        details={"record_counts": summary},
+    )
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return Response(
+        payload,
+        mimetype="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="phanta-export-{location_id}-{stamp}.json"',
+            # An export is personal information; never let it sit in a cache.
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
+            "Pragma": "no-cache",
+        },
+    )
