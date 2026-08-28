@@ -4,7 +4,7 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 preDeployCommand = "python -m database.predeploy"
-startCommand = "sh -c 'exec gunicorn phanta_app:app --bind 0.0.0.0:$PORT --forwarded-allow-ips=\"*\"'"
+startCommand = "gunicorn phanta_app:app --bind 0.0.0.0:$PORT --forwarded-allow-ips=\"*\""
 healthcheckPath = "/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
