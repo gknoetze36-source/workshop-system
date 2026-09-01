@@ -9,7 +9,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "python -c 'from jobs.scheduler import run_retention_jobs; run_retention_jobs()'"
+startCommand = "python run_retention.py"
 cronSchedule = "30 2 * * *"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
