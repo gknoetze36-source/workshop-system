@@ -185,11 +185,18 @@ def social_connect_callback():
     except ValueError: token_payload = {}
     if not response.ok or not token_payload.get("access_token"):
         return render_template("flyer_lady_select_page.html", error="Meta authorization token exchange failed. Please try again.", onboarding=onboarding), 502
+    # Derive Page tokens from a long-lived user token so scheduled publishing
+    # is not chained to the short-lived OAuth redirect token.
+    try:
+        long_lived_payload = client.exchange_for_long_lived_user_token(token_payload["access_token"])
+    except Exception:
+        return render_template("flyer_lady_select_page.html", error="Meta could not create a long-lived connection token. Please try connecting again.", onboarding=onboarding), 502
+    long_lived_token = long_lived_payload["access_token"]
     db = get_session()
     try:
         oauth = MetaSocialOAuthSession(location_id=location_id, state_nonce=flask_session["flyer_lady_oauth_state"], encrypted_user_access_token="", redirect_uri=redirect_uri, status="started", expires_at=datetime.now(timezone.utc) + timedelta(minutes=15))
-        db.add(oauth); db.flush(); MetaTokenStore().save_social_oauth_token(db, oauth, token_payload["access_token"])
-        pages = MetaSocialGraphClient(client).list_pages(token_payload["access_token"]).get("data", [])
+        db.add(oauth); db.flush(); MetaTokenStore().save_social_oauth_token(db, oauth, long_lived_token)
+        pages = MetaSocialGraphClient(client).list_pages(long_lived_token).get("data", [])
         oauth.status = "pages_loaded"; db.commit(); flask_session.pop("flyer_lady_oauth_state", None)
         if not pages:
             return render_template("flyer_lady_select_page.html", error="Meta didn't return any Facebook Pages for this account. Make sure you're an admin of the Page you want to connect.", onboarding=onboarding)
@@ -240,6 +247,9 @@ def social_connect_complete():
         if not page: return _fail("page_id was not returned by Meta for this connection")
         page_token = page.get("access_token")
         if not page_token: return _fail("selected Page did not return an access token")
+        tasks = set(page.get("tasks") or [])
+        if "CREATE_CONTENT" not in tasks:
+            return _fail("PHANTA was not granted permission to create content on the selected Page. Grant content access and reconnect.")
         connection = MetaSocialConnectionRepository().upsert(db, location_id, page_id=str(page["id"]), page_name=page.get("name"), instagram_business_account_id=(page.get("instagram_business_account") or {}).get("id"), permissions_json={"tasks": page.get("tasks", [])}, connection_status="connected")
         MetaTokenStore().save_social_token(db, connection, page_token)
         oauth.status = "consumed"; oauth.consumed_at = datetime.now(timezone.utc)

@@ -21,7 +21,7 @@
       </select>
       <label>Special text</label>
       <textarea id="special_text" rows="7" maxlength="10000" required placeholder="Paste the workshop's special exactly as it should be published."></textarea>
-      <label>Public image URL (optional)</label>
+      <label>Public image URL (required for Stories and Instagram)</label>
       <input id="media_url" type="url" placeholder="https://your-public-host/special.jpg">
       <button class="primary" type="submit">Create special</button>
     </form>
@@ -31,8 +31,8 @@
     <ol>
       <li>Submit the workshop's text and optional image.</li>
       <li>Approve the special.</li>
-      <li>Queue Facebook Story, Facebook Feed and WhatsApp Status handoff.</li>
-      <li>PHANTA publishes approved Facebook content and prepares the WhatsApp Status asset.</li>
+      <li>Queue Facebook Feed, Facebook Story, Instagram Feed, Instagram Story, Google Business and WhatsApp Status handoff.</li>
+      <li>PHANTA publishes approved content through the publishing queue and prepares the WhatsApp Status asset for manual sharing.</li>
     </ol>
     <p class="muted">WhatsApp Status remains a prepare-and-share action because Meta does not expose an official Status publishing endpoint.</p>
   </section>
@@ -52,7 +52,7 @@ async function load(){
 }
 document.getElementById('special-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('{{ url_for("flyer_lady.create_special") }}',{method:'POST',body:JSON.stringify({location_id:Number(document.getElementById('location_id').value),text:document.getElementById('special_text').value,media_url:document.getElementById('media_url').value||null})});e.target.reset();await load();}catch(err){alert(err.message);}});
 async function approve(id){try{await api(`/dashboard/flyer-lady/specials/${id}/approval`,{method:'POST',body:JSON.stringify({decision:'approved'})});await load();}catch(e){alert(e.message)}}
-async function queue(id){try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms:['facebook_story','facebook_feed','google_business_post','whatsapp_status_prepared']})});for(const p of d.posts){if(p.platform!=='whatsapp_status_prepared') await api(`/dashboard/flyer-lady/special-posts/${p.id}/publish`,{method:'POST',body:'{}'});}await load();}catch(e){alert(e.message)}}
+async function queue(id){try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms:['facebook_feed','facebook_story','instagram_feed','instagram_story','google_business_post','whatsapp_status_prepared']})});const queued=d.posts.map(p=>p.platform.replaceAll('_',' ')).join(', ');alert(`Queued: ${queued}. Publishing will be processed by the Flyer Lady queue.`);await load();}catch(e){alert(e.message)}}
 load().catch(e=>document.getElementById('status').textContent=e.message);
 </script>
 {% endblock %}

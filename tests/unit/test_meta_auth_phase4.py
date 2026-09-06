@@ -8,7 +8,7 @@ def cfg():
     return MetaAuthConfig(
         app_id="1234567890123456",
         app_secret="a"*32,
-        graph_api_version="v25.0",
+        graph_api_version="v26.0",
         system_user_token="token",
         app_domains=("https://phanta.example",),
         embedded_signup_config_id="123456",
@@ -16,7 +16,7 @@ def cfg():
 
 def test_meta_auth_config_validation():
     c=cfg(); c.validate()
-    assert c.graph_base_url()=="https://graph.facebook.com/v25.0"
+    assert c.graph_base_url()=="https://graph.facebook.com/v26.0"
 
 def test_https_domain_required():
     with pytest.raises(RuntimeError):
@@ -36,7 +36,7 @@ def test_graph_client_uses_system_user_token(monkeypatch):
     class FakeSession:
         def request(self, method, url, **kwargs):
             assert kwargs["headers"]["Authorization"] == "Bearer token"
-            assert url == "https://graph.facebook.com/v25.0/me"
+            assert url == "https://graph.facebook.com/v26.0/me"
             return FakeResponse()
     client=GraphApiClient(cfg(), FakeSession())
     assert client.get("/me", params={"fields":"id,name"})["id"]=="sys_123"

@@ -64,6 +64,8 @@ class EmbeddedSignupService:
             raise ValueError("Embedded Signup session has expired")
         if not code or len(code) > 4096:
             raise ValueError("Embedded Signup authorization code is required")
+        if not waba_id or not phone_number_id:
+            raise ValueError("WhatsApp Embedded Signup did not return a WhatsApp Business Account and phone number. Please complete signup again.")
         token_payload = self.client.exchange_embedded_signup_code(code)
         token = token_payload["access_token"]
         signup.business_id = business_id or signup.business_id

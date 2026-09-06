@@ -15,5 +15,9 @@ class MetaSocialGraphClient:
         return self.client.post_with_token(page_token, f"/{page_id}/photo_stories", data={"photo_id": photo_id})
     def create_instagram_container(self, ig_id: str, token: str, media_url: str, caption: str, *, stories: bool = False) -> dict[str, Any]:
         return self.client.post_with_token(token, f"/{ig_id}/media", data={"image_url": media_url, "caption": caption, "media_type": "STORIES" if stories else "IMAGE"})
+    def get_instagram_container_status(self, token: str, creation_id: str) -> dict[str, Any]:
+        return self.client.get_with_token(token, f"/{creation_id}", params={"fields": "status_code"})
+    def get_instagram_content_publishing_limit(self, ig_id: str, token: str) -> dict[str, Any]:
+        return self.client.get_with_token(token, f"/{ig_id}/content_publishing_limit")
     def publish_instagram_container(self, ig_id: str, token: str, creation_id: str) -> dict[str, Any]:
         return self.client.post_with_token(token, f"/{ig_id}/media_publish", data={"creation_id": creation_id})

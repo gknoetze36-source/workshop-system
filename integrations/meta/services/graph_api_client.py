@@ -56,6 +56,34 @@ class GraphApiClient:
             raise MetaGraphAPIError("Meta token exchange returned no access token")
         return payload
 
+    def exchange_for_long_lived_user_token(self, short_lived_token: str, *, timeout: float = 15.0) -> dict[str, Any]:
+        """Exchange a Facebook Login user token before deriving Page tokens.
+
+        The exchange is server-side because it uses the app secret. Flyer Lady
+        then enumerates Pages with the long-lived user token instead of the
+        short-lived OAuth redirect token.
+        """
+        if not short_lived_token:
+            raise ValueError("Facebook user access token is required")
+        url = self.config.graph_base_url() + "/oauth/access_token"
+        params = {
+            "grant_type": "fb_exchange_token",
+            "client_id": self.config.app_id,
+            "client_secret": self.config.app_secret,
+            "fb_exchange_token": short_lived_token,
+        }
+        try:
+            response = self.session.get(url, params=params, headers={"Accept": "application/json"}, timeout=timeout)
+        except requests.RequestException as exc:
+            raise MetaGraphAPIError(f"Meta long-lived token exchange failed: {exc}") from exc
+        payload = self._json_payload(response)
+        if not response.ok:
+            error = payload.get("error", {}) if isinstance(payload, dict) else {}
+            raise MetaGraphAPIError(error.get("message", f"Meta long-lived token exchange returned HTTP {response.status_code}"), status_code=response.status_code, error=error)
+        if not isinstance(payload, dict) or not payload.get("access_token"):
+            raise MetaGraphAPIError("Meta long-lived token exchange returned no access token")
+        return payload
+
     def debug_customer_token(self, customer_token: str, *, timeout: float = 15.0) -> dict[str, Any]:
         if not customer_token:
             raise ValueError("customer_token is required")

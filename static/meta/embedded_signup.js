@@ -26,6 +26,29 @@
     return tag ? tag.getAttribute("content") : "";
   })();
 
+  // WhatsApp Embedded Signup reports the selected business assets through a
+  // browser message event. Keep the latest completion payload and send it to
+  // the server with the authorization code. sessionInfo remains only as a
+  // backwards-compatible fallback.
+  let embeddedSignupAssets = {};
+  window.addEventListener("message", function (event) {
+    if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") return;
+    let payload = event.data;
+    if (typeof payload === "string") {
+      try { payload = JSON.parse(payload); } catch (_) { return; }
+    }
+    if (!payload || payload.type !== "WA_EMBEDDED_SIGNUP") return;
+    const eventName = payload.event || (payload.data && payload.data.event);
+    const data = (payload.data && payload.data.data) || payload.data || {};
+    if (eventName === "FINISH" || eventName === "FINISH_ONLY_WABA") {
+      embeddedSignupAssets = {
+        business_id: data.business_id || data.businessId || payload.business_id || payload.businessId,
+        waba_id: data.waba_id || data.wabaId || payload.waba_id || payload.wabaId,
+        phone_number_id: data.phone_number_id || data.phoneNumberId || payload.phone_number_id || payload.phoneNumberId
+      };
+    }
+  });
+
   function setStatus(text, kind) {
     if (!status) return;
     status.textContent = text || "";
@@ -145,9 +168,9 @@
             body: JSON.stringify({
               code: auth.code,
               state_nonce: start.state_nonce,
-              business_id: sessionInfo.business_id || sessionInfo.businessId,
-              waba_id: sessionInfo.waba_id || sessionInfo.wabaId,
-              phone_number_id: sessionInfo.phone_number_id || sessionInfo.phoneNumberId
+              business_id: embeddedSignupAssets.business_id || sessionInfo.business_id || sessionInfo.businessId,
+              waba_id: embeddedSignupAssets.waba_id || sessionInfo.waba_id || sessionInfo.wabaId,
+              phone_number_id: embeddedSignupAssets.phone_number_id || sessionInfo.phone_number_id || sessionInfo.phoneNumberId
             })
           });
 

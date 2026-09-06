@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-DEFAULT_GRAPH_API_VERSION = "v25.0"
+DEFAULT_GRAPH_API_VERSION = "v26.0"
 REQUIRED_META_PERMISSIONS = (
     "whatsapp_business_messaging",
     "whatsapp_business_management",
@@ -81,7 +81,7 @@ class MetaAuthConfig:
             raise ValueError("META_APP_SECRET appears invalid")
         if not _GRAPH_VERSION_RE.fullmatch(self.graph_api_version):
             raise ValueError(
-                "META_GRAPH_API_VERSION must use the form vXX.X, for example v25.0"
+                "META_GRAPH_API_VERSION must use the form vXX.X, for example v26.0"
             )
         if not self.system_user_token:
             raise ValueError("META_SYSTEM_USER_TOKEN is required for Phase 4 health checks")

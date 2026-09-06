@@ -5,7 +5,7 @@ from models.core import Base, Location, Owner
 from integrations.meta.auth.config import MetaAuthConfig
 from integrations.meta.services.embedded_signup_service import EmbeddedSignupService
 
-def cfg(): return MetaAuthConfig(app_id="1234567890123456",app_secret="a"*32,graph_api_version="v25.0",system_user_token="token",app_domains=("https://phanta.example",),embedded_signup_config_id="123456")
+def cfg(): return MetaAuthConfig(app_id="1234567890123456",app_secret="a"*32,graph_api_version="v26.0",system_user_token="token",app_domains=("https://phanta.example",),embedded_signup_config_id="123456")
 class FakeClient:
     def exchange_embedded_signup_code(self,code): assert code=="one-time-code"; return {"access_token":"secret-token","token_type":"bearer","expires_in":5184000}
 def db():

@@ -29,7 +29,7 @@ def cfg():
     return MetaAuthConfig(
         app_id="1234567890123456",
         app_secret="a" * 32,
-        graph_api_version="v25.0",
+        graph_api_version="v26.0",
         system_user_token="system-token",
         app_domains=("https://phanta.example",),
         embedded_signup_config_id="123456",

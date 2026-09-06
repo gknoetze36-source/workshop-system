@@ -21,8 +21,11 @@ class SpecialService:
         return session.scalar(select(Special).where(Special.id == special_id, Special.location_id == location_id))
     def ensure_posts(self, session: Session, location_id: int, special: Special, platforms: list[str]):
         posts = []
+        media_required = {"facebook_story", "instagram_feed", "instagram_story"}
         for platform in platforms:
             if platform not in ALLOWED_PLATFORMS: raise ValueError(f"unsupported platform: {platform}")
+            if platform in media_required and not special.media_url:
+                raise ValueError(f"{platform} requires a public HTTPS image")
             existing = session.scalar(select(SpecialPost).where(SpecialPost.special_id == special.id, SpecialPost.platform == platform))
             if existing: posts.append(existing); continue
             post = SpecialPost(special_id=special.id, location_id=location_id, platform=platform, status="prepared" if platform == "whatsapp_status_prepared" else "pending")

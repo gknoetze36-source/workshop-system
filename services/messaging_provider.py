@@ -1,6 +1,7 @@
 import os
 
 from database import execute_db, fetch_one
+from integrations.meta.auth.config import DEFAULT_GRAPH_API_VERSION
 from integrations.meta.auth.token_store import MetaTokenStore
 from validators.phone_validator import normalize_phone
 
@@ -101,7 +102,10 @@ class MetaCloudApiProvider:
     def send_text(self, account, recipient, body):
         import requests
 
-        token = decrypt_access_token((account or {}).get("access_token") or "")
+        # active_messaging_account() returns the canonical customer token already
+        # decrypted for this outbound call. Decrypting it again corrupts valid
+        # tokens and causes every send to fail.
+        token = (account or {}).get("access_token") or ""
         phone_number_id = (account or {}).get("phone_number_id") or (account or {}).get("sender_id") or ""
         if not token:
             raise RuntimeError("Meta access token is not configured for this location.")
@@ -109,7 +113,7 @@ class MetaCloudApiProvider:
             raise RuntimeError("Meta phone_number_id is not configured for this location.")
 
         response = requests.post(
-            f"https://graph.facebook.com/v20.0/{phone_number_id}/messages",
+            f"https://graph.facebook.com/{os.getenv('META_GRAPH_API_VERSION', DEFAULT_GRAPH_API_VERSION).strip() or DEFAULT_GRAPH_API_VERSION}/{phone_number_id}/messages",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json={
                 "messaging_product": "whatsapp",
