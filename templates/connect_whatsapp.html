@@ -1,39 +1,79 @@
 {% extends "base.html" %}
 {% block title %}Connect WhatsApp{% endblock %}
 {% block content %}
-<section class="v-card" style="max-width:760px;margin:32px auto;">
-  <div class="v-card-header">
-    <div>
-      <h1 class="v-card-title">Connect WhatsApp</h1>
-      <p class="v-card-subtitle">Connect your workshop's WhatsApp Business Account through Meta Embedded Signup.</p>
+{% include "_settings_ui.html" %}
+
+{#  WHY THE BUTTON DID NOTHING
+    --------------------------
+    This page renders <button id="connect-whatsapp">, and the click handler for
+    it lives in static/meta/embedded_signup.js -- but that script was never
+    loaded by any template in the project. The button had no listener attached,
+    so clicking it was a no-op regardless of whether META_* env vars were set.
+    The <script> tag at the bottom of this file is the fix.                  #}
+
+<div class="connect-page">
+
+  <div class="topbar">
+    <div class="heading">
+      <h1>Connect WhatsApp</h1>
+      <p>Connect your workshop's WhatsApp Business Account through Meta Embedded Signup.</p>
     </div>
+    {% if not onboarding %}
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('settings.settings_overview') }}">&larr; Settings</a>
+    </div>
+    {% endif %}
   </div>
 
-  {% if connection %}
-    <div class="status-card" style="margin:20px 0;">
-      <strong>Current connection:</strong>
-      {{ connection.connection_status|replace('_', ' ')|title }}
-      {% if connection.display_phone_number %} · {{ connection.display_phone_number }}{% endif %}
-      {% if connection.connection_status in ['reconnect_required', 'expiring_soon'] %}
-        <p class="help" style="margin-top:8px;">
-          {% if connection.connection_status == 'reconnect_required' %}
-            Meta needs to be reconnected before PHANTA can send messages for this workshop.
-          {% else %}
-            This Meta connection is approaching token expiry. Reconnect now to keep WhatsApp working without interruption.
-          {% endif %}
-        </p>
-      {% endif %}
+  <section class="v-card">
+
+    {% if connection %}
+    <div class="connect-status">
+      <span class="status-dot {% if connection.connection_status == 'connected' %}success{% elif connection.connection_status in ['reconnect_required'] %}danger{% elif connection.connection_status == 'expiring_soon' %}warning{% endif %}"></span>
+      <div>
+        <strong>Current connection: {{ connection.connection_status|replace('_', ' ')|title }}</strong>
+        {% if connection.display_phone_number %}
+        <div class="text-muted">{{ connection.display_phone_number }}</div>
+        {% endif %}
+        {% if connection.connection_status == 'reconnect_required' %}
+        <p class="connect-note">Meta needs to be reconnected before PHANTA can send messages for this workshop.</p>
+        {% elif connection.connection_status == 'expiring_soon' %}
+        <p class="connect-note">This Meta connection is approaching token expiry. Reconnect now to keep WhatsApp working without interruption.</p>
+        {% endif %}
+      </div>
     </div>
-  {% endif %}
+    {% endif %}
 
-  <p>PHANTA will open Meta's secure signup window. You will choose or create the workshop's Business Portfolio, WhatsApp Business Account and phone number there.</p>
-  <p class="help">PHANTA never asks you to paste a Meta access token into this form.</p>
+    <p>PHANTA will open Meta's secure signup window. You will choose or create the workshop's Business Portfolio, WhatsApp Business Account and phone number there.</p>
 
-  <button id="connect-whatsapp" type="button" class="button primary">{% if connection and connection.connection_status in ['reconnect_required', 'expiring_soon'] %}Reconnect WhatsApp{% else %}Connect WhatsApp{% endif %}</button>
-  <p id="status" role="status" aria-live="polite" style="margin-top:16px;"></p>
+    <ol class="connect-steps">
+      <li>Sign in to the Facebook account that owns the workshop's business.</li>
+      <li>Pick or create the Business Portfolio and WhatsApp Business Account.</li>
+      <li>Add and verify the phone number you want customers to message.</li>
+      <li>Approve the permissions PHANTA requests, then return to this page.</li>
+    </ol>
 
-  {% if onboarding %}
-    <p style="margin-top:24px;"><a href="{{ url_for('onboarding.onboarding_flyer_lady') }}">Skip for now</a> &middot; <a href="{{ url_for('onboarding.onboarding') }}">Back to onboarding</a></p>
-  {% endif %}
-</section>
+    <button id="connect-whatsapp" type="button" class="button primary">
+      {% if connection and connection.connection_status in ['reconnect_required', 'expiring_soon'] %}Reconnect WhatsApp{% else %}Connect WhatsApp{% endif %}
+    </button>
+
+    <p id="status" role="status" aria-live="polite"></p>
+
+    <p class="connect-note">
+      PHANTA never asks you to paste a Meta access token into this form.
+      A popup blocker will stop Meta's window from opening &mdash; allow popups for this site if nothing appears.
+    </p>
+
+    {% if onboarding %}
+    <p style="margin-top: var(--space-6);">
+      <a href="{{ url_for('onboarding.onboarding_flyer_lady') }}">Skip for now</a>
+      &middot;
+      <a href="{{ url_for('onboarding.onboarding') }}">Back to onboarding</a>
+    </p>
+    {% endif %}
+
+  </section>
+</div>
+
+<script src="{{ url_for('static', filename='meta/embedded_signup.js') }}" defer></script>
 {% endblock %}

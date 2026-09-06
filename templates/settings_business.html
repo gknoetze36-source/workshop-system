@@ -1,19 +1,130 @@
 {% extends "base.html" %}
 {% block title %}Business Settings{% endblock %}
 {% block content %}
-<section class="topbar"><div class="heading"><h1>Business Settings</h1><p>Manage the workshop information used across PHANTA.</p></div></section>
-<form method="POST">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-<section class="v-card">
-  {% for field,label in [('name','Business name'),('trading_name','Trading name'),('business_registration_number','Registration number'),('vat_number','VAT number'),('contact_email','Email'),('contact_phone','Phone / WhatsApp number'),('website','Website'),('physical_address','Physical address'),('postal_address','Postal address'),('province','Province'),('city','City / Town'),('workshop_type','Workshop type'),('description','Description')] %}
-  <div class="form-field"><label for="{{ field }}">{{ label }}</label><input id="{{ field }}" name="{{ field }}" value="{{ business[field] or '' }}"></div>
-  {% endfor %}
-  <div class="form-grid">
-    <div class="form-field"><label for="timezone">Timezone</label><select id="timezone" name="timezone">{% for tz in timezones %}<option value="{{ tz.value }}" {% if business.timezone == tz.value %}selected{% endif %}>{{ tz.label }}</option>{% endfor %}</select></div>
-    <div class="form-field"><label for="currency">Currency</label><input id="currency" name="currency" value="{{ business.currency or 'ZAR' }}"></div>
-    <div class="form-field"><label for="language">Language</label><input id="language" name="language" value="{{ business.language or 'en' }}"></div>
+{% include "_settings_ui.html" %}
+
+<div class="settings-page">
+
+  <div class="topbar">
+    <div class="heading">
+      <h1>Business Settings</h1>
+      <p>Manage the workshop information used across PHANTA.</p>
+    </div>
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('settings.settings_overview') }}">&larr; Settings</a>
+    </div>
   </div>
-  <button class="button primary" type="submit">Save business settings</button>
-</section>
-</form>
+
+  <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <section class="v-card">
+      <div class="v-card-header">
+        <div>
+          <h2 class="v-card-title">Business identity</h2>
+          <p class="v-card-subtitle">How your workshop is named on quotes, invoices and customer messages.</p>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        {% for field, label in [
+          ('name', 'Business name'),
+          ('trading_name', 'Trading name'),
+          ('business_registration_number', 'Registration number'),
+          ('vat_number', 'VAT number')
+        ] %}
+        <div class="form-field">
+          <label for="{{ field }}">{{ label }}</label>
+          <input id="{{ field }}" name="{{ field }}" value="{{ business[field] or '' }}">
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="form-field">
+        <label for="description">Description</label>
+        <textarea id="description" name="description">{{ business['description'] or '' }}</textarea>
+      </div>
+    </section>
+
+    <section class="v-card">
+      <div class="v-card-header">
+        <div>
+          <h2 class="v-card-title">Contact details</h2>
+          <p class="v-card-subtitle">Where customers reach you. The phone number is also used for WhatsApp.</p>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        {% for field, label in [
+          ('contact_email', 'Email'),
+          ('contact_phone', 'Phone / WhatsApp number'),
+          ('website', 'Website')
+        ] %}
+        <div class="form-field">
+          <label for="{{ field }}">{{ label }}</label>
+          <input id="{{ field }}" name="{{ field }}" value="{{ business[field] or '' }}">
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="v-card">
+      <div class="v-card-header">
+        <div>
+          <h2 class="v-card-title">Location</h2>
+          <p class="v-card-subtitle">Used on documents and for the public booking page.</p>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        {% for field, label in [
+          ('physical_address', 'Physical address'),
+          ('postal_address', 'Postal address'),
+          ('city', 'City / Town'),
+          ('province', 'Province'),
+          ('workshop_type', 'Workshop type')
+        ] %}
+        <div class="form-field">
+          <label for="{{ field }}">{{ label }}</label>
+          <input id="{{ field }}" name="{{ field }}" value="{{ business[field] or '' }}">
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="v-card">
+      <div class="v-card-header">
+        <div>
+          <h2 class="v-card-title">Regional settings</h2>
+          <p class="v-card-subtitle">Timezone controls when reminders and daily summaries are sent.</p>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        <div class="form-field">
+          <label for="timezone">Timezone</label>
+          <select id="timezone" name="timezone">
+            {% for tz in timezones %}
+            <option value="{{ tz.value }}" {% if business.timezone == tz.value %}selected{% endif %}>{{ tz.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="currency">Currency</label>
+          <input id="currency" name="currency" value="{{ business.currency or 'ZAR' }}">
+        </div>
+        <div class="form-field">
+          <label for="language">Language</label>
+          <input id="language" name="language" value="{{ business.language or 'en' }}">
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="button primary" type="submit">Save business settings</button>
+        <a class="button secondary" href="{{ url_for('settings.settings_overview') }}">Cancel</a>
+      </div>
+    </section>
+
+  </form>
+</div>
 {% endblock %}

@@ -1,28 +1,62 @@
 {% extends "base.html" %}
 {% block title %}Connect Flyer Lady{% endblock %}
 {% block content %}
-<section class="v-card" style="max-width:760px;margin:32px auto;">
-  <div class="v-card-header">
-    <div>
-      <h1 class="v-card-title">Connect Flyer Lady</h1>
-      <p class="v-card-subtitle">Connect your workshop's Facebook Page so Flyer Lady can post specials to Facebook and Instagram.</p>
+{% include "_settings_ui.html" %}
+
+<div class="connect-page">
+
+  <div class="topbar">
+    <div class="heading">
+      <h1>Connect Flyer Lady</h1>
+      <p>Connect your workshop's Facebook Page so Flyer Lady can post specials to Facebook and Instagram.</p>
     </div>
+    {% if not onboarding %}
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('settings.settings_overview') }}">&larr; Settings</a>
+    </div>
+    {% endif %}
   </div>
 
-  {% if connection %}
-    <div class="status-card" style="margin:20px 0;">
-      <strong>Current connection:</strong>
-      {{ connection.connection_status|replace('_', ' ')|title }}
-      {% if connection.page_name %} · {{ connection.page_name }}{% endif %}
+  <section class="v-card">
+
+    {% if connection %}
+    <div class="connect-status">
+      <span class="status-dot {% if connection.connection_status == 'connected' %}success{% else %}warning{% endif %}"></span>
+      <div>
+        <strong>Current connection: {{ connection.connection_status|replace('_', ' ')|title }}</strong>
+        {% if connection.page_name %}
+        <div class="text-muted">{{ connection.page_name }}</div>
+        {% endif %}
+      </div>
     </div>
-  {% endif %}
+    {% endif %}
 
-  <p>PHANTA will open Meta's secure signup window. You will choose your workshop's Facebook Page there, and PHANTA will use it to publish specials to Facebook and Instagram.</p>
+    <p>PHANTA will open Meta's secure signup window. You will choose your workshop's Facebook Page there, and PHANTA will use it to publish specials to Facebook and Instagram.</p>
 
-  <a href="{{ url_for('flyer_lady.social_connect_start', onboarding='1') }}" class="button primary">{% if connection and connection.connection_status == "connected" %}Reconnect Flyer Lady{% else %}Connect Flyer Lady{% endif %}</a>
+    <ol class="connect-steps">
+      <li>Sign in to the Facebook account that manages the workshop's Page.</li>
+      <li>Select the Page you want Flyer Lady to post from.</li>
+      <li>If you post to Instagram too, make sure that account is linked to the Page.</li>
+      <li>Approve the permissions, then pick your Page on the screen that follows.</li>
+    </ol>
 
-  {% if onboarding %}
-    <p style="margin-top:24px;"><a href="{{ url_for('onboarding.onboarding_business') }}">Skip for now</a> &middot; <a href="{{ url_for('onboarding.onboarding') }}">Back to onboarding</a></p>
-  {% endif %}
-</section>
+    <a href="{{ url_for('flyer_lady.social_connect_start', onboarding='1' if onboarding else '0') }}" class="button primary">
+      {% if connection and connection.connection_status == "connected" %}Reconnect Flyer Lady{% else %}Connect Flyer Lady{% endif %}
+    </a>
+
+    <p class="connect-note">
+      This sends you to Facebook. If you land on a page of raw text instead,
+      this deployment is missing its Meta environment variables.
+    </p>
+
+    {% if onboarding %}
+    <p style="margin-top: var(--space-6);">
+      <a href="{{ url_for('onboarding.onboarding_business') }}">Skip for now</a>
+      &middot;
+      <a href="{{ url_for('onboarding.onboarding') }}">Back to onboarding</a>
+    </p>
+    {% endif %}
+
+  </section>
+</div>
 {% endblock %}

@@ -1,0 +1,186 @@
+{# ===========================================================================
+   Shared UI styles for the Settings and integration-connect screens.
+
+   WHY THIS FILE EXISTS
+   --------------------
+   The settings templates were written against a class vocabulary that was
+   never defined in base.html or in static/css/. Specifically:
+
+       .v-card  .v-card-header  .v-card-title  .v-card-subtitle
+       .settings-grid  .metric-card  .field
+
+   None of those had a single rule anywhere in the project, so every element
+   using them rendered as bare text on the page background -- which is exactly
+   why Settings looked unstyled. This partial defines them, in the same design
+   tokens base.html already exposes, so the markup finally matches the CSS.
+
+   It is additive only. It does not override anything base.html sets, so
+   including it cannot change how any other screen renders.
+
+   Include it once, immediately after {% block content %}, on any settings or
+   connect page:   {% include "_settings_ui.html" %}
+   =========================================================================== #}
+<style>
+    /* ---- Page shell ------------------------------------------------- */
+    .settings-page { max-width: 960px; }
+    .settings-page .topbar { margin-bottom: var(--space-6); }
+
+    /* ---- Card ------------------------------------------------------- */
+    .v-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+        color: var(--text);
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+    }
+    .v-card > :last-child { margin-bottom: 0; }
+    .v-card-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-4);
+        flex-wrap: wrap;
+        margin-bottom: var(--space-5);
+        padding-bottom: var(--space-4);
+        border-bottom: 1px solid var(--border-light);
+    }
+    .v-card-title { margin: 0; font-size: 1.35rem; font-weight: 700; }
+    .v-card-subtitle { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: 0.92rem; }
+    .metric-card { padding: var(--space-5); }
+
+    /* ---- Settings hub grid ------------------------------------------ */
+    .settings-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: var(--space-4);
+        align-items: stretch;
+    }
+    .settings-grid .settings-card {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        min-height: 128px;
+        padding: var(--space-5);
+        border-radius: var(--radius-lg);
+        transition: border-color var(--transition), background var(--transition), transform var(--transition);
+    }
+    .settings-grid .settings-card:hover,
+    .settings-grid .settings-card:focus-visible {
+        background: var(--surface-elevated);
+        border-color: var(--border-focus);
+        transform: translateY(-2px);
+        color: var(--text);
+    }
+    .settings-grid .settings-card h2 {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 700;
+    }
+    .settings-grid .settings-card h2::after {
+        content: "\2192";
+        color: var(--primary);
+        font-size: 1.1rem;
+        opacity: 0.55;
+        transition: opacity var(--transition), transform var(--transition);
+    }
+    .settings-grid .settings-card:hover h2::after { opacity: 1; transform: translateX(3px); }
+    .settings-grid .settings-card p { margin: 0; color: var(--text-muted); font-size: 0.88rem; line-height: 1.45; }
+
+    /* ---- Forms ------------------------------------------------------- */
+    /* `.field` is the alias several settings templates already used. */
+    .settings-page .field,
+    .settings-page .form-field { margin-bottom: var(--space-5); }
+    .settings-page .field > small,
+    .settings-page .form-field > small {
+        display: block;
+        margin-top: var(--space-2);
+        color: var(--text-muted);
+        font-size: 0.82rem;
+    }
+    .field-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 0 var(--space-5);
+    }
+    .settings-page .form-actions {
+        display: flex;
+        gap: var(--space-3);
+        flex-wrap: wrap;
+        padding-top: var(--space-5);
+        margin-top: var(--space-2);
+        border-top: 1px solid var(--border-light);
+    }
+    .fieldset-title {
+        margin: 0 0 var(--space-4);
+        padding-bottom: var(--space-2);
+        border-bottom: 1px solid var(--border-light);
+        color: var(--text);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .fieldset-title:not(:first-child) { margin-top: var(--space-6); }
+
+    /* ---- Toggle rows -------------------------------------------------
+       base.html already styles `.toggle-switch .slider` with an ::after
+       thumb. settings_notifications.html used to redeclare the same
+       component with a ::before thumb, so BOTH pseudo-elements rendered
+       and each row showed two floating white dots with no visible track.
+       This file adds layout only and leaves the base component alone.   */
+    .toggle-row {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-4);
+        padding: var(--space-4) 0;
+        border-bottom: 1px solid var(--border-light);
+    }
+    .toggle-row:last-child { border-bottom: 0; }
+    .toggle-row .toggle-switch { flex: 0 0 auto; margin: 2px 0 0; }
+    .toggle-row .toggle-copy { min-width: 0; flex: 1 1 auto; }
+    .toggle-row .toggle-copy strong { display: block; color: var(--text); font-size: 0.95rem; font-weight: 650; }
+    .toggle-row .toggle-copy span { display: block; margin-top: 2px; color: var(--text-muted); font-size: 0.84rem; line-height: 1.45; }
+    .toggle-group[data-muted="true"] { opacity: 0.45; }
+    .toggle-group-note {
+        margin: 0 0 var(--space-3);
+        color: var(--text-muted);
+        font-size: 0.82rem;
+    }
+
+    /* ---- Connect / integration screens -------------------------------- */
+    .connect-page { max-width: 720px; }
+    .connect-status {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-3);
+        padding: var(--space-4);
+        margin-bottom: var(--space-5);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        background: var(--surface-elevated);
+    }
+    .connect-status .status-dot { margin-top: 6px; flex: 0 0 auto; }
+    .connect-steps { margin: 0 0 var(--space-5); padding-left: 1.15rem; color: var(--text-secondary); }
+    .connect-steps li { margin-bottom: var(--space-2); font-size: 0.92rem; }
+    .connect-note {
+        margin: var(--space-4) 0 0;
+        color: var(--text-muted);
+        font-size: 0.84rem;
+    }
+    #status:empty { display: none; }
+    #status { margin: var(--space-4) 0 0; font-size: 0.9rem; }
+    #status.is-error { color: var(--danger); }
+    #status.is-success { color: var(--success); }
+
+    @media (max-width: 640px) {
+        .settings-grid { grid-template-columns: 1fr; }
+        .field-grid { grid-template-columns: 1fr; }
+        .v-card { padding: var(--space-5); }
+    }
+</style>

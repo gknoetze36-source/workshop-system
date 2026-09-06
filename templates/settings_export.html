@@ -1,65 +1,55 @@
 {% extends "base.html" %}
 
-{% block title %}
-Export Your Data
-{% endblock %}
+{% block title %}Export Your Data{% endblock %}
 
 {% block content %}
+{% include "_settings_ui.html" %}
 
-<!-- ========================================================= -->
-<!-- Header -->
-<!-- ========================================================= -->
+<div class="settings-page" style="max-width: 720px;">
 
-<div class="topbar">
-
+  <div class="topbar">
     <div class="heading">
+      <h1>Export Your Data</h1>
+      <p>Download a copy of your workshop's records held by PHANTA.</p>
+    </div>
+    <div class="actions">
+      <a class="button secondary" href="{{ url_for('settings.settings_overview') }}">&larr; Settings</a>
+    </div>
+  </div>
 
-        <h1>
-            Export Your Data
-        </h1>
-
-        <p>
-            Download a copy of your workshop's records held by PHANTA.
-        </p>
-
+  <section class="v-card">
+    <div class="v-card-header">
+      <div>
+        <h2 class="v-card-title">What the export contains</h2>
+        <p class="v-card-subtitle">A single JSON file, generated on demand.</p>
+      </div>
     </div>
 
-</div>
-
-<!-- ========================================================= -->
-<!-- Export -->
-<!-- ========================================================= -->
-
-<div class="card">
-
     <p>
-        The export is a JSON file containing your customers, vehicles,
-        bookings, service records, quotes, invoices, conversations and
-        messages, along with your consent and legal acceptance records.
+      Your customers, vehicles, bookings, service records, quotes, invoices,
+      conversations and messages, along with your consent and legal acceptance
+      records.
     </p>
 
-    <p>
-        Integration credentials and PHANTA's internal system logs are not
-        included &mdash; they are not your business records, and a file
-        containing access tokens should not be downloadable.
+    <p class="text-muted">
+      Integration credentials and PHANTA's internal system logs are not
+      included &mdash; they are not your business records, and a file
+      containing access tokens should not be downloadable.
     </p>
 
-    <p>
-        <strong>The file contains your customers' personal information.</strong>
-        Store it somewhere secure and delete it when you no longer need it.
-        Every export is recorded in your audit log.
-    </p>
+    <div class="alert alert-warning" style="margin-bottom: var(--space-4);">
+      <strong>The file contains your customers' personal information.</strong>
+      Store it somewhere secure and delete it when you no longer need it.
+      Every export is recorded in your audit log.
+    </div>
 
     <form method="post">
-
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-        <button type="submit" class="btn btn-primary">
-            Download export
-        </button>
-
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-actions">
+        <button type="submit" class="button primary">Download export</button>
+      </div>
     </form>
+  </section>
 
 </div>
-
 {% endblock %}

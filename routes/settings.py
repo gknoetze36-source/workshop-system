@@ -121,6 +121,11 @@ def settings_overview():
          "description": "Invite staff, change roles, and reset passwords.", "admin_only": True},
         {"endpoint": "settings.settings_notifications", "label": "Notifications",
          "description": "What PHANTA sends, and when.", "admin_only": True},
+        # /settings/whatsapp existed but nothing linked to it, so the only way
+        # to reach the Embedded Signup screen was to type the URL by hand.
+        {"endpoint": "settings.settings_whatsapp", "label": "WhatsApp Connection",
+         "description": "Connect or reconnect your WhatsApp Business Account.",
+         "admin_only": True},
         {"endpoint": "settings.change_password", "label": "Change Password",
          "description": "Change your own password. Signs out your other devices.",
          "admin_only": False},
