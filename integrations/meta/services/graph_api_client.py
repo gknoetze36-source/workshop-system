@@ -35,7 +35,7 @@ class GraphApiClient:
         config: MetaAuthConfig,
         session: requests.Session | None = None,
     ):
-        config.validate()
+        config.validate_shared()
         self.config = config
         self.session = session or requests.Session()
 
@@ -105,9 +105,11 @@ class GraphApiClient:
         return payload
 
     def get(self, path: str, *, params: Mapping[str, Any] | None = None, timeout: float = 15.0) -> dict[str, Any]:
+        self.config.validate_system_user()
         return self._request("GET", path, params=params, timeout=timeout, token=self.config.system_user_token)
 
     def post(self, path: str, *, data: Mapping[str, Any] | None = None, timeout: float = 15.0) -> dict[str, Any]:
+        self.config.validate_system_user()
         return self._request("POST", path, data=data, timeout=timeout, token=self.config.system_user_token)
 
     def get_with_token(self, access_token: str, path: str, *, params: Mapping[str, Any] | None = None, timeout: float = 15.0) -> dict[str, Any]:

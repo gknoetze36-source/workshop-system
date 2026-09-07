@@ -18,7 +18,7 @@ class SystemUserService:
         config: MetaAuthConfig | None = None,
         client: GraphApiClient | None = None,
     ):
-        self.config = config or MetaAuthConfig.from_env()
+        self.config = config or MetaAuthConfig.for_system_user()
         self.client = client or GraphApiClient(self.config)
 
     def health_check(self) -> dict[str, Any]:

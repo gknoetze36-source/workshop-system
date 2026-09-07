@@ -134,7 +134,7 @@ def social_connect_start():
         return jsonify(unconfigured[0]), unconfigured[1]
     try: _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
-    config = MetaAuthConfig.from_env()
+    config = MetaAuthConfig.for_social()
     if not config.social_config_id:
         return jsonify({"error": "META_FLYER_LADY_CONFIG_ID is required for Flyer Lady social connection"}), 503
     redirect_uri = os.getenv("META_SOCIAL_REDIRECT_URI", "").strip() or url_for("flyer_lady.social_connect_callback", _external=True)
@@ -175,7 +175,7 @@ def social_connect_callback():
     code = request.args.get("code")
     if not code:
         return render_template("flyer_lady_select_page.html", error=request.args.get("error_description", "Meta authorization failed or was cancelled."), onboarding=onboarding), 400
-    config = MetaAuthConfig.from_env()
+    config = MetaAuthConfig.for_social()
     redirect_uri = flask_session.get("flyer_lady_oauth_redirect_uri")
     if not redirect_uri:
         return render_template("flyer_lady_select_page.html", error="Your session expired. Please try connecting again.", onboarding=onboarding), 400
@@ -242,7 +242,7 @@ def social_connect_complete():
         if expires_at <= datetime.now(timezone.utc):
             return _fail("invalid or expired social connection session")
         user_token = MetaTokenStore().get_social_oauth_token(oauth)
-        pages = MetaSocialGraphClient(GraphApiClient(MetaAuthConfig.from_env())).list_pages(user_token).get("data", [])
+        pages = MetaSocialGraphClient(GraphApiClient(MetaAuthConfig.for_social())).list_pages(user_token).get("data", [])
         page = next((p for p in pages if str(p.get("id")) == str(page_id)), None)
         if not page: return _fail("page_id was not returned by Meta for this connection")
         page_token = page.get("access_token")

@@ -18,7 +18,7 @@ def embedded_signup_config():
     # Without this guard, MetaOAuthClient() raises RuntimeError on a deployment
     # that has no Meta credentials, and the caller sees an unhandled 500 that
     # looks like a broken integration rather than an unconfigured one.
-    unconfigured = require_configured("whatsapp")
+    unconfigured = require_configured("embedded_signup")
     if unconfigured: return jsonify(unconfigured[0]), unconfigured[1]
     public = MetaOAuthClient().public_configuration()
     return jsonify({"app_id": public.app_id, "config_id": public.embedded_signup_config_id, "graph_api_version": public.graph_api_version})
@@ -28,6 +28,8 @@ def embedded_signup_config():
 def embedded_signup_start():
     try: location_id = current_location_id()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    unconfigured = require_configured("embedded_signup")
+    if unconfigured: return jsonify(unconfigured[0]), unconfigured[1]
     session = get_session()
     try:
         launch = EmbeddedSignupService().begin(session, location_id); session.commit()
@@ -43,6 +45,8 @@ def embedded_signup_callback():
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
     payload = request.get_json(silent=True) or {}
     if not payload.get("code") or not payload.get("state_nonce"): return jsonify({"error": "code and state_nonce are required"}), 400
+    unconfigured = require_configured("embedded_signup")
+    if unconfigured: return jsonify(unconfigured[0]), unconfigured[1]
     session = get_session()
     try:
         result = EmbeddedSignupService().complete(session, location_id=location_id, state_nonce=payload["state_nonce"], code=payload["code"], business_id=payload.get("business_id"), waba_id=payload.get("waba_id"), phone_number_id=payload.get("phone_number_id")); session.commit()
@@ -60,7 +64,7 @@ def meta_connection_health():
         location_id = current_location_id()
     except PermissionError as exc:
         return jsonify({"error": str(exc)}), 401
-    unconfigured = require_configured("whatsapp")
+    unconfigured = require_configured("meta_app")
     if unconfigured:
         return jsonify(unconfigured[0]), unconfigured[1]
     session = get_session()

@@ -36,7 +36,7 @@ class EmbeddedSignupService:
     """
     SESSION_TTL = timedelta(minutes=15)
     def __init__(self, config=None, client=None, connection_repo=None, token_store=None):
-        self.config = config or MetaAuthConfig.from_env()
+        self.config = config or MetaAuthConfig.for_embedded_signup()
         self.client = client or GraphApiClient(self.config)
         self.connection_repo = connection_repo or MetaConnectionRepository()
         self.token_store = token_store or MetaTokenStore()

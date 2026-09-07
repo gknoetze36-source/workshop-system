@@ -71,17 +71,28 @@ RECOMMENDED = [
     ("SESSION_LIFETIME_HOURS", "Defaults to 12."),
 ]
 
+# Capability-scoped integration checks. A missing optional Meta capability must
+# not be reported as a failure of an unrelated capability.
 INTEGRATIONS = {
-    "WhatsApp / Embedded Signup": [
-        "META_APP_ID", "META_APP_SECRET", "META_SYSTEM_USER_TOKEN",
-        "META_WHATSAPP_CONFIG_ID",
+    "Meta App (shared)": ["META_APP_ID", "META_APP_SECRET"],
+    "WhatsApp System User operations (conditional)": ["META_SYSTEM_USER_TOKEN"],
+    "WhatsApp Embedded Signup (conditional)": [
+        "META_APP_ID", "META_APP_SECRET", "META_APP_DOMAINS",
     ],
-    "WhatsApp inbound webhook": ["META_WEBHOOK_VERIFY_TOKEN"],
-    "Flyer Lady (Facebook posting)": ["META_FLYER_LADY_CONFIG_ID", "META_SOCIAL_REDIRECT_URI"],
+    "WhatsApp inbound webhook (conditional)": [
+        "META_WEBHOOK_VERIFY_TOKEN", "META_APP_SECRET",
+    ],
+    "Flyer Lady social connection": [
+        "META_APP_ID", "META_APP_SECRET", "META_FLYER_LADY_CONFIG_ID",
+    ],
     "Payments (Paystack)": ["PAYSTACK_SECRET_KEY", "PAYSTACK_PUBLIC_KEY", "PAYSTACK_WEBHOOK_SECRET"],
     "AI Service Advisor": ["OPENAI_API_KEY"],
     "Google Business Profile (optional)": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
 }
+
+
+def _embedded_signup_configured() -> bool:
+    return _set("META_WHATSAPP_CONFIG_ID") or _set("META_EMBEDDED_SIGNUP_CONFIG_ID")
 
 # Variables that must NOT be set in production, and why.
 DANGEROUS_IN_PRODUCTION = [
@@ -152,6 +163,8 @@ def main(argv=None) -> int:
     print("\nINTEGRATIONS")
     for label, names in INTEGRATIONS.items():
         missing = [n for n in names if not _set(n)]
+        if label == "WhatsApp Embedded Signup (conditional)" and not _embedded_signup_configured():
+            missing.append("META_WHATSAPP_CONFIG_ID or META_EMBEDDED_SIGNUP_CONFIG_ID")
         if not missing:
             print(f"  OK    {label}")
         else:

@@ -23,7 +23,7 @@ class MetaOAuthClient:
     """Builds the safe configuration that a future frontend may consume."""
 
     def __init__(self, config: MetaAuthConfig | None = None):
-        self.config = config or MetaAuthConfig.from_env()
+        self.config = config or MetaAuthConfig.for_embedded_signup()
 
     def public_configuration(self) -> MetaOAuthConfiguration:
         return MetaOAuthConfiguration(
