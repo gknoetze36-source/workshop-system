@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}User Data Deletion | VANTA Automations{% endblock %}
+{% block content %}
+<main class="container" style="max-width:900px;padding:48px 24px;">
+  <h1>User Data Deletion</h1>
+  <p>VANTA Automations respects your right to request deletion of personal data associated with our services and Meta-connected features.</p>
+
+  <h2>How Meta-connected deletion works</h2>
+  <p>If you remove a Meta connection and Meta sends VANTA Automations a valid data deletion request, our secure callback verifies the request and removes Meta-connected data that can be reliably associated with that Meta user.</p>
+
+  <h2>What may be deleted</h2>
+  <ul>
+    <li>Stored Flyer Lady Facebook Page and Instagram connection details associated with the requesting Meta user.</li>
+    <li>Stored Meta social access credentials associated with that connection.</li>
+    <li>Temporary Meta social OAuth session credentials associated with the matched connection.</li>
+  </ul>
+
+  <h2>What is not automatically deleted</h2>
+  <p>Business records that cannot safely be identified from Meta's app-scoped user ID are not guessed or deleted automatically. This prevents one person's Meta request from deleting the wrong workshop, customer, or business record.</p>
+
+  <h2>Need to request deletion directly?</h2>
+  <p>Email <a href="mailto:info@vantaautomations.co.za?subject=User%20Data%20Deletion%20Request">info@vantaautomations.co.za</a> with the subject <strong>User Data Deletion Request</strong> and include enough information for us to identify the relevant account safely.</p>
+
+  <p><strong>Why we do this:</strong> We provide a clear, accessible process for deletion requests and minimise the risk of deleting data belonging to the wrong person or business.</p>
+</main>
+{% endblock %}

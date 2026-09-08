@@ -192,9 +192,16 @@ def social_connect_callback():
     except Exception:
         return render_template("flyer_lady_select_page.html", error="Meta could not create a long-lived connection token. Please try connecting again.", onboarding=onboarding), 502
     long_lived_token = long_lived_payload["access_token"]
+    try:
+        meta_user = client.get_with_token(long_lived_token, "/me", params={"fields": "id"})
+        meta_user_id = str(meta_user.get("id") or "")
+        if not meta_user_id:
+            raise ValueError("Meta did not return a user identity")
+    except Exception:
+        return render_template("flyer_lady_select_page.html", error="Meta user identity lookup failed. Please try connecting again.", onboarding=onboarding), 502
     db = get_session()
     try:
-        oauth = MetaSocialOAuthSession(location_id=location_id, state_nonce=flask_session["flyer_lady_oauth_state"], encrypted_user_access_token="", redirect_uri=redirect_uri, status="started", expires_at=datetime.now(timezone.utc) + timedelta(minutes=15))
+        oauth = MetaSocialOAuthSession(location_id=location_id, state_nonce=flask_session["flyer_lady_oauth_state"], encrypted_user_access_token="", meta_user_id=meta_user_id, redirect_uri=redirect_uri, status="started", expires_at=datetime.now(timezone.utc) + timedelta(minutes=15))
         db.add(oauth); db.flush(); MetaTokenStore().save_social_oauth_token(db, oauth, long_lived_token)
         pages = MetaSocialGraphClient(client).list_pages(long_lived_token).get("data", [])
         oauth.status = "pages_loaded"; db.commit(); flask_session.pop("flyer_lady_oauth_state", None)
@@ -250,7 +257,7 @@ def social_connect_complete():
         tasks = set(page.get("tasks") or [])
         if "CREATE_CONTENT" not in tasks:
             return _fail("PHANTA was not granted permission to create content on the selected Page. Grant content access and reconnect.")
-        connection = MetaSocialConnectionRepository().upsert(db, location_id, page_id=str(page["id"]), page_name=page.get("name"), instagram_business_account_id=(page.get("instagram_business_account") or {}).get("id"), permissions_json={"tasks": page.get("tasks", [])}, connection_status="connected")
+        connection = MetaSocialConnectionRepository().upsert(db, location_id, meta_user_id=oauth.meta_user_id, page_id=str(page["id"]), page_name=page.get("name"), instagram_business_account_id=(page.get("instagram_business_account") or {}).get("id"), permissions_json={"tasks": page.get("tasks", [])}, connection_status="connected")
         MetaTokenStore().save_social_token(db, connection, page_token)
         oauth.status = "consumed"; oauth.consumed_at = datetime.now(timezone.utc)
         db.add(AuditLog(location_id=location_id, actor=_actor(), action="flyer_social_connected", entity_type="MetaSocialConnection", entity_id=str(connection.id), after={"page_id": connection.page_id}))

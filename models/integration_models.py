@@ -325,6 +325,7 @@ class MetaSocialOAuthSession(Base):
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
     state_nonce: Mapped[str] = mapped_column(String(128), nullable=False)
     encrypted_user_access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    meta_user_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
     redirect_uri: Mapped[str] = mapped_column(String(2000), nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="started", nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -338,6 +339,9 @@ class MetaSocialConnection(Base):
     __table_args__ = (UniqueConstraint("location_id", name="uq_meta_social_connection_location"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    # Meta app-scoped user ID from the Flyer Lady OAuth /me response. This is
+    # the stable identity used to resolve Meta User Data Deletion callbacks.
+    meta_user_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
     page_id: Mapped[str] = mapped_column(String(100), nullable=False)
     page_name: Mapped[Optional[str]] = mapped_column(String(255))
     instagram_business_account_id: Mapped[Optional[str]] = mapped_column(String(100))

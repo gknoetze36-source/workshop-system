@@ -52,6 +52,7 @@ from routes.public_booking import public_booking_bp
 from routes.billing_wall import billing_wall_bp
 from routes.billing_statement import billing_statement_bp
 from routes.ghost import ghost_bp
+from routes.data_deletion import data_deletion_bp
 from services.phanta_assistant import build_dashboard_assistant
 from services.customer_service import upsert_customer
 from services.financial_service import can_create_booking
@@ -177,6 +178,8 @@ app.register_blueprint(public_booking_bp)
 app.register_blueprint(billing_wall_bp)
 app.register_blueprint(billing_statement_bp)
 app.register_blueprint(ghost_bp)
+app.register_blueprint(data_deletion_bp)
+csrf.exempt(data_deletion_bp)
 
 
 @app.template_filter("date")
