@@ -188,22 +188,92 @@
     });
   }
 
+  /* Embedded Signup finishing is NOT the same as being connected. Meta Tech
+     Provider onboarding still has to verify the business account, grant
+     PHANTA access, register the phone, configure billing, activate webhooks
+     and synchronize templates. Reporting "connected" here was the lie this
+     screen used to tell: the workshop saw success while messaging was still
+     impossible. The server now returns real progress, and this polls it. */
+  async function fetchOnboardingStatus() {
+    const response = await fetch("/integrations/meta/onboarding/status", {
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" }
+    });
+    if (!response.ok) throw await errorFrom(response, "Could not read WhatsApp setup status.");
+    return response.json();
+  }
+
+  function advance() {
+    if (window.location.pathname === "/onboarding/whatsapp") {
+      window.location.href = "/onboarding/flyer-lady";
+    } else {
+      window.location.reload();
+    }
+  }
+
+  /* Poll until onboarding reaches a terminal state. Bounded so a stuck run
+     surfaces as a message rather than spinning forever. */
+  async function trackOnboarding(initial) {
+    let state = initial;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (state) {
+        if (state.connected) {
+          setStatus("Connected", "is-success");
+          setTimeout(advance, 900);
+          return;
+        }
+        if (state.awaiting_phone_pin) {
+          setStatus(
+            (state.error || "WhatsApp needs a 6-digit two-step verification PIN.") +
+            " Enter it under Settings \u2192 WhatsApp to finish setup.",
+            "is-error"
+          );
+          button.disabled = false;
+          return;
+        }
+        if (state.connection_status === "failed") {
+          setStatus(
+            (state.error || "WhatsApp setup could not be completed.") +
+            " Nothing was lost \u2014 you can retry and it will continue where it stopped.",
+            "is-error"
+          );
+          button.disabled = false;
+          return;
+        }
+        setStatus(state.label || "Setting up WhatsApp\u2026");
+      }
+      await new Promise(function (resolve) { setTimeout(resolve, 2000); });
+      try {
+        state = await fetchOnboardingStatus();
+      } catch (error) {
+        setStatus((error && error.message) || "Could not read WhatsApp setup status.", "is-error");
+        button.disabled = false;
+        return;
+      }
+    }
+    setStatus(
+      "WhatsApp setup is still running. Reload this page in a moment to see the latest status."
+    );
+    button.disabled = false;
+  }
+
   button.addEventListener("click", async function () {
     button.disabled = true;
     setStatus("Opening Meta\u2026");
 
     try {
       const start = await startSignup();
-      await completeSignup(start);
-      setStatus("WhatsApp connected successfully.", "is-success");
+      const callback = await completeSignup(start);
+      setStatus("Setting up WhatsApp\u2026");
 
-      setTimeout(function () {
-        if (window.location.pathname === "/onboarding/whatsapp") {
-          window.location.href = "/onboarding/flyer-lady";
-        } else {
-          window.location.reload();
-        }
-      }, 900);
+      const onboarding = (callback && callback.onboarding) || {};
+      await trackOnboarding({
+        connected: callback && callback.status === "connected",
+        connection_status: onboarding.connection_status,
+        awaiting_phone_pin: onboarding.awaiting_input === true,
+        label: "Setting up WhatsApp\u2026",
+        error: onboarding.error ? onboarding.error.message : null
+      });
     } catch (error) {
       setStatus((error && error.message) || "WhatsApp connection failed.", "is-error");
       button.disabled = false;

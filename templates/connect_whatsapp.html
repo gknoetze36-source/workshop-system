@@ -39,6 +39,10 @@
         <p class="connect-note">Meta needs to be reconnected before PHANTA can send messages for this workshop.</p>
         {% elif connection.connection_status == 'expiring_soon' %}
         <p class="connect-note">This Meta connection is approaching token expiry. Reconnect now to keep WhatsApp working without interruption.</p>
+        {% elif connection.connection_status in ['onboarding', 'failed'] %}
+        {# Setup got part of the way and stopped. Say so plainly rather than
+           implying WhatsApp is live -- messages cannot be sent yet. #}
+        <p class="connect-note">WhatsApp setup is not finished yet, so messages cannot be sent for this workshop.</p>
         {% endif %}
       </div>
     </div>

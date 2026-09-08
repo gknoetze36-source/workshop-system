@@ -23,7 +23,13 @@ class MetaAccountHandlers:
                 connection.business_id = str(business_id)
             if phone_number_id:
                 connection.phone_number_id = str(phone_number_id)
-            connection.connection_status = "connected"
+            # An account_update webhook reports a change to the WABA. It is
+            # not evidence that Tech Provider onboarding finished, so it must
+            # not promote the connection. Doing so previously meant Meta's
+            # PARTNER_ADDED notification alone could mark a workshop connected
+            # with no System User access, no credit line and no verified
+            # webhook subscription. Only the onboarding orchestrator sets
+            # connection_status='connected'.
         log = MetaAuditLog(location_id=location_id, action="meta_account_update", details=value)
         self.session.add(log)
         self.session.flush()

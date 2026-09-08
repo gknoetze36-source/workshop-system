@@ -49,13 +49,136 @@ def embedded_signup_callback():
     if unconfigured: return jsonify(unconfigured[0]), unconfigured[1]
     session = get_session()
     try:
-        result = EmbeddedSignupService().complete(session, location_id=location_id, state_nonce=payload["state_nonce"], code=payload["code"], business_id=payload.get("business_id"), waba_id=payload.get("waba_id"), phone_number_id=payload.get("phone_number_id")); session.commit()
-        return jsonify({"status": "connected", "business_id": result.business_id, "waba_id": result.waba_id, "phone_number_id": result.phone_number_id, "token_type": result.token_type, "token_expires_in": result.expires_in})
+        result = EmbeddedSignupService().complete(
+            session,
+            location_id=location_id,
+            state_nonce=payload["state_nonce"],
+            code=payload["code"],
+            business_id=payload.get("business_id"),
+            waba_id=payload.get("waba_id"),
+            phone_number_id=payload.get("phone_number_id"),
+        )
+        # Embedded Signup succeeding does not mean the workshop is connected.
+        # Commit the exchanged token first so it is never lost if the
+        # onboarding run below fails, then complete Meta Tech Provider
+        # onboarding. The connection only becomes 'connected' inside that run.
+        session.commit()
     except ValueError as exc:
-        session.rollback(); return jsonify({"error": str(exc)}), 400
+        session.rollback(); session.close(); return jsonify({"error": str(exc)}), 400
     except Exception:
-        session.rollback(); return jsonify({"error": "Embedded Signup callback failed"}), 500
-    finally: session.close()
+        session.rollback(); session.close(); return jsonify({"error": "Embedded Signup callback failed"}), 500
+
+    try:
+        run = _run_onboarding(session, location_id, phone_pin=payload.get("pin"))
+        session.commit()
+    except Exception:
+        session.rollback()
+        run = None
+    finally:
+        session.close()
+
+    body = {
+        "status": "onboarding",
+        "business_id": result.business_id,
+        "waba_id": result.waba_id,
+        "phone_number_id": result.phone_number_id,
+        "token_type": result.token_type,
+        "token_expires_in": result.expires_in,
+        "onboarding": run.as_dict() if run is not None else {
+            "completed": False,
+            "error": {"message": "Meta onboarding could not be started. Retry from the WhatsApp settings page."},
+        },
+    }
+    if run is not None and run.completed:
+        body["status"] = "connected"
+    return jsonify(body)
+
+
+def _run_onboarding(session, location_id: int, *, phone_pin=None):
+    from integrations.meta.services.tech_provider_onboarding_service import (
+        TechProviderOnboardingService,
+    )
+
+    pin = str(phone_pin).strip() if phone_pin else None
+    return TechProviderOnboardingService().run_onboarding(
+        session, location_id, phone_pin=pin or None
+    )
+
+
+@meta_bp.get("/onboarding/status")
+@require_role(*ADMIN_ROLES)
+def onboarding_status():
+    """Client-safe onboarding progress. Never reports a partial run as connected."""
+    try:
+        location_id = current_location_id()
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 401
+    unconfigured = require_configured("meta_app")
+    if unconfigured:
+        return jsonify(unconfigured[0]), unconfigured[1]
+    session = get_session()
+    try:
+        from integrations.meta.services.tech_provider_onboarding_service import (
+            TechProviderOnboardingService,
+        )
+
+        return jsonify(TechProviderOnboardingService().onboarding_status(session, location_id))
+    except Exception:
+        return jsonify({"error": "Could not read WhatsApp onboarding status"}), 500
+    finally:
+        session.close()
+
+
+@meta_bp.post("/onboarding/resume")
+@require_role(*ADMIN_ROLES)
+def onboarding_resume():
+    """Continue a partially completed onboarding from where it stopped.
+
+    Accepts an optional 6-digit ``pin`` for the phone-registration step. The
+    PIN is used for this request only: it is never persisted or logged.
+    """
+    try:
+        location_id = current_location_id()
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 401
+    unconfigured = require_configured("meta_system_user")
+    if unconfigured:
+        return jsonify(unconfigured[0]), unconfigured[1]
+    payload = request.get_json(silent=True) or {}
+    session = get_session()
+    try:
+        run = _run_onboarding(session, location_id, phone_pin=payload.get("pin"))
+        session.commit()
+        return jsonify(run.as_dict())
+    except Exception:
+        session.rollback()
+        return jsonify({"error": "Meta onboarding could not be resumed"}), 502
+    finally:
+        session.close()
+
+
+@meta_bp.get("/onboarding/diagnostics")
+@require_role(*ADMIN_ROLES)
+def onboarding_diagnostics():
+    """Detailed but secret-free onboarding state for operators."""
+    try:
+        location_id = current_location_id()
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 401
+    unconfigured = require_configured("meta_app")
+    if unconfigured:
+        return jsonify(unconfigured[0]), unconfigured[1]
+    session = get_session()
+    try:
+        from integrations.meta.services.tech_provider_onboarding_service import (
+            TechProviderOnboardingService,
+        )
+
+        return jsonify(TechProviderOnboardingService().diagnostics(session, location_id))
+    except Exception:
+        return jsonify({"error": "Could not read Meta onboarding diagnostics"}), 500
+    finally:
+        session.close()
 
 @meta_bp.get("/connection-health")
 @require_role(*ADMIN_ROLES)

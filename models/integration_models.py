@@ -47,6 +47,30 @@ class MetaBusinessConnection(Base):
     connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
+    # --- Meta Tech Provider onboarding state -------------------------------
+    # connection_status is the lifecycle (pending/onboarding/connected/...).
+    # onboarding_step is the fine-grained progress marker so PHANTA always
+    # knows exactly where a partial onboarding stopped and can resume there.
+    onboarding_step: Mapped[Optional[str]] = mapped_column(String(40))
+    last_successful_onboarding_step: Mapped[Optional[str]] = mapped_column(String(40))
+    last_onboarding_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_onboarding_error: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Identifiers produced by the onboarding run. None of these are secrets;
+    # tokens live only in encrypted_access_token / environment configuration.
+    owner_business_id: Mapped[Optional[str]] = mapped_column(String(100))
+    waba_currency: Mapped[Optional[str]] = mapped_column(String(10))
+    system_user_id: Mapped[Optional[str]] = mapped_column(String(100))
+    system_user_assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    phone_registered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    credit_line_id: Mapped[Optional[str]] = mapped_column(String(100))
+    credit_allocation_config_id: Mapped[Optional[str]] = mapped_column(String(100))
+    credit_shared_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    credit_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    webhook_subscribed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    webhook_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    templates_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
 
 class MetaSignupSession(Base):
     """Short-lived server-side state for one Embedded Signup launch."""

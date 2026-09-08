@@ -10,6 +10,7 @@ from models.integration_models import MetaBusinessConnection
 from integrations.meta.auth.config import MetaAuthConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.services.token_status_service import MetaTokenStatusService
+from integrations.meta.services import onboarding_state as state
 
 
 class FakeDebugClient:
@@ -63,7 +64,10 @@ def test_token_store_persists_encrypted_value():
     assert connection.encrypted_access_token
     assert connection.encrypted_access_token != "customer-secret"
     assert store.get_customer_token(connection) == "customer-secret"
-    assert connection.connection_status == "connected"
+    # Storing a token is not the same as being connected. The connection only
+    # becomes 'connected' once Tech Provider onboarding completes, so the
+    # status the row already had is left untouched here.
+    assert connection.connection_status == "pending"
 
 
 def test_valid_token_marks_connection_connected():
@@ -71,7 +75,11 @@ def test_valid_token_marks_connection_connected():
     location = Location(owner=Owner(), name="Workshop")
     s.add(location)
     s.commit()
-    connection = MetaBusinessConnection(location_id=location.id, waba_id="w1")
+    connection = MetaBusinessConnection(
+        location_id=location.id, waba_id="w1",
+        onboarding_step=state.STEP_COMPLETED,
+        last_successful_onboarding_step=state.STEP_COMPLETED,
+    )
     s.add(connection)
     s.commit()
     store = MetaTokenStore(key=Fernet.generate_key())
@@ -90,7 +98,11 @@ def test_expiring_token_marks_expiring_soon():
     location = Location(owner=Owner(), name="Workshop")
     s.add(location)
     s.commit()
-    connection = MetaBusinessConnection(location_id=location.id)
+    connection = MetaBusinessConnection(
+        location_id=location.id,
+        onboarding_step=state.STEP_COMPLETED,
+        last_successful_onboarding_step=state.STEP_COMPLETED,
+    )
     s.add(connection)
     s.commit()
     store = MetaTokenStore(key=Fernet.generate_key())
@@ -188,7 +200,11 @@ def test_monitor_location_uses_same_health_state_machine():
     location = Location(owner=Owner(), name="Workshop")
     s.add(location)
     s.commit()
-    connection = MetaBusinessConnection(location_id=location.id)
+    connection = MetaBusinessConnection(
+        location_id=location.id,
+        onboarding_step=state.STEP_COMPLETED,
+        last_successful_onboarding_step=state.STEP_COMPLETED,
+    )
     s.add(connection)
     s.commit()
     store = MetaTokenStore(key=Fernet.generate_key())
@@ -198,3 +214,60 @@ def test_monitor_location_uses_same_health_state_machine():
     health = MetaTokenStatusService(cfg(), client, store).monitor_location(s, location.id)
     assert health.status == "connected"
     assert connection.last_health_check_at is not None
+
+
+def test_healthy_token_does_not_connect_an_incomplete_onboarding():
+    """A valid customer token is necessary but not sufficient.
+
+    Before Tech Provider onboarding existed this check promoted any
+    connection with a working token to 'connected', which meant a workshop
+    with no System User access, no credit line and no verified webhook
+    subscription was reported as live.
+    """
+    s = db()
+    location = Location(owner=Owner(), name="Workshop")
+    s.add(location)
+    s.commit()
+    connection = MetaBusinessConnection(
+        location_id=location.id,
+        connection_status=state.STATUS_ONBOARDING,
+        onboarding_step=state.STEP_CREDIT_SHARED,
+        last_successful_onboarding_step=state.STEP_CREDIT_SHARED,
+    )
+    s.add(connection)
+    s.commit()
+    store = MetaTokenStore(key=Fernet.generate_key())
+    expiry = datetime.now(timezone.utc) + timedelta(days=30)
+    store.save_customer_token(s, connection, "customer-secret", expires_at=expiry)
+    client = FakeDebugClient({"data": {"is_valid": True, "expires_at": int(expiry.timestamp()), "granular_scopes": []}})
+
+    health = MetaTokenStatusService(cfg(), client, store).check_connection(s, location.id)
+
+    assert health.status == state.STATUS_ONBOARDING
+    assert health.healthy is False
+    assert connection.connection_status != state.STATUS_CONNECTED
+
+
+def test_legacy_connection_still_reports_connected():
+    """Connections made before the orchestrator existed keep working."""
+    s = db()
+    location = Location(owner=Owner(), name="Workshop")
+    s.add(location)
+    s.commit()
+    connection = MetaBusinessConnection(
+        location_id=location.id,
+        connection_status=state.STATUS_CONNECTED,
+        onboarding_step=state.STEP_LEGACY_CONNECTED,
+        last_successful_onboarding_step=state.STEP_LEGACY_CONNECTED,
+    )
+    s.add(connection)
+    s.commit()
+    store = MetaTokenStore(key=Fernet.generate_key())
+    expiry = datetime.now(timezone.utc) + timedelta(days=30)
+    store.save_customer_token(s, connection, "customer-secret", expires_at=expiry)
+    client = FakeDebugClient({"data": {"is_valid": True, "expires_at": int(expiry.timestamp()), "granular_scopes": []}})
+
+    health = MetaTokenStatusService(cfg(), client, store).check_connection(s, location.id)
+
+    assert health.status == state.STATUS_CONNECTED
+    assert health.healthy is True

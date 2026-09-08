@@ -12,6 +12,7 @@ from models.integration_models import MetaBusinessConnection
 from ..auth.token_store import MetaTokenStore
 from ..repositories.connection_repo import MetaConnectionRepository
 from .graph_api_client import GraphApiClient, MetaGraphAPIError
+from . import onboarding_state
 
 
 @dataclass(frozen=True)
@@ -101,13 +102,31 @@ class MetaTokenStatusService:
                     "Meta customer token has expired",
                 )
 
-            status = "expiring_soon" if expires_at and expires_at - checked_at <= self.EXPIRY_WARNING else "connected"
+            # A healthy token is necessary but not sufficient. Promoting a
+            # connection to 'connected' here would let an incomplete Tech
+            # Provider onboarding (no System User access, no credit line, no
+            # WABA webhook subscription) be reported as live purely because
+            # the customer token still validates. Only a connection whose
+            # onboarding actually completed -- or a legacy connection that
+            # predates the orchestrator -- may hold a usable status.
+            onboarding_complete = onboarding_state.is_complete(
+                connection.onboarding_step
+            ) or onboarding_state.is_legacy(connection.onboarding_step)
+            if onboarding_complete:
+                status = (
+                    onboarding_state.STATUS_EXPIRING_SOON
+                    if expires_at and expires_at - checked_at <= self.EXPIRY_WARNING
+                    else onboarding_state.STATUS_CONNECTED
+                )
+            else:
+                status = onboarding_state.STATUS_ONBOARDING
             connection.connection_status = status
             session.flush()
             return MetaConnectionHealth(
-                location_id, connection.id, status, True, False, True, expires_at,
+                location_id, connection.id, status, onboarding_complete, False, True, expires_at,
                 self._seconds_until(expires_at, checked_at), permissions, granular,
                 checked_at,
+                None if onboarding_complete else "Meta onboarding has not completed for this connection",
             )
         except (ValueError, MetaGraphAPIError) as exc:
             connection.connection_status = "reconnect_required"

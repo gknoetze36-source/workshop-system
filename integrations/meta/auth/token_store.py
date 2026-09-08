@@ -63,7 +63,11 @@ class MetaTokenStore:
         connection.token_key_version = self.KEY_VERSION
         connection.token_secret_ref = f"meta-token:{connection.location_id}:{connection.id}"
         connection.token_expires_at = expires_at
-        connection.connection_status = "connected"
+        # Storing a token does NOT mean the connection is usable. Holding a
+        # valid customer token proves only that Embedded Signup completed; the
+        # Tech Provider onboarding run decides connection_status. Setting
+        # 'connected' here previously made a partially onboarded workshop look
+        # live to messaging_provider. The caller owns the lifecycle now.
         session.flush()
         return connection
 
