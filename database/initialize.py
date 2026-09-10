@@ -10,10 +10,9 @@ from .compatibility import ensure_orm_compatibility
 
 
 def initialize_database(*, run_migrations: bool = True):
-    if run_migrations and os.environ.get("ADMIN_DATABASE_URL"):
-        connection, backend = get_connection_from_url(
-            os.environ["ADMIN_DATABASE_URL"]
-        )
+    admin_url = os.environ.get("ADMIN_DATABASE_URL") if run_migrations else None
+    if admin_url:
+        connection, backend = get_connection_from_url(admin_url)
     else:
         connection, backend = get_connection()
     try:
@@ -39,7 +38,10 @@ def initialize_database(*, run_migrations: bool = True):
         ensure_owner_location_foundation(connection, backend)
         _ensure_columns(connection, backend)
         connection.commit()
-        ensure_orm_compatibility()
+        # Must use the same (owner) role this function opened its connection
+        # with -- ensure_orm_compatibility() is pure DDL and fails with
+        # InsufficientPrivilege when run as the non-owner app role.
+        ensure_orm_compatibility(admin_url)
 
         if backend == "postgres" and run_migrations:
             run_alembic_migrations()

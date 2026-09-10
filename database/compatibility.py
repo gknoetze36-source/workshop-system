@@ -13,8 +13,8 @@ from sqlalchemy import create_engine, inspect, text
 from .connection import _database_url, PRIMARY_SQLITE_PATH
 
 
-def _engine():
-    url = _database_url() or f"sqlite:///{PRIMARY_SQLITE_PATH}"
+def _engine(url: str | None = None):
+    url = url or _database_url() or f"sqlite:///{PRIMARY_SQLITE_PATH}"
     return create_engine(
         url,
         future=True,
@@ -27,17 +27,26 @@ def _sql_type(column, dialect):
     return column.type.compile(dialect=dialect)
 
 
-def ensure_orm_compatibility() -> None:
+def ensure_orm_compatibility(database_url: str | None = None) -> None:
     """Create missing ORM tables/columns and ensure location-scoped ORM columns.
 
     Existing raw tables are never dropped or renamed. Missing ORM columns are
     added as nullable compatibility columns so existing production data remains
     readable while new ORM writes use the canonical owner/location model.
+
+    Everything this function does is DDL (CREATE TABLE, ALTER TABLE ... ADD
+    COLUMN), so it must run as the role that OWNS the tables. On Railway the
+    app connects with a least-privilege role that is deliberately not the
+    owner, which is why ``database_url`` exists: initialize_database() passes
+    the same ADMIN_DATABASE_URL it opened its own connection with. Without it
+    this ran as the app role and pre-deploy died with
+    "must be owner of table meta_social_oauth_sessions" the moment a new ORM
+    column appeared, taking the whole deployment down with it.
     """
     from models.core import Base
     from models import integration_models  # noqa: F401
 
-    engine = _engine()
+    engine = _engine(database_url)
     with engine.begin() as conn:
         # Create all genuinely new Phase 2+ tables first using the canonical location tables.
         Base.metadata.create_all(bind=conn)
