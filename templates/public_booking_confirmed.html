@@ -1,12 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Booking confirmed{% endblock %}
+{% block title %}{{ "You're booked in" if booking.status == "confirmed" else "Almost there" }}{% endblock %}
 {% block content %}
 <div class="auth-container">
   <div class="auth-card" style="max-width: 560px; text-align: center;">
-    <h1>You're booked in!</h1>
-    <p>{{ location.name }} has you down for <strong>{{ booking.service_type }}</strong> on
-      <strong>{{ booking.start_time }}</strong>.</p>
-    <p>You'll receive a confirmation on WhatsApp shortly if the workshop has WhatsApp connected.</p>
+    {% if booking.status == "confirmed" %}
+      <h1>You're booked in!</h1>
+      <p>{{ location.name }} has you down for <strong>{{ booking.service_type }}</strong> on
+        <strong>{{ booking.start_time }}</strong>.</p>
+    {% elif booking.status == "cancelled" %}
+      <h1>This booking request has expired</h1>
+      <p>We didn't hear back on WhatsApp in time, so this slot for
+        <strong>{{ booking.service_type }}</strong> on <strong>{{ booking.start_time }}</strong>
+        was released. Please book again if you'd still like to come in.</p>
+    {% else %}
+      <h1>Almost there &mdash; check WhatsApp</h1>
+      <p>{{ location.name }} has provisionally held <strong>{{ booking.service_type }}</strong> on
+        <strong>{{ booking.start_time }}</strong> for you.</p>
+      <p>We've sent a WhatsApp message to confirm it's really you. <strong>Reply YES</strong> to
+        lock in the booking, or <strong>NO</strong> to cancel it. If you don't reply, this slot is
+        released automatically after 48 hours.</p>
+      <p class="muted">Didn't get a WhatsApp message? Contact {{ location.name }} directly and
+        they can confirm it for you.</p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

@@ -31,6 +31,25 @@ class LifecycleCommunicationService:
         "Your vehicle is booked for {date} morning. "
         "Please bring the vehicle when the workshop opens."
     )
+    # Sent the moment a booking is created from the public web page -- the
+    # phone number was typed into a form, never proven. This is the
+    # double-opt-in step: the slot is held (status stays "pending", which
+    # already blocks the same slot being double-booked) but nothing is
+    # promised to the workshop's calendar until the customer proves the
+    # number is real and theirs by replying from it. A customer who has
+    # never messaged this WhatsApp number before is outside Meta's 24-hour
+    # session window, so this can only go out as an approved WhatsApp
+    # utility template -- BOOKING_CONFIRMATION_REQUEST_TEMPLATE_NAME must
+    # exist, be UTILITY category, and be APPROVED in Meta Business Manager
+    # for the specific workshop's WABA, then synced into
+    # meta_message_templates, before this will actually send. Until a
+    # workshop has that template approved, this raises rather than silently
+    # pretending to have asked the customer anything.
+    BOOKING_CONFIRMATION_REQUEST_TEMPLATE_NAME = "booking_confirmation_request"
+    BOOKING_CONFIRMATION_REQUEST_TEXT = (
+        "Please confirm your booking for {date} morning. "
+        "Reply YES to confirm or NO to cancel."
+    )
     BOOKING_REMINDER_TEXT = (
         "Reminder: your vehicle is booked for {date} morning. "
         "Please bring the vehicle when the workshop opens."
@@ -84,7 +103,8 @@ class LifecycleCommunicationService:
         return value.replace(year=year, month=month, day=day)
 
     def _send(self, location_id: int, customer_id: int, text: str, *,
-              category=None, now=None):
+              category=None, now=None, template_name: str | None = None,
+              template_language: str = "en_ZA", template_components=None):
         """Send one lifecycle message, subject to the customer's consent.
 
         THIS IS THE LIVE OUTBOUND PATH. Marketing suppression was originally
@@ -126,6 +146,9 @@ class LifecycleCommunicationService:
             conversation_id=conversation.id,
             to=customer.whatsapp_number,
             body=text,
+            template_name=template_name,
+            template_language=template_language,
+            template_components=template_components,
         )
 
     @staticmethod
@@ -142,6 +165,33 @@ class LifecycleCommunicationService:
         if not is_marketing(category):
             return True
         return may_send_marketing(customer_id, location_id)
+
+    def booking_awaiting_confirmation(self, booking: Booking):
+        """Ask the customer to prove the number is theirs before we accept it.
+
+        Used for a booking created without any prior WhatsApp contact (the
+        public web booking page). Requires
+        BOOKING_CONFIRMATION_REQUEST_TEMPLATE_NAME to be an APPROVED UTILITY
+        template on this workshop's WABA -- see the class docstring above.
+        MetaMessagingError propagates rather than being swallowed here; the
+        caller decides what a customer with no reachable WhatsApp means for
+        the booking it already saved.
+        """
+        date_str = booking.start_time.date().isoformat()
+        text = self.BOOKING_CONFIRMATION_REQUEST_TEXT.format(date=date_str)
+        message = self._send(
+            booking.location_id, booking.customer_id, text,
+            category=BOOKING_CONFIRMATION,
+            template_name=self.BOOKING_CONFIRMATION_REQUEST_TEMPLATE_NAME,
+            template_components=[
+                {"type": "body", "parameters": [{"type": "text", "text": date_str}]}
+            ],
+        )
+        self.audit.record(
+            booking.location_id, "system", "lifecycle.booking_confirmation_requested",
+            "booking", booking.id, after={"message_id": message.id if message else None}
+        )
+        return message
 
     def booking_confirmed(self, booking: Booking):
         """Send the booking confirmation after the customer's YES is recorded."""
