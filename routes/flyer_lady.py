@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from flyer_lady.platforms.whatsapp_status_asset import prepare as prepare_whatsapp_status
 from flyer_lady.publish_service import FlyerLadyPublishService
 from flyer_lady.service import SpecialService
+from integrations.storage.r2_client import MAX_UPLOAD_BYTES, R2Client, R2UploadError
 from integrations.meta.auth.config import MetaAuthConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.services.graph_api_client import GraphApiClient
@@ -67,6 +68,50 @@ def create_special():
         db.commit(); return jsonify({"id": special.id, "status": special.status, "booking_link": special.booking_link}), 201
     except ValueError as exc: db.rollback(); return jsonify({"error": str(exc)}), 400
     finally: db.close()
+
+@flyer_lady_bp.post("/uploads")
+@require_role(*MANAGER_ROLES)
+def upload_media():
+    """Drag-and-drop image upload for a special's media_url.
+
+    Replaces the old "paste a public URL" requirement -- a workshop rarely
+    has one. This uploads to Cloudflare R2 and hands back a public URL that
+    slots directly into the same media_url field create_special() already
+    accepts and every Flyer Lady platform publisher already consumes; no
+    Special row is touched here, so a workshop can upload, decide they
+    don't like it, and upload again before ever creating the special.
+    """
+    try: location_id = _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+
+    unconfigured = require_configured("flyer_lady_uploads")
+    if unconfigured:
+        status, code = unconfigured
+        return jsonify(status), code
+
+    # Checked before touching the file at all -- request.content_length is
+    # the client-declared size, so this is a cheap first reject, not the
+    # only guard: the actual byte count read below is checked again since a
+    # client can lie about Content-Length.
+    if request.content_length and request.content_length > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "Image must be 8MB or smaller"}), 413
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "No file was uploaded"}), 400
+
+    data = upload.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "Image must be 8MB or smaller"}), 413
+    if not data:
+        return jsonify({"error": "Uploaded file is empty"}), 400
+
+    try:
+        media_url = R2Client().upload_image(data, location_id=location_id)
+    except R2UploadError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify({"media_url": media_url}), 201
 
 @flyer_lady_bp.post("/specials/<int:special_id>/approval")
 @require_role(*MANAGER_ROLES)

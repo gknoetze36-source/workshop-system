@@ -21,8 +21,13 @@
       </select>
       <label>Special text</label>
       <textarea id="special_text" rows="7" maxlength="10000" required placeholder="Paste the workshop's special exactly as it should be published."></textarea>
-      <label>Public image URL (required for Stories and Instagram)</label>
-      <input id="media_url" type="url" placeholder="https://your-public-host/special.jpg">
+      <label>Image (required for Stories and Instagram) — drag a JPEG, PNG or WebP here, or click to browse</label>
+      <div id="dropzone" style="border:2px dashed var(--border-strong);border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:background 0.15s,border-color 0.15s;">
+        <img id="dropzone-preview" style="display:none;max-width:100%;max-height:220px;border-radius:6px;margin-bottom:8px;">
+        <p id="dropzone-text" class="muted" style="margin:0;">Drop an image here, or click to choose one</p>
+        <input id="dropzone-file" type="file" accept="image/jpeg,image/png,image/webp" style="display:none;">
+      </div>
+      <input id="media_url" type="hidden">
       <button class="primary" type="submit">Create special</button>
     </form>
   </section>
@@ -50,7 +55,51 @@ async function load(){
   document.getElementById('google-status').innerHTML=d.google_connection.connected ? `Google Business Profile connected to <strong>${esc(d.google_connection.business_name||'your listing')}</strong>` : 'Google Business Profile is not connected yet.';
   document.getElementById('specials').innerHTML=d.specials.length?d.specials.map(s=>`<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p><div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue publishing</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div></div>`).join(''):'<p class="muted">No specials yet.</p>';
 }
-document.getElementById('special-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('{{ url_for("flyer_lady.create_special") }}',{method:'POST',body:JSON.stringify({location_id:Number(document.getElementById('location_id').value),text:document.getElementById('special_text').value,media_url:document.getElementById('media_url').value||null})});e.target.reset();await load();}catch(err){alert(err.message);}});
+document.getElementById('special-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('{{ url_for("flyer_lady.create_special") }}',{method:'POST',body:JSON.stringify({location_id:Number(document.getElementById('location_id').value),text:document.getElementById('special_text').value,media_url:document.getElementById('media_url').value||null})});e.target.reset();resetDropzone();await load();}catch(err){alert(err.message);}});
+
+// --- Drag-and-drop image upload -------------------------------------------
+// Uploads straight to Cloudflare R2 via the new /uploads endpoint and drops
+// the public URL R2 hands back into the hidden media_url field the create
+// form already sends -- so nothing about create_special() above needed to
+// change, only where media_url's value comes from.
+const dropzone = document.getElementById('dropzone');
+const dropzoneFile = document.getElementById('dropzone-file');
+const dropzoneText = document.getElementById('dropzone-text');
+const dropzonePreview = document.getElementById('dropzone-preview');
+const mediaUrlField = document.getElementById('media_url');
+const ACCEPTED_TYPES = ['image/jpeg','image/png','image/webp'];
+const MAX_BYTES = 8*1024*1024;
+
+function resetDropzone(){dropzoneText.textContent='Drop an image here, or click to choose one';dropzonePreview.style.display='none';dropzonePreview.src='';mediaUrlField.value='';dropzoneFile.value='';}
+
+async function uploadFile(file){
+  if(!ACCEPTED_TYPES.includes(file.type)){dropzoneText.textContent='Only JPEG, PNG or WebP images are accepted.';return;}
+  if(file.size>MAX_BYTES){dropzoneText.textContent='Image must be 8MB or smaller.';return;}
+  dropzoneText.textContent=`Uploading ${file.name}…`;
+  const preview=URL.createObjectURL(file);
+  dropzonePreview.src=preview;dropzonePreview.style.display='block';
+  const csrfToken=document.querySelector('meta[name=csrf-token]')?.content||'';
+  const form=new FormData();form.append('file',file);
+  try{
+    const r=await fetch('{{ url_for("flyer_lady.upload_media") }}',{method:'POST',headers:{'X-CSRFToken':csrfToken},body:form});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.error||'Upload failed');
+    mediaUrlField.value=d.media_url;
+    dropzoneText.textContent=`Attached: ${file.name} (click to replace)`;
+  }catch(err){
+    dropzoneText.textContent=err.message;
+    dropzonePreview.style.display='none';
+    mediaUrlField.value='';
+  }finally{
+    URL.revokeObjectURL(preview);
+  }
+}
+
+dropzone.addEventListener('click',()=>dropzoneFile.click());
+dropzoneFile.addEventListener('change',()=>{if(dropzoneFile.files[0]) uploadFile(dropzoneFile.files[0]);});
+['dragenter','dragover'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='var(--primary)';dropzone.style.background='var(--surface-hover)';}));
+['dragleave','drop'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='var(--border-strong)';dropzone.style.background='transparent';}));
+dropzone.addEventListener('drop',e=>{const file=e.dataTransfer.files[0];if(file) uploadFile(file);});
 async function approve(id){try{await api(`/dashboard/flyer-lady/specials/${id}/approval`,{method:'POST',body:JSON.stringify({decision:'approved'})});await load();}catch(e){alert(e.message)}}
 async function queue(id){try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms:['facebook_feed','facebook_story','instagram_feed','instagram_story','google_business_post','whatsapp_status_prepared']})});const queued=d.posts.map(p=>p.platform.replaceAll('_',' ')).join(', ');alert(`Queued: ${queued}. Publishing will be processed by the Flyer Lady queue.`);await load();}catch(e){alert(e.message)}}
 load().catch(e=>document.getElementById('status').textContent=e.message);
