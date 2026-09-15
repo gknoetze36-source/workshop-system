@@ -7,11 +7,7 @@ from sqlalchemy.orm import Session
 from models.integration_models import MetaSignupSession
 from .graph_api_client import GraphApiClient
 from . import onboarding_state
-<<<<<<< HEAD
-from ..auth.config import MetaAuthConfig
-=======
 from ..auth.capability_config import WhatsAppMetaConfig
->>>>>>> meta-app-seperation
 from ..repositories.connection_repo import MetaConnectionRepository
 from ..auth.token_store import MetaTokenStore
 

@@ -37,11 +37,7 @@ from sqlalchemy.orm import Session
 
 from models.integration_models import MetaBusinessConnection
 
-<<<<<<< HEAD
-from ..auth.config import MetaAuthConfig
-=======
 from ..auth.capability_config import WhatsAppMetaConfig
->>>>>>> meta-app-seperation
 from ..auth.token_store import MetaTokenStore
 from ..business.provider_config import (
     SUPPORTED_WABA_CURRENCIES,
@@ -189,11 +185,7 @@ class TechProviderOnboardingService:
 
     def __init__(
         self,
-<<<<<<< HEAD
-        config: MetaAuthConfig | None = None,
-=======
         config: WhatsAppMetaConfig | None = None,
->>>>>>> meta-app-seperation
         provider: MetaProviderConfig | None = None,
         client: GraphApiClient | None = None,
         operations: TechProviderOperations | None = None,
@@ -202,13 +194,9 @@ class TechProviderOnboardingService:
         phone_service: PhoneNumberService | None = None,
         template_sync: MetaTemplateSyncService | None = None,
     ):
-<<<<<<< HEAD
-        self.config = config or MetaAuthConfig.from_env()
-=======
         # S6/S13: Tech Provider operations -- WABA assignment, System User
         # assignment and credit-line sharing -- are WhatsApp App work.
         self.config = config or WhatsAppMetaConfig.from_env()
->>>>>>> meta-app-seperation
         self.provider = provider or MetaProviderConfig.from_env()
         self.client = client or GraphApiClient(self.config)
         self.operations = operations or TechProviderOperations(self.client, self.provider)

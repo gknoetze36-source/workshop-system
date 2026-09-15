@@ -19,11 +19,7 @@ from flyer_lady.platforms.whatsapp_status_asset import prepare as prepare_whatsa
 from flyer_lady.publish_service import FlyerLadyPublishService
 from flyer_lady.service import SpecialService
 from integrations.storage.r2_client import MAX_UPLOAD_BYTES, R2Client, R2UploadError
-<<<<<<< HEAD
-from integrations.meta.auth.config import MetaAuthConfig
-=======
 from integrations.meta.auth.capability_config import FlyerLadyMetaConfig
->>>>>>> meta-app-seperation
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.services.graph_api_client import GraphApiClient
 from integrations.meta.social.graph_api_client import MetaSocialGraphClient

@@ -173,11 +173,7 @@ def submit(slug):
         # immediately) and BookingConfirmationService.confirm() -- the same
         # WhatsApp yes/no path an AI-originated booking already uses --
         # becomes the only way it reaches 'confirmed'.
-<<<<<<< HEAD
-        from integrations.meta.auth.config import MetaAuthConfig
-=======
         from integrations.meta.auth.capability_config import WhatsAppMetaConfig
->>>>>>> meta-app-seperation
         from integrations.meta.auth.token_store import MetaTokenStore
         from integrations.meta.services.graph_api_client import GraphApiClient
         from integrations.meta.messaging.messaging_service import MetaMessagingError, MetaMessagingService
@@ -186,11 +182,7 @@ def submit(slug):
 
         # Whether WhatsApp can even be attempted at all -- the shared Meta
         # App itself might not be configured on this deployment (a
-<<<<<<< HEAD
-        # RuntimeError from MetaAuthConfig.from_env(), distinct from and
-=======
         # RuntimeError from WhatsAppMetaConfig.from_env(), distinct from and
->>>>>>> meta-app-seperation
         # checked before any single location's own connection), or this
         # workshop specifically might not have connected WhatsApp yet.
         # Checked directly rather than inferred from which error a send
@@ -201,11 +193,7 @@ def submit(slug):
         lifecycle = None
         whatsapp_connected = False
         try:
-<<<<<<< HEAD
-            messaging = MetaMessagingService(session, graph=GraphApiClient(MetaAuthConfig.from_env()), token_store=MetaTokenStore())
-=======
             messaging = MetaMessagingService(session, graph=GraphApiClient(WhatsAppMetaConfig.from_env()), token_store=MetaTokenStore())
->>>>>>> meta-app-seperation
             lifecycle = LifecycleCommunicationService(session, messaging)
             whatsapp_connected = session.scalar(
                 select(MetaBusinessConnection).where(
