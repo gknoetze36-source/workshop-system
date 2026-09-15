@@ -6,7 +6,7 @@ from sqlalchemy import select
 from database import SessionLocal, set_location_id
 from models.core import Location
 from ai.follow_up.service import DeterministicFollowUpService
-from integrations.meta.auth.config import MetaAuthConfig
+from integrations.meta.auth.capability_config import WhatsAppMetaConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.messaging.messaging_service import MetaMessagingService
 from integrations.meta.services.graph_api_client import GraphApiClient
@@ -26,7 +26,7 @@ def run_follow_up_worker() -> list[dict]:
             set_location_id(location_session, location_id)
             messaging = MetaMessagingService(
                 location_session,
-                graph=GraphApiClient(MetaAuthConfig.from_env()),
+                graph=GraphApiClient(WhatsAppMetaConfig.from_env()),
                 token_store=MetaTokenStore(),
             )
             service = DeterministicFollowUpService(location_session, messaging)

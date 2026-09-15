@@ -105,8 +105,13 @@ def delete_meta_user_data(session: Session, meta_user_id: str) -> dict[str, int 
         session.add(
             AuditLog(
                 location_id=connection.location_id,
-                actor="meta_data_deletion_callback",
-                action="meta_user_data_deleted",
+                # S29: the audit trail must say WHICH Meta App caused the
+                # event. A generic "meta_data_deletion_callback" actor and
+                # "meta_user_data_deleted" action could not distinguish a
+                # Flyer Lady deletion from a WhatsApp one once the two Apps
+                # are separate.
+                actor="meta_flyer_lady_data_deletion_callback",
+                action="meta_flyer_lady_data_deletion",
                 entity_type="MetaSocialConnection",
                 entity_id=str(connection.id),
                 after={"meta_user_data_removed": True},
@@ -121,5 +126,70 @@ def delete_meta_user_data(session: Session, meta_user_id: str) -> dict[str, int 
     return {
         "user_found": True,
         "connections_removed": len(connections),
+        "oauth_sessions_removed": len(oauth_sessions),
+    }
+
+
+def deauthorize_flyer_lady_user(session: Session, meta_user_id: str) -> dict[str, int | bool]:
+    """Revoke one Meta user's Flyer Lady authorization (S27, S28).
+
+    Deauthorization is NOT deletion. When a user removes the Flyer Lady app
+    from their Facebook account, the authorization is gone, so the stored
+    Page/user tokens are useless and must not be retained -- but the
+    workshop's own Flyer Lady content (specials, posts, click history) is
+    VANTA business data, not the user's personal Facebook data, and is
+    deliberately kept. A user who reconnects should find their specials
+    intact.
+
+    S28 boundary -- this MUST NOT touch any of:
+      * WABA, WhatsApp phone numbers, WhatsApp System User credentials
+      * WhatsApp billing or credit-line state
+      * WhatsApp message history
+    Those belong to the WhatsApp Meta App and a different authorization
+    entirely. This function only ever queries MetaSocialConnection and
+    MetaSocialOAuthSession, which makes that boundary structural rather
+    than a matter of care.
+    """
+    connections = session.scalars(
+        select(MetaSocialConnection).where(
+            MetaSocialConnection.meta_user_id == str(meta_user_id)
+        )
+    ).all()
+
+    if not connections:
+        # Idempotent: a repeated or unknown deauthorization is a success,
+        # not an error. Meta may retry.
+        return {"user_found": False, "connections_revoked": 0, "oauth_sessions_removed": 0}
+
+    location_ids = sorted({connection.location_id for connection in connections})
+    oauth_sessions = session.scalars(
+        select(MetaSocialOAuthSession).where(
+            MetaSocialOAuthSession.location_id.in_(location_ids)
+        )
+    ).all()
+
+    for connection in connections:
+        session.add(
+            AuditLog(
+                location_id=connection.location_id,
+                actor="meta_flyer_lady_deauthorization_callback",
+                action="meta_flyer_lady_deauthorization",
+                entity_type="MetaSocialConnection",
+                entity_id=str(connection.id),
+                after={"flyer_lady_authorization_revoked": True},
+            )
+        )
+        # Clear the credentials, keep the row. The workshop's connection
+        # history stays visible in the dashboard as "disconnected" rather
+        # than silently vanishing, and no unusable token is retained.
+        connection.encrypted_page_access_token = ""
+        connection.connection_status = "revoked"
+
+    for oauth_session in oauth_sessions:
+        session.delete(oauth_session)
+
+    return {
+        "user_found": True,
+        "connections_revoked": len(connections),
         "oauth_sessions_removed": len(oauth_sessions),
     }

@@ -1,7 +1,7 @@
 import os
 
 from database import execute_db, fetch_one
-from integrations.meta.auth.config import DEFAULT_GRAPH_API_VERSION
+from integrations.meta.auth.capability_config import DEFAULT_GRAPH_API_VERSION
 from integrations.meta.auth.token_store import MetaTokenStore
 from validators.phone_validator import normalize_phone
 

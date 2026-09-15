@@ -1,21 +1,43 @@
-"""Meta application configuration with capability-scoped validation.
+"""DEPRECATED -- the pre-separation shared Meta App configuration.
 
-One VANTA Meta App is shared by WhatsApp, Embedded Signup and Flyer Lady, but
-capability-specific credentials must not become global startup dependencies.
+VANTA now runs TWO independent Meta Apps, each with its own credentials,
+configuration ID, permissions, callbacks and App Review submission:
+
+    integrations/meta/auth/capability_config.WhatsAppMetaConfig
+    integrations/meta/auth/capability_config.FlyerLadyMetaConfig
+
+This module is retained ONLY so the pre-separation unit tests
+(tests/unit/test_meta_auth_phase4.py and siblings) continue to exercise the
+original validation behaviour they were written against. No production code
+imports it -- tests/security/test_meta_capability_separation.py's
+test_no_production_code_uses_the_shared_meta_auth_config() parses every
+non-test module and fails if that ever regresses.
+
+S31: "production code MUST NOT use META_APP_ID or META_APP_SECRET as
+universal credentials... The only allowed references should be migration/
+backwards compatibility code if explicitly documented, tests, and migration
+tooling." This file is that explicitly documented exception.
+
+Do NOT import MetaAuthConfig in new code. It reads the shared
+META_APP_ID/META_APP_SECRET, which after migration belong to the WhatsApp
+App alone -- using it for Flyer Lady would silently authenticate as the
+wrong Meta App (S47, S58).
+
+The canonical definitions now live in capability_config and are re-exported
+here so the two modules cannot drift apart.
 """
 from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-DEFAULT_GRAPH_API_VERSION = "v26.0"
-REQUIRED_META_PERMISSIONS = (
-    "whatsapp_business_messaging",
-    "whatsapp_business_management",
-    "business_management",
+from .capability_config import (  # noqa: F401  (re-exported for legacy tests)
+    DEFAULT_GRAPH_API_VERSION,
+    WHATSAPP_REQUIRED_PERMISSIONS as REQUIRED_META_PERMISSIONS,
 )
+
 _GRAPH_VERSION_RE = re.compile(r"^v\d+\.\d+$")
 
 

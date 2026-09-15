@@ -5,7 +5,27 @@ from typing import Any, Mapping
 
 import requests
 
-from ..auth.config import MetaAuthConfig
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class MetaCapabilityConfig(Protocol):
+    """Structural type for either capability configuration (S39).
+
+    GraphApiClient is shared utility code and must work for both Meta
+    Apps, but it must never choose credentials itself -- the caller
+    decides which capability config to pass in. Typing this as a
+    Protocol keeps the client from importing, and therefore from being
+    able to construct, either concrete config.
+    """
+
+    app_id: str
+    app_secret: str
+    graph_api_version: str
+
+    def graph_base_url(self) -> str: ...
+    def validate_shared(self) -> None: ...
+    def validate_system_user(self) -> None: ...
 
 
 class MetaGraphAPIError(RuntimeError):
@@ -32,7 +52,7 @@ class GraphApiClient:
 
     def __init__(
         self,
-        config: MetaAuthConfig,
+        config: MetaCapabilityConfig,
         session: requests.Session | None = None,
     ):
         config.validate_shared()

@@ -8,17 +8,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import MetaAuthConfig
+from .capability_config import WhatsAppMetaConfig
 from ..services.graph_api_client import GraphApiClient, MetaGraphAPIError
 
 
 class SystemUserService:
     def __init__(
         self,
-        config: MetaAuthConfig | None = None,
+        config: WhatsAppMetaConfig | None = None,
         client: GraphApiClient | None = None,
     ):
-        self.config = config or MetaAuthConfig.for_system_user()
+        # S13: System User credentials are WhatsApp/provider infrastructure.
+        # Flyer Lady must never be able to instantiate this service --
+        # FlyerLadyMetaConfig.validate_system_user() raises by design.
+        self.config = config or WhatsAppMetaConfig.for_system_user()
         self.client = client or GraphApiClient(self.config)
 
     def health_check(self) -> dict[str, Any]:

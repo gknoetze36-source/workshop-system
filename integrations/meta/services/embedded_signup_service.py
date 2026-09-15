@@ -7,7 +7,11 @@ from sqlalchemy.orm import Session
 from models.integration_models import MetaSignupSession
 from .graph_api_client import GraphApiClient
 from . import onboarding_state
+<<<<<<< HEAD
 from ..auth.config import MetaAuthConfig
+=======
+from ..auth.capability_config import WhatsAppMetaConfig
+>>>>>>> meta-app-seperation
 from ..repositories.connection_repo import MetaConnectionRepository
 from ..auth.token_store import MetaTokenStore
 
@@ -37,7 +41,9 @@ class EmbeddedSignupService:
     """
     SESSION_TTL = timedelta(minutes=15)
     def __init__(self, config=None, client=None, connection_repo=None, token_store=None):
-        self.config = config or MetaAuthConfig.for_embedded_signup()
+        # S12: Embedded Signup is a WhatsApp App capability and must use
+        # the WhatsApp Meta App's credentials explicitly.
+        self.config = config or WhatsAppMetaConfig.for_embedded_signup()
         self.client = client or GraphApiClient(self.config)
         self.connection_repo = connection_repo or MetaConnectionRepository()
         self.token_store = token_store or MetaTokenStore()

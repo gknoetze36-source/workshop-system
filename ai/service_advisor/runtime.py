@@ -7,7 +7,7 @@ from __future__ import annotations
 from integrations.ai.providers.openai_provider import OpenAIProvider
 from integrations.ai.services.ai_dispatcher import AIDispatcher
 from integrations.ai.conversations.conversation_service import AIConversationService
-from integrations.meta.auth.config import MetaAuthConfig
+from integrations.meta.auth.capability_config import WhatsAppMetaConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.messaging.messaging_service import MetaMessagingService
 from integrations.meta.services.graph_api_client import GraphApiClient
@@ -51,7 +51,7 @@ def build_booking_service(session, location_id: int):
 def deliver_whatsapp(session, *, location_id: int, conversation_id: int, customer_id: int, text: str):
     service = MetaMessagingService(
         session,
-        graph=GraphApiClient(MetaAuthConfig.from_env()),
+        graph=GraphApiClient(WhatsAppMetaConfig.from_env()),
         token_store=MetaTokenStore(),
     )
     from models.core import Customer

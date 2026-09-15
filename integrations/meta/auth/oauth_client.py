@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .config import MetaAuthConfig
+from .capability_config import WhatsAppMetaConfig
 
 
 @dataclass(frozen=True)
@@ -20,10 +20,17 @@ class MetaOAuthConfiguration:
 
 
 class MetaOAuthClient:
-    """Builds the safe configuration that a future frontend may consume."""
+    """Builds the safe configuration that a future frontend may consume.
 
-    def __init__(self, config: MetaAuthConfig | None = None):
-        self.config = config or MetaAuthConfig.for_embedded_signup()
+    S12: WhatsApp Embedded Signup uses the WhatsApp Meta App's credentials
+    explicitly. It must never fall back to Flyer Lady credentials, which
+    WhatsAppMetaConfig makes structurally impossible -- it reads only
+    META_WHATSAPP_* (and, transitionally, the legacy shared variables that
+    belong to this same WhatsApp App).
+    """
+
+    def __init__(self, config: WhatsAppMetaConfig | None = None):
+        self.config = config or WhatsAppMetaConfig.for_embedded_signup()
 
     def public_configuration(self) -> MetaOAuthConfiguration:
         return MetaOAuthConfiguration(

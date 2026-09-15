@@ -35,9 +35,10 @@ class MetaTokenStatusService:
     EXPIRY_WARNING = timedelta(days=7)
 
     def __init__(self, config=None, client=None, token_store=None, connection_repo=None):
-        from ..auth.config import MetaAuthConfig
+        from ..auth.capability_config import WhatsAppMetaConfig
 
-        self.config = config or MetaAuthConfig.from_env()
+        # S42: customer WhatsApp tokens belong to the WhatsApp capability.
+        self.config = config or WhatsAppMetaConfig.from_env()
         self.client = client or GraphApiClient(self.config)
         self.token_store = token_store or MetaTokenStore()
         self.connection_repo = connection_repo or MetaConnectionRepository()

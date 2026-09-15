@@ -41,8 +41,9 @@ class PhoneNumberService:
 
     def __init__(self, config=None, client=None, token_store=None, connection_repo=None):
         if client is None:
-            from integrations.meta.auth.config import MetaAuthConfig
-            config = config or MetaAuthConfig.from_env()
+            from integrations.meta.auth.capability_config import WhatsAppMetaConfig
+            # S6: phone number onboarding belongs to the WhatsApp App.
+            config = config or WhatsAppMetaConfig.from_env()
             client = GraphApiClient(config)
         self.client = client
         self.token_store = token_store or MetaTokenStore()
