@@ -1,5 +1,13 @@
 # PHANTA Flyer Lady — Implemented Foundation
 
+> **Superseded in part.** This document describes the Meta App
+> architecture as it stood when VANTA used a single shared Meta App.
+> VANTA now runs two independent Meta Apps (WhatsApp and Flyer Lady).
+> See [`META_APP_ARCHITECTURE.md`](META_APP_ARCHITECTURE.md) for the
+> current architecture. The phase record below is retained as accurate
+> history of its own phase.
+
+
 This build adds Flyer Lady as a separate public-publishing subsystem. It does not modify the existing WhatsApp customer messaging implementation or Service Advisor.
 
 ## Implemented

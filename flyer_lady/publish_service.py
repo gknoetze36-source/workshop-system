@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from integrations.meta.auth.config import MetaAuthConfig
+from integrations.meta.auth.capability_config import FlyerLadyMetaConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.services.graph_api_client import GraphApiClient
 from integrations.meta.social.graph_api_client import MetaSocialGraphClient
@@ -35,7 +35,10 @@ class FlyerLadyPublishService:
 
     def _meta_graph(self):
         if self._graph is None:
-            self._graph = MetaSocialGraphClient(GraphApiClient(self._config or MetaAuthConfig.from_env()))
+            # S19/S20: Facebook feed and story publishing must use a Page
+            # token obtained from the Flyer Lady App's own authorization
+            # flow. No WhatsApp credential may be used here.
+            self._graph = MetaSocialGraphClient(GraphApiClient(self._config or FlyerLadyMetaConfig.from_env()))
         return self._graph
 
     def _meta_token_store(self):

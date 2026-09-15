@@ -51,6 +51,30 @@ def test_system_user_requirement_is_scoped_to_system_user_operations(monkeypatch
 
 
 def test_flyer_lady_status_does_not_require_whatsapp_system_user(monkeypatch):
+    """Updated for the two-Meta-App separation.
+
+    This test previously configured Flyer Lady using only the SHARED
+    META_APP_ID/META_APP_SECRET. After the separation those variables belong
+    to the WhatsApp Meta App alone, and treating them as Flyer Lady
+    configuration is exactly what S47 forbids -- it would report Flyer Lady
+    as ready while it authenticated as the wrong Meta App.
+
+    The original intent -- that Flyer Lady must not require the WhatsApp
+    System User token -- is preserved and still asserted below, now using
+    Flyer Lady's own credentials.
+    """
+    _env(
+        monkeypatch,
+        META_FLYER_LADY_APP_ID="987654",
+        META_FLYER_LADY_APP_SECRET="f" * 32,
+        META_FLYER_LADY_CONFIG_ID="987654",
+    )
+    status = integration_status("flyer_lady")
+    assert status["configured"] is True, status["missing"]
+
+
+def test_flyer_lady_status_rejects_shared_whatsapp_credentials(monkeypatch):
+    """S47: the legacy shared credentials must never configure Flyer Lady."""
     _env(
         monkeypatch,
         META_APP_ID="123456",
@@ -58,7 +82,8 @@ def test_flyer_lady_status_does_not_require_whatsapp_system_user(monkeypatch):
         META_FLYER_LADY_CONFIG_ID="987654",
     )
     status = integration_status("flyer_lady")
-    assert status["configured"] is True
+    assert status["configured"] is False
+    assert "META_FLYER_LADY_APP_ID" in status["missing"]
 
 
 def test_embedded_signup_status_accepts_alias(monkeypatch):

@@ -8,7 +8,7 @@ from extensions import limiter
 from flask import Blueprint, jsonify, request, g
 
 from database import get_session
-from integrations.meta.auth.config import MetaAuthConfig
+from integrations.meta.auth.capability_config import WhatsAppMetaConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.messaging.messaging_service import MetaMessagingError, MetaMessagingService
 from integrations.meta.services.graph_api_client import GraphApiClient
@@ -17,7 +17,7 @@ meta_messaging_bp = Blueprint("meta_messaging", __name__, url_prefix="/integrati
 
 
 def _service(session):
-    config = MetaAuthConfig.from_env()
+    config = WhatsAppMetaConfig.from_env()
     return MetaMessagingService(session, graph=GraphApiClient(config), token_store=MetaTokenStore())
 
 

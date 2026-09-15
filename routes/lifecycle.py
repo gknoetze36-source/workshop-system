@@ -8,7 +8,7 @@ from flask import Blueprint, jsonify, request, g, session
 
 from database import get_session
 from ai.communications.lifecycle import LifecycleCommunicationService
-from integrations.meta.auth.config import MetaAuthConfig
+from integrations.meta.auth.capability_config import WhatsAppMetaConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.messaging.messaging_service import MetaMessagingService
 from integrations.meta.services.graph_api_client import GraphApiClient
@@ -21,7 +21,7 @@ def _service(session):
         session,
         MetaMessagingService(
             session,
-            graph=GraphApiClient(MetaAuthConfig.from_env()),
+            graph=GraphApiClient(WhatsAppMetaConfig.from_env()),
             token_store=MetaTokenStore(),
         ),
     )

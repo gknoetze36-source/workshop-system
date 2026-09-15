@@ -14,7 +14,7 @@ from ai.booking.service import BookingService, BookingStatus
 from ai.booking.confirmation import BookingConfirmationService
 from ai.communications.lifecycle import LifecycleCommunicationService
 from ai.communications.review import PostServiceReviewService
-from integrations.meta.auth.config import MetaAuthConfig
+from integrations.meta.auth.capability_config import WhatsAppMetaConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.messaging.messaging_service import MetaMessagingService
 from integrations.meta.services.graph_api_client import GraphApiClient
@@ -167,7 +167,7 @@ def change_booking_status(booking_id: int):
                 session,
                 MetaMessagingService(
                     session,
-                    graph=GraphApiClient(MetaAuthConfig.from_env()),
+                    graph=GraphApiClient(WhatsAppMetaConfig.from_env()),
                     token_store=MetaTokenStore(),
                 ),
             ).send_for_booking(location_id, booking.id)
@@ -179,7 +179,7 @@ def change_booking_status(booking_id: int):
                 session,
                 MetaMessagingService(
                     session,
-                    graph=GraphApiClient(MetaAuthConfig.from_env()),
+                    graph=GraphApiClient(WhatsAppMetaConfig.from_env()),
                     token_store=MetaTokenStore(),
                 ),
             ).booking_missed(booking.id, location_id)
@@ -219,7 +219,7 @@ def confirm_booking(booking_id: int):
                 session,
                 MetaMessagingService(
                     session,
-                    graph=GraphApiClient(MetaAuthConfig.from_env()),
+                    graph=GraphApiClient(WhatsAppMetaConfig.from_env()),
                     token_store=MetaTokenStore(),
                 ),
             )

@@ -74,16 +74,33 @@ RECOMMENDED = [
 # Capability-scoped integration checks. A missing optional Meta capability must
 # not be reported as a failure of an unrelated capability.
 INTEGRATIONS = {
-    "Meta App (shared)": ["META_APP_ID", "META_APP_SECRET"],
-    "WhatsApp System User operations (conditional)": ["META_SYSTEM_USER_TOKEN"],
+    # VANTA runs two INDEPENDENT Meta Apps. Neither capability may be
+    # reported as unconfigured merely because the other App is missing, so
+    # there is deliberately no shared "Meta App" group here: each group
+    # below names only its own App's credentials.
+    "Meta App A — WhatsApp": [
+        "META_WHATSAPP_APP_ID", "META_WHATSAPP_APP_SECRET",
+    ],
+    "WhatsApp System User operations (conditional)": [
+        "META_WHATSAPP_SYSTEM_USER_TOKEN",
+    ],
     "WhatsApp Embedded Signup (conditional)": [
-        "META_APP_ID", "META_APP_SECRET", "META_APP_DOMAINS",
+        "META_WHATSAPP_APP_ID", "META_WHATSAPP_APP_SECRET",
+        "META_WHATSAPP_APP_DOMAINS", "META_WHATSAPP_CONFIG_ID",
     ],
     "WhatsApp inbound webhook (conditional)": [
-        "META_WEBHOOK_VERIFY_TOKEN", "META_APP_SECRET",
+        "META_WHATSAPP_WEBHOOK_VERIFY_TOKEN", "META_WHATSAPP_APP_SECRET",
     ],
-    "Flyer Lady social connection": [
-        "META_APP_ID", "META_APP_SECRET", "META_FLYER_LADY_CONFIG_ID",
+    "Meta App B — Flyer Lady": [
+        "META_FLYER_LADY_APP_ID", "META_FLYER_LADY_APP_SECRET",
+    ],
+    "Flyer Lady Facebook Page connection": [
+        "META_FLYER_LADY_APP_ID", "META_FLYER_LADY_APP_SECRET",
+        "META_FLYER_LADY_CONFIG_ID", "META_FLYER_LADY_OAUTH_REDIRECT_URI",
+    ],
+    "Flyer Lady image uploads (Cloudflare R2)": [
+        "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL",
     ],
     "Payments (Paystack)": ["PAYSTACK_SECRET_KEY", "PAYSTACK_PUBLIC_KEY", "PAYSTACK_WEBHOOK_SECRET"],
     "AI Service Advisor": ["OPENAI_API_KEY"],
@@ -92,6 +109,14 @@ INTEGRATIONS = {
 
 
 def _embedded_signup_configured() -> bool:
+    """WhatsApp Embedded Signup config, accepting the transitional alias.
+
+    Kept as a named predicate because the Embedded Signup config ID is the
+    one WhatsApp variable with a pre-existing alias in production
+    (META_EMBEDDED_SIGNUP_CONFIG_ID). The INTEGRATIONS loop resolves this
+    via _set_with_legacy(); this helper remains for callers that need the
+    check on its own.
+    """
     return _set("META_WHATSAPP_CONFIG_ID") or _set("META_EMBEDDED_SIGNUP_CONFIG_ID")
 
 # Variables that must NOT be set in production, and why.
@@ -107,6 +132,45 @@ DANGEROUS_IN_PRODUCTION = [
 
 def _set(name: str) -> bool:
     return bool((os.getenv(name) or "").strip())
+
+
+# Transitional migration fallbacks. The WhatsApp capability accepts the old
+# shared Meta variables until the explicit ones are populated in Railway,
+# because the existing production WhatsApp Meta App keeps its identity.
+#
+# Flyer Lady deliberately has NO entry here: the Flyer Lady Meta App is new,
+# so no legacy value could legitimately belong to it, and accepting one would
+# mean reporting Flyer Lady as configured while it silently authenticated as
+# the WhatsApp app.
+_WHATSAPP_LEGACY_FALLBACKS = {
+    "META_WHATSAPP_APP_ID": "META_APP_ID",
+    "META_WHATSAPP_APP_SECRET": "META_APP_SECRET",
+    "META_WHATSAPP_GRAPH_API_VERSION": "META_GRAPH_API_VERSION",
+    "META_WHATSAPP_APP_DOMAINS": "META_APP_DOMAINS",
+    "META_WHATSAPP_SYSTEM_USER_TOKEN": "META_SYSTEM_USER_TOKEN",
+    "META_WHATSAPP_WEBHOOK_VERIFY_TOKEN": "META_WEBHOOK_VERIFY_TOKEN",
+    "META_WHATSAPP_CONFIG_ID": "META_EMBEDDED_SIGNUP_CONFIG_ID",
+}
+
+
+def _set_with_legacy(name: str) -> bool:
+    """True when a variable is set directly OR via its transitional alias.
+
+    Mirrors the application's own resolution order so the checker agrees
+    with what the running app will actually do.
+    """
+    if _set(name):
+        return True
+    legacy = _WHATSAPP_LEGACY_FALLBACKS.get(name)
+    return bool(legacy and _set(legacy))
+
+
+def _legacy_meta_vars_in_use() -> list[str]:
+    """Legacy shared variables still present, for the migration warning."""
+    return [v for v in ("META_APP_ID", "META_APP_SECRET", "META_GRAPH_API_VERSION",
+                        "META_APP_DOMAINS", "META_SYSTEM_USER_TOKEN",
+                        "META_WEBHOOK_VERIFY_TOKEN", "META_SOCIAL_REDIRECT_URI")
+            if _set(v)]
 
 
 def _is_production() -> bool:
@@ -162,13 +226,25 @@ def main(argv=None) -> int:
 
     print("\nINTEGRATIONS")
     for label, names in INTEGRATIONS.items():
-        missing = [n for n in names if not _set(n)]
-        if label == "WhatsApp Embedded Signup (conditional)" and not _embedded_signup_configured():
-            missing.append("META_WHATSAPP_CONFIG_ID or META_EMBEDDED_SIGNUP_CONFIG_ID")
+        # WhatsApp variables resolve through their transitional legacy
+        # aliases; Flyer Lady variables never do. Each capability is
+        # evaluated only against its own App's credentials, so one missing
+        # Meta App can never make the other report as unconfigured.
+        missing = [n for n in names if not _set_with_legacy(n)]
         if not missing:
             print(f"  OK    {label}")
         else:
             print(f"  --    {label}  (missing: {', '.join(missing)})")
+
+    legacy_in_use = _legacy_meta_vars_in_use()
+    if legacy_in_use:
+        warnings.append(
+            "Legacy shared Meta variables are still set: "
+            + ", ".join(legacy_in_use)
+            + ". These belong to the WhatsApp app only and are a transitional "
+            "fallback. Populate the META_WHATSAPP_* / META_FLYER_LADY_* "
+            "variables and remove these, so no shared Meta credential remains."
+        )
 
     # Concurrency: not "missing", but wrong values silently weaken protection.
     concurrency = (os.getenv("WEB_CONCURRENCY") or "").strip()

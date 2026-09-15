@@ -1,7 +1,6 @@
 """Provider webhook routes for PHANTA."""
 from __future__ import annotations
 
-import os
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,6 +11,7 @@ from models.integration_models import MetaBusinessConnection
 from flask import Blueprint, Response, jsonify, request
 
 from database import get_platform_session, location_transaction
+from integrations.meta.auth.capability_config import WhatsAppMetaConfig
 from integrations.meta.webhook.handshake_handler import MetaHandshakeHandler
 from integrations.meta.webhook.signature_verifier import MetaSignatureVerifier
 from integrations.meta.webhook.webhook_router import MetaWebhookRouter
@@ -21,10 +21,29 @@ webhooks_bp = Blueprint("webhooks", __name__, url_prefix="/webhooks")
 
 
 def _verify_token() -> str:
-    token = os.getenv("META_WEBHOOK_VERIFY_TOKEN", "").strip()
-    if not token:
-        raise RuntimeError("META_WEBHOOK_VERIFY_TOKEN is required")
-    return token
+    """WhatsApp webhook verify token, from the WhatsApp Meta App only (S15).
+
+    Previously read META_WEBHOOK_VERIFY_TOKEN straight from the environment,
+    which made it a generic Meta value. Webhooks belong exclusively to the
+    WhatsApp App, so the token now comes from WhatsAppMetaConfig and Flyer
+    Lady can never depend on it.
+    """
+    config = WhatsAppMetaConfig.from_env()
+    if not config.webhook_verify_token:
+        raise RuntimeError("META_WHATSAPP_WEBHOOK_VERIFY_TOKEN is required")
+    return config.webhook_verify_token
+
+
+def _whatsapp_app_secret() -> str:
+    """App Secret for X-Hub-Signature-256 verification, WhatsApp App only (S14).
+
+    S14 requires that this route "must not accept a generic Meta App Secret".
+    Reading it through WhatsAppMetaConfig means a Flyer Lady App Secret can
+    never satisfy this check: FlyerLadyMetaConfig is a different type that is
+    never constructed here, and the legacy shared META_APP_SECRET is accepted
+    only as the documented WhatsApp migration fallback (S33/S34).
+    """
+    return WhatsAppMetaConfig.from_env().app_secret
 
 
 @webhooks_bp.get("/meta")
@@ -38,11 +57,14 @@ def meta_webhook_verify():
     # never any value.
     try:
         verify_token = _verify_token()
-    except RuntimeError:
-        logger.error("meta_webhook_verify_unconfigured missing=META_WEBHOOK_VERIFY_TOKEN")
+    except (RuntimeError, ValueError):
+        # WhatsAppMetaConfig raises RuntimeError for a missing variable and
+        # ValueError for a malformed one (e.g. a non-numeric App ID), so both
+        # are caught here: either way the webhook is unconfigured, not broken.
+        logger.error("meta_webhook_verify_unconfigured missing=META_WHATSAPP_WEBHOOK_VERIFY_TOKEN")
         return jsonify({
             "error": "webhook not configured",
-            "detail": "META_WEBHOOK_VERIFY_TOKEN is not set on this deployment.",
+            "detail": "META_WHATSAPP_WEBHOOK_VERIFY_TOKEN is not set on this deployment.",
         }), 503
 
     try:
@@ -72,10 +94,7 @@ def meta_webhook_receive():
     raw_body = request.get_data(cache=True, as_text=False)
     signature = request.headers.get("X-Hub-Signature-256")
     try:
-        app_secret = os.getenv("META_APP_SECRET", "").strip()
-        if not app_secret:
-            raise RuntimeError("META_APP_SECRET is required")
-        MetaSignatureVerifier(app_secret).require_valid(raw_body, signature)
+        MetaSignatureVerifier(_whatsapp_app_secret()).require_valid(raw_body, signature)
     except (RuntimeError, ValueError):
         logger.warning("meta_webhook_signature_rejected")
         return Response("Forbidden", status=403, mimetype="text/plain")

@@ -16,6 +16,7 @@ public, unauthenticated entry point.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
@@ -26,6 +27,8 @@ from sqlalchemy import select
 from database import location_transaction
 from services.location_service import location_for_public_booking
 from services.operating_hours_service import build_workshop_schedule
+
+logger = logging.getLogger(__name__)
 
 public_booking_bp = Blueprint("public_booking", __name__)
 
@@ -162,33 +165,82 @@ def submit(slug):
             flash(str(exc), "error")
             return render_template("public_booking.html", location=location, days=_upcoming_days(location_id), form=request.form), 400
 
-        # The web form submission itself is the customer's explicit
-        # confirmation -- there's no automated prompt being replied to the
-        # way there is for a WhatsApp-originated booking, so this goes
-        # straight to 'confirmed' rather than through
-        # BookingConfirmationService.confirm() (which is specifically
-        # scoped to recording a reply to that prompt, and is hardcoded to
-        # reject any channel other than "whatsapp" for exactly that
-        # reason).
-        booking.status = "confirmed"
-        session.flush()
+        # A number typed into a web form is unproven -- unlike a
+        # WhatsApp-originated booking, nobody has replied from it yet. The
+        # booking stays at its model default of 'pending' (create_booking()
+        # already put the slot itself out of bounds for anyone else via
+        # BookingAvailabilityService, so nothing is lost by not confirming
+        # immediately) and BookingConfirmationService.confirm() -- the same
+        # WhatsApp yes/no path an AI-originated booking already uses --
+        # becomes the only way it reaches 'confirmed'.
+        from integrations.meta.auth.capability_config import WhatsAppMetaConfig
+        from integrations.meta.auth.token_store import MetaTokenStore
+        from integrations.meta.services.graph_api_client import GraphApiClient
+        from integrations.meta.messaging.messaging_service import MetaMessagingError, MetaMessagingService
+        from ai.communications.lifecycle import LifecycleCommunicationService
+        from models.integration_models import MetaBusinessConnection
 
-        # Best-effort: a workshop that hasn't connected WhatsApp yet must
-        # still be able to take bookings through this page. A missing
-        # connection should not block the booking itself from being saved.
+        # Whether WhatsApp can even be attempted at all -- the shared Meta
+        # App itself might not be configured on this deployment (a
+        # RuntimeError from WhatsAppMetaConfig.from_env(), distinct from and
+        # checked before any single location's own connection), or this
+        # workshop specifically might not have connected WhatsApp yet.
+        # Checked directly rather than inferred from which error a send
+        # attempt raises -- send_utility_template() looks up the template
+        # before it ever reaches the per-location connection check, so "no
+        # WhatsApp connected" and "no template configured yet" would
+        # otherwise be indistinguishable from the exception alone.
+        lifecycle = None
+        whatsapp_connected = False
         try:
-            from integrations.meta.auth.config import MetaAuthConfig
-            from integrations.meta.auth.token_store import MetaTokenStore
-            from integrations.meta.services.graph_api_client import GraphApiClient
-            from integrations.meta.messaging.messaging_service import MetaMessagingService
-            from ai.communications.lifecycle import LifecycleCommunicationService
-
-            messaging = MetaMessagingService(session, graph=GraphApiClient(MetaAuthConfig.from_env()), token_store=MetaTokenStore())
+            messaging = MetaMessagingService(session, graph=GraphApiClient(WhatsAppMetaConfig.from_env()), token_store=MetaTokenStore())
             lifecycle = LifecycleCommunicationService(session, messaging)
-            lifecycle.booking_confirmed(booking)
-            lifecycle.schedule_booking_reminder(booking)
+            whatsapp_connected = session.scalar(
+                select(MetaBusinessConnection).where(
+                    MetaBusinessConnection.location_id == location_id,
+                    MetaBusinessConnection.connection_status == "connected",
+                )
+            ) is not None
         except Exception:
-            pass
+            logger.exception(
+                "meta_messaging_unavailable_for_public_booking location_id=%s booking_id=%s",
+                location_id, booking.id,
+            )
+
+        if not whatsapp_connected:
+            # No channel exists to ask the customer to confirm on, so the
+            # web form submission itself has to stand as confirmation,
+            # exactly as it did before this feature existed.
+            booking.status = "confirmed"
+            session.flush()
+            try:
+                if lifecycle is not None:
+                    lifecycle.booking_confirmed(booking)
+                    lifecycle.schedule_booking_reminder(booking)
+            except Exception:
+                logger.exception(
+                    "booking_confirmed_message_failed location_id=%s booking_id=%s",
+                    location_id, booking.id,
+                )
+        else:
+            # WhatsApp is connected -- attempt the real double opt-in. If it
+            # fails (most likely BOOKING_CONFIRMATION_REQUEST_TEMPLATE_NAME
+            # is not yet an approved template on this workshop's WABA), the
+            # booking stays pending rather than being silently confirmed
+            # unverified; the confirmation page tells the customer plainly
+            # that WhatsApp verification didn't go out.
+            try:
+                lifecycle.booking_awaiting_confirmation(booking)
+            except MetaMessagingError as exc:
+                logger.warning(
+                    "booking_confirmation_request_failed location_id=%s booking_id=%s error=%s",
+                    location_id, booking.id, exc,
+                )
+            except Exception:
+                logger.exception(
+                    "booking_confirmation_request_failed location_id=%s booking_id=%s",
+                    location_id, booking.id,
+                )
 
         booking_id = booking.id
 
@@ -201,8 +253,12 @@ def confirmed(slug, booking_id):
     if not location:
         abort(404)
     from database import query_db
+    # status is read fresh from the row rather than passed through the
+    # redirect, so this page is honest even if reloaded or bookmarked --
+    # e.g. after the customer has already replied YES on WhatsApp, or
+    # after the 48-hour expiry job has cancelled an unanswered request.
     booking = query_db(
-        "SELECT start_time, service_type FROM bookings WHERE id=%s AND location_id=%s",
+        "SELECT start_time, service_type, status FROM bookings WHERE id=%s AND location_id=%s",
         (booking_id, location["id"]), one=True,
     )
     if not booking:

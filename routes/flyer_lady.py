@@ -18,7 +18,8 @@ from datetime import datetime, timedelta, timezone
 from flyer_lady.platforms.whatsapp_status_asset import prepare as prepare_whatsapp_status
 from flyer_lady.publish_service import FlyerLadyPublishService
 from flyer_lady.service import SpecialService
-from integrations.meta.auth.config import MetaAuthConfig
+from integrations.storage.r2_client import MAX_UPLOAD_BYTES, R2Client, R2UploadError
+from integrations.meta.auth.capability_config import FlyerLadyMetaConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.services.graph_api_client import GraphApiClient
 from integrations.meta.social.graph_api_client import MetaSocialGraphClient
@@ -67,6 +68,50 @@ def create_special():
         db.commit(); return jsonify({"id": special.id, "status": special.status, "booking_link": special.booking_link}), 201
     except ValueError as exc: db.rollback(); return jsonify({"error": str(exc)}), 400
     finally: db.close()
+
+@flyer_lady_bp.post("/uploads")
+@require_role(*MANAGER_ROLES)
+def upload_media():
+    """Drag-and-drop image upload for a special's media_url.
+
+    Replaces the old "paste a public URL" requirement -- a workshop rarely
+    has one. This uploads to Cloudflare R2 and hands back a public URL that
+    slots directly into the same media_url field create_special() already
+    accepts and every Flyer Lady platform publisher already consumes; no
+    Special row is touched here, so a workshop can upload, decide they
+    don't like it, and upload again before ever creating the special.
+    """
+    try: location_id = _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+
+    unconfigured = require_configured("flyer_lady_uploads")
+    if unconfigured:
+        status, code = unconfigured
+        return jsonify(status), code
+
+    # Checked before touching the file at all -- request.content_length is
+    # the client-declared size, so this is a cheap first reject, not the
+    # only guard: the actual byte count read below is checked again since a
+    # client can lie about Content-Length.
+    if request.content_length and request.content_length > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "Image must be 8MB or smaller"}), 413
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "No file was uploaded"}), 400
+
+    data = upload.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "Image must be 8MB or smaller"}), 413
+    if not data:
+        return jsonify({"error": "Uploaded file is empty"}), 400
+
+    try:
+        media_url = R2Client().upload_image(data, location_id=location_id)
+    except R2UploadError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify({"media_url": media_url}), 201
 
 @flyer_lady_bp.post("/specials/<int:special_id>/approval")
 @require_role(*MANAGER_ROLES)
@@ -134,10 +179,25 @@ def social_connect_start():
         return jsonify(unconfigured[0]), unconfigured[1]
     try: _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
-    config = MetaAuthConfig.for_social()
-    if not config.social_config_id:
+    # S16/S17: the Flyer Lady Meta App's own credentials. Never the
+    # WhatsApp App's -- FlyerLadyMetaConfig reads only META_FLYER_LADY_*
+    # and has no legacy fallback, so a missing Flyer Lady app cannot
+    # silently authenticate as WhatsApp.
+    try:
+        config = FlyerLadyMetaConfig.from_env()
+    except (RuntimeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 503
+    if not config.facebook_login_config_id:
         return jsonify({"error": "META_FLYER_LADY_CONFIG_ID is required for Flyer Lady social connection"}), 503
-    redirect_uri = os.getenv("META_SOCIAL_REDIRECT_URI", "").strip() or url_for("flyer_lady.social_connect_callback", _external=True)
+    # S36: the redirect URI must be used verbatim in both the authorization
+    # request and the code exchange. META_FLYER_LADY_OAUTH_REDIRECT_URI is
+    # the source of truth; META_SOCIAL_REDIRECT_URI remains a transitional
+    # alias, and url_for() is the last resort for local development.
+    redirect_uri = (
+        config.oauth_redirect_uri
+        or os.getenv("META_SOCIAL_REDIRECT_URI", "").strip()
+        or url_for("flyer_lady.social_connect_callback", _external=True)
+    )
     state = secrets.token_urlsafe(32)
     flask_session["flyer_lady_oauth_state"] = state
     flask_session["flyer_lady_oauth_redirect_uri"] = redirect_uri
@@ -146,8 +206,19 @@ def social_connect_start():
     # redirect URI, so mutating it here to carry onboarding context risks
     # breaking the OAuth callback entirely.
     flask_session["flyer_lady_oauth_onboarding"] = request.args.get("onboarding") == "1"
-    scopes = os.getenv("META_SOCIAL_OAUTH_SCOPES", "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,business_management,instagram_basic,instagram_content_publish")
-    params = urlencode({"client_id": config.app_id, "config_id": config.social_config_id, "redirect_uri": redirect_uri, "state": state, "scope": scopes, "response_type": "code"})
+    # S18: every permission here maps to a real Flyer Lady code path --
+    #   pages_show_list       -> MetaSocialGraphClient.list_pages (/me/accounts)
+    #   pages_read_engagement -> reading the connected Page's context
+    #   pages_manage_posts    -> publish_feed_photo / publish_photo_story
+    # S18 forbids requesting pages_manage_metadata and others without a real
+    # implementation; S21 postpones instagram_basic/instagram_content_publish
+    # until an Instagram implementation is actually submitted for review.
+    # S49: an undemonstrable permission risks App Review rejection.
+    scopes = os.getenv(
+        "META_SOCIAL_OAUTH_SCOPES",
+        ",".join(config.required_permissions),
+    )
+    params = urlencode({"client_id": config.app_id, "config_id": config.facebook_login_config_id, "redirect_uri": redirect_uri, "state": state, "scope": scopes, "response_type": "code"})
     return redirect(f"https://www.facebook.com/{config.graph_api_version}/dialog/oauth?{params}")
 
 @flyer_lady_bp.get("/connect/callback")
@@ -175,7 +246,7 @@ def social_connect_callback():
     code = request.args.get("code")
     if not code:
         return render_template("flyer_lady_select_page.html", error=request.args.get("error_description", "Meta authorization failed or was cancelled."), onboarding=onboarding), 400
-    config = MetaAuthConfig.for_social()
+    config = FlyerLadyMetaConfig.from_env()
     redirect_uri = flask_session.get("flyer_lady_oauth_redirect_uri")
     if not redirect_uri:
         return render_template("flyer_lady_select_page.html", error="Your session expired. Please try connecting again.", onboarding=onboarding), 400
@@ -249,7 +320,7 @@ def social_connect_complete():
         if expires_at <= datetime.now(timezone.utc):
             return _fail("invalid or expired social connection session")
         user_token = MetaTokenStore().get_social_oauth_token(oauth)
-        pages = MetaSocialGraphClient(GraphApiClient(MetaAuthConfig.for_social())).list_pages(user_token).get("data", [])
+        pages = MetaSocialGraphClient(GraphApiClient(FlyerLadyMetaConfig.from_env())).list_pages(user_token).get("data", [])
         page = next((p for p in pages if str(p.get("id")) == str(page_id)), None)
         if not page: return _fail("page_id was not returned by Meta for this connection")
         page_token = page.get("access_token")

@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from models.integration_models import MetaSignupSession
 from .graph_api_client import GraphApiClient
-from ..auth.config import MetaAuthConfig
+from . import onboarding_state
+from ..auth.capability_config import WhatsAppMetaConfig
 from ..repositories.connection_repo import MetaConnectionRepository
 from ..auth.token_store import MetaTokenStore
 
@@ -36,7 +37,9 @@ class EmbeddedSignupService:
     """
     SESSION_TTL = timedelta(minutes=15)
     def __init__(self, config=None, client=None, connection_repo=None, token_store=None):
-        self.config = config or MetaAuthConfig.for_embedded_signup()
+        # S12: Embedded Signup is a WhatsApp App capability and must use
+        # the WhatsApp Meta App's credentials explicitly.
+        self.config = config or WhatsAppMetaConfig.for_embedded_signup()
         self.client = client or GraphApiClient(self.config)
         self.connection_repo = connection_repo or MetaConnectionRepository()
         self.token_store = token_store or MetaTokenStore()
@@ -73,7 +76,25 @@ class EmbeddedSignupService:
         signup.phone_number_id = phone_number_id or signup.phone_number_id
         signup.status = "completed"
         signup.consumed_at = now
-        connection = self.connection_repo.upsert_connection(session, location_id, business_id=signup.business_id, waba_id=signup.waba_id, phone_number_id=signup.phone_number_id, token_type="business_integration_system_user", connection_status="connected", connected_at=now)
+        # Embedded Signup completing is the START of Tech Provider onboarding,
+        # not the end. The connection is NOT connected here: WABA verification,
+        # System User assignment, phone registration, credit line sharing,
+        # WABA webhook subscription, template sync and final verification all
+        # still have to succeed. TechProviderOnboardingService.finalize_connection
+        # is the only place that may set connection_status='connected'.
+        connection = self.connection_repo.upsert_connection(
+            session,
+            location_id,
+            business_id=signup.business_id,
+            waba_id=signup.waba_id,
+            phone_number_id=signup.phone_number_id,
+            token_type="business_integration_system_user",
+            connection_status=onboarding_state.STATUS_ONBOARDING,
+            onboarding_step=onboarding_state.STEP_TOKEN_EXCHANGED,
+            last_successful_onboarding_step=onboarding_state.STEP_TOKEN_EXCHANGED,
+            last_onboarding_attempt_at=now,
+            last_onboarding_error=None,
+        )
         expires_in = token_payload.get("expires_in")
         expires_at = now + timedelta(seconds=int(expires_in)) if expires_in else None
         self.token_store.save_customer_token(session, connection, token, expires_at=expires_at)
