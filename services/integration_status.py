@@ -35,8 +35,6 @@ R2_REQUIRED = (
     "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
     "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL",
 )
-<<<<<<< HEAD
-=======
 
 # Transitional aliases, mirroring the application's own resolution order so
 # this module agrees with what the running code will actually do.
@@ -54,7 +52,6 @@ def _is_set(name: str) -> bool:
         return True
     legacy = _WHATSAPP_LEGACY_FALLBACKS.get(name)
     return bool(legacy and (os.getenv(legacy) or "").strip())
->>>>>>> meta-app-seperation
 
 
 def _missing(names) -> list[str]:
