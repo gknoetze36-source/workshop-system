@@ -1,15 +1,13 @@
 # Privacy Policy
 
 **Vanta Automations (Pty) Ltd** ("PHANTA", "we", "us")
-Effective date: [Effective Date] | Last updated: [Date]
+
 
 This Privacy Policy explains how we collect, use, share, and protect personal information in compliance with the Protection of Personal Information Act 4 of 2013 ("POPIA"). It applies to workshop Customers who hold a PHANTA Account and, where relevant, to their end customers whose information passes through the Service.
 
 ## 1. Who we are and how to reach us
 Vanta Automations (Pty) Ltd is the "Responsible Party" under POPIA for Account-holder data (workshop owner/staff details, billing information) and acts as "Operator" for personal information the Customer's own end customers submit through the Service — see clause 8.
 
-**Information Officer:** [Name] | [Email] | [Phone]
-Registered with the Information Regulator: [pending / registration number].
 
 ## 2. What we collect
 - **Account data:** name, email, business name, business registration (CIPC) number, trading name, business email, role, and login credentials. We do not require personal identity documents or personal residential addresses to open an Account.
@@ -30,7 +28,7 @@ We rely on one or more of the following, per POPIA's processing conditions:
 To create and administer Accounts; deliver the Service including automated WhatsApp messaging, booking, quotation, and billing features; process payments via Paystack; provide support; maintain security and prevent abuse; comply with legal obligations; and, where separately consented to, send product updates or marketing.
 
 ## 5. Your rights as a data subject (POPIA section 5)
-Subject to verification of your identity, you have the right to: be informed that your information is being collected; access your personal information held by us; request correction or deletion of inaccurate, irrelevant, or unlawfully held information; object to processing, including for direct marketing, on reasonable grounds; withdraw consent at any time (without affecting processing already lawfully carried out); request that your personal information not be used for automated decision-making that significantly affects you without human review; and lodge a complaint with the Information Regulator (details in clause 12). To exercise these rights, contact [Privacy Email].
+Subject to verification of your identity, you have the right to: be informed that your information is being collected; access your personal information held by us; request correction or deletion of inaccurate, irrelevant, or unlawfully held information; object to processing, including for direct marketing, on reasonable grounds; withdraw consent at any time (without affecting processing already lawfully carried out); request that your personal information not be used for automated decision-making that significantly affects you without human review; and lodge a complaint with the Information Regulator (details in clause 12). To exercise these rights, contact info@vantaautomations.co.za .
 
 Account holders can export a copy of their Account's data from within the Service at any time. Requests relating to a vehicle owner's information should be directed to the workshop in the first instance, as described in clause 8.
 
@@ -38,7 +36,7 @@ Account holders can export a copy of their Account's data from within the Servic
 Our marketing website uses **Cloudflare Web Analytics**, which is cookieless and does not track visitors across sites; no consent banner is required for it. The PHANTA dashboard sets a **strictly necessary session cookie** to keep you signed in securely; it is essential to the operation of the Service and cannot be disabled while you are using it. We do not use advertising or cross-site tracking cookies. If we introduce any non-essential cookies in future, they will be set only with your prior opt-in consent, withdrawable at any time.
 
 ## 7. Direct marketing and WhatsApp messages
-We and our Customers (workshops) will only send marketing or promotional WhatsApp messages to an end customer who has given prior opt-in consent naming PHANTA/the workshop and the categories of messages involved, consistent with WhatsApp's opt-in requirements and ECTA section 45. Where no marketing consent has been recorded, no marketing message is sent.
+We and our Customers will only send marketing or promotional WhatsApp messages to an end customer who has given prior opt-in consent naming PHANTA/the workshop and the categories of messages involved, consistent with WhatsApp's opt-in requirements and ECTA section 45. Where no marketing consent has been recorded, no marketing message is sent.
 
 Transactional and service messages (booking confirmations, service reminders, vehicle-ready notices, follow-ups on work performed, quotations and invoices) are sent as part of contract performance and are categorised separately in the Service.
 
@@ -60,16 +58,13 @@ We share personal information with the following categories of recipients, each 
 We do not sell personal information.
 
 ## 10. Cross-border transfers
-Some of the providers listed in clause 9 may process personal information on servers located outside South Africa. Paystack processes in South Africa. **OpenAI processes personal information in the United States.** Processing locations for Meta, Google, Railway, and Sentry: [confirm each against the provider's current documentation and the region your infrastructure is deployed in before publishing]. Where processing occurs outside South Africa, we rely on contractual safeguards requiring protection substantially similar to POPIA, per section 72, and, where applicable, your consent.
+Some of the providers listed in clause 9 may process personal information on servers located outside South Africa. Paystack processes in South Africa. **OpenAI processes personal information in the United States.** Processing locations for Meta, Google, Railway, and Sentry. Where processing occurs outside South Africa, we rely on contractual safeguards requiring protection substantially similar to POPIA, per section 72, and, where applicable, your consent.
 
 ## 11. Security and retention
 We apply reasonable technical and organisational measures under POPIA section 19 to protect personal information against loss, unauthorised access, and unlawful processing. These include: database-level tenant isolation so one workshop's data cannot be accessed from another's account; encryption of third-party integration credentials at rest; encryption in transit (HTTPS/TLS); role-based access controls; authentication and administrative audit logging; the ability to terminate sessions immediately when an account is compromised or a password is changed; and rate limiting to resist automated attacks.
 
 We retain personal information only for as long as necessary for the purposes above or as required by law, after which it is deleted or de-identified. Specific retention periods:
 - **WhatsApp message content:** the text of messages is automatically cleared 14 days after the message is sent or received. The delivery record (direction, channel, status, timestamp) and any booking details derived from the conversation are retained as part of the workshop's service history.
-- **Account data:** [duration of Account + X years — confirm with accountant/legal].
-- **Billing, invoice, and payment records:** [per FICA/tax record-keeping requirements — confirm exact period before publishing].
-- **Audit and security records:** [confirm retention period before publishing].
 
 Where a Customer requests deletion of an end customer's record, directly identifying details (name, contact number, email) are removed and the remaining service history is de-identified, so the workshop's operational and financial records remain intact. De-identified data may persist in routine infrastructure backups until those backups age out of the provider's retention cycle.
 
@@ -80,10 +75,9 @@ If we become aware of a reasonable belief that personal information has been acc
 The Service is not directed at children. We do not knowingly collect personal information from children without the consent of a competent person, as required by POPIA.
 
 ## 14. Complaints
-You may lodge a complaint with us at [Privacy Email] or with the Information Regulator of South Africa:
+You may lodge a complaint with us at info@vantaautomations.co.za or with the Information Regulator of South Africa:
 JD House, 27 Stiemens Street, Braamfontein, Johannesburg | complaints.IR@justice.gov.za | www.justice.gov.za/inforeg/
 
 ## 15. Changes to this Policy
 We may update this Policy from time to time. Material changes will be notified by in-app notice and, where we hold a valid email address for the Account, by email, before taking effect. Where a new version materially changes how we process personal information, Account holders will be asked to review and confirm the updated Policy in the Service.
 
-*[Legal review required — see 00-README before publishing.]*
