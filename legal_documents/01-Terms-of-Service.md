@@ -11,11 +11,10 @@ These Terms of Service ("Terms") govern access to and use of the PHANTA platform
 
 ## 1. Supplier Information (ECTA section 43 disclosure)
 - Full name and legal status: Vanta Automations (Pty) Ltd, a Pty Ltd registered in South Africa
-- Registration number: [Registration Number]
-- Physical address: [Registered Address]
-- Contact: [Support Email] | [Phone Number]
-- Website: [Website URL]
-- We are not currently a member of any statutory or voluntary self-regulatory body or code of conduct. [Update if this changes.]
+- Registration number: 2026/355499/07
+- Contact: info@VantaAutomations.co.za
+- Website: vantaautomations.co.za
+
 
 ## 2. Definitions
 "Account" means the workspace created for a workshop/business on the Service. "Client Data" means data the Customer or its own customers input into or generate through the Service, including vehicle records and messages. "Plan" means the subscription tier selected at signup. "Sub-Processors" and other data terms carry the meanings given in the Privacy Policy and Data Processing Agreement.
@@ -64,8 +63,7 @@ Each party will protect the other's non-public business information with reasona
 ## 16. General
 - **Governing law and jurisdiction:** These Terms are governed by the laws of the Republic of South Africa. The parties submit to the non-exclusive jurisdiction of the courts of [Governing City/Province], subject to any statutory dispute-resolution scheme (e.g. the Consumer Goods and Services Ombud) available to consumer subscribers.
 - **Changes to these Terms:** We may update these Terms from time to time. Material changes will be notified by in-app notice and, where we hold a valid email address for the Account, by email, at least [X] days before taking effect; continued use after that date constitutes acceptance. Where a change materially alters the terms you accepted, you will be asked to review and confirm the updated document in the Service before continuing to use it.
-- **Notices:** Legal notices to PHANTA must be sent to [Legal/Support Email]. Notices to Customer will be sent to the email address on file and/or shown in the Service.
+- **Notices:** Legal notices to PHANTA must be sent to info@vantaautomations.co.za. Notices to Customer will be sent to the email address on file and/or shown in the Service.
 - **Assignment:** Neither party may assign these Terms without the other's consent, except to a successor of substantially all its business.
 - **Severability and entire agreement:** If any provision is found unenforceable, the remainder continues in force. These Terms, together with the Acceptable Use Policy, Billing & Payment Terms, Privacy Policy, and Data Processing Agreement, form the entire agreement between the parties regarding the Service. Each of those documents is presented for separate confirmation during onboarding, and your acceptance of each is recorded individually against the version shown to you.
 
-*[Legal review required — see 00-README before publishing.]*
