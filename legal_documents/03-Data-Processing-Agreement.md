@@ -1,6 +1,6 @@
 # Data Processing Agreement (POPIA Operator Agreement)
 
-This Data Processing Agreement ("DPA") is entered into between **[Company Legal Name]** ("PHANTA", "Operator") and the Customer identified in the applicable PHANTA Account ("Customer", "Responsible Party"), and forms part of the Terms of Service. It is entered into pursuant to **section 21 of the Protection of Personal Information Act 4 of 2013 ("POPIA")**, which requires a written contract wherever an Operator processes personal information on a Responsible Party's behalf.
+This Data Processing Agreement ("DPA") is entered into between **Vanta Automations (Pty) Ltd** ("PHANTA", "Operator") and the Customer identified in the applicable PHANTA Account ("Customer", "Responsible Party"), and forms part of the Terms of Service. It is entered into pursuant to **section 21 of the Protection of Personal Information Act 4 of 2013 ("POPIA")**, which requires a written contract wherever an Operator processes personal information on a Responsible Party's behalf.
 
 ## 1. Roles of the parties
 For personal information of Customer's own end customers (e.g. vehicle owners, their contact details, and service/booking history) processed through the Service, **Customer is the Responsible Party** and **PHANTA is the Operator**. This DPA does not apply to Account-holder data (Customer's own staff details, billing information), for which PHANTA is Responsible Party in its own right, as described in the Privacy Policy.

@@ -42,11 +42,11 @@ logger = logging.getLogger(__name__)
 # here that does not correspond to published text makes the acceptance record
 # meaningless.
 REQUIRED_DOCUMENTS = {
-    "terms_of_service": "2026-08-28",
-    "privacy_policy": "2026-08-28",
-    "data_processing_agreement": "2026-08-28",
-    "billing_payment_terms": "2026-08-28",
-    "acceptable_use_policy": "2026-08-28",
+    "terms_of_service": "2026-09-16",
+    "privacy_policy": "2026-09-16",
+    "data_processing_agreement": "2026-09-16",
+    "billing_payment_terms": "2026-09-16",
+    "acceptable_use_policy": "2026-09-16",
 }
 
 DOCUMENT_LABELS = {

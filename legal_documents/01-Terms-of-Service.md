@@ -1,13 +1,13 @@
 # Terms of Service
 
-**[Company Legal Name]** ("PHANTA", "we", "us", "our")
+**Vanta Automations (Pty) Ltd** ("PHANTA", "we", "us", "our")
 Registration number: [Registration Number] | Registered address: [Registered Address]
 Effective date: [Effective Date] | Last updated: [Date]
 
 These Terms of Service ("Terms") govern access to and use of the PHANTA platform, including our website, dashboard, WhatsApp-based Service Advisor, and related services (together, the "Service"). By creating an account, clicking "I agree," or using the Service, you ("Customer", "you") enter into a binding electronic agreement with us under section 22 of the Electronic Communications and Transactions Act 25 of 2002 ("ECTA").
 
 ## 1. Supplier Information (ECTA section 43 disclosure)
-- Full name and legal status: [Company Legal Name], a [Pty Ltd / CC / sole proprietor] registered in South Africa
+- Full name and legal status: Vanta Automations (Pty) Ltd, a Pty Ltd registered in South Africa
 - Registration number: [Registration Number]
 - Physical address: [Registered Address]
 - Contact: [Support Email] | [Phone Number]

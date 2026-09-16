@@ -1,6 +1,6 @@
 # Acceptable Use Policy
 
-This Acceptable Use Policy ("AUP") forms part of the Terms of Service between **[Company Legal Name]** ("PHANTA") and the Customer, and applies to Customer's use of the Service, including messaging sent to Customer's own end customers.
+This Acceptable Use Policy ("AUP") forms part of the Terms of Service between **Vanta Automations (Pty) Ltd** ("PHANTA") and the Customer, and applies to Customer's use of the Service, including messaging sent to Customer's own end customers.
 
 ## 1. General Prohibited Conduct
 You may not use the Service to:

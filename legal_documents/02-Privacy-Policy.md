@@ -1,12 +1,12 @@
 # Privacy Policy
 
-**[Company Legal Name]** ("PHANTA", "we", "us")
+**Vanta Automations (Pty) Ltd** ("PHANTA", "we", "us")
 Effective date: [Effective Date] | Last updated: [Date]
 
 This Privacy Policy explains how we collect, use, share, and protect personal information in compliance with the Protection of Personal Information Act 4 of 2013 ("POPIA"). It applies to workshop Customers who hold a PHANTA Account and, where relevant, to their end customers whose information passes through the Service.
 
 ## 1. Who we are and how to reach us
-[Company Legal Name] is the "Responsible Party" under POPIA for Account-holder data (workshop owner/staff details, billing information) and acts as "Operator" for personal information the Customer's own end customers submit through the Service — see clause 8.
+Vanta Automations (Pty) Ltd is the "Responsible Party" under POPIA for Account-holder data (workshop owner/staff details, billing information) and acts as "Operator" for personal information the Customer's own end customers submit through the Service — see clause 8.
 
 **Information Officer:** [Name] | [Email] | [Phone]
 Registered with the Information Regulator: [pending / registration number].

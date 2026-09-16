@@ -1,6 +1,6 @@
 # Billing & Payment Terms
 
-These Billing & Payment Terms form part of the Terms of Service between **[Company Legal Name]** ("PHANTA") and the Customer.
+These Billing & Payment Terms form part of the Terms of Service between **Vanta Automations (Pty) Ltd** ("PHANTA") and the Customer.
 
 ## 1. Plans and Fees
 Access to the Service is billed according to the Plan selected at signup, priced in South African Rand (ZAR) and displayed at checkout before purchase, as required by ECTA section 43. Plans may include a base subscription fee and usage-based components (e.g. WhatsApp message allowances tied to self-reported vehicle volume, with overage billed per message beyond the included allowance, as disclosed at signup).
