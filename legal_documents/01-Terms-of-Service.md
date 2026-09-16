@@ -1,8 +1,11 @@
 # Terms of Service
 
-**Vanta Automations (Pty) Ltd** ("PHANTA", "we", "us", "our")
-Registration number: [Registration Number] | Registered address: [Registered Address]
-Effective date: [Effective Date] | Last updated: [Date]
+**Vanta Automations (Pty) Ltd** 
+("PHANTA", "we", "us", "our")
+
+Registration number: 2026/355499/07 |
+
+Effective date: 04/05/2026 |
 
 These Terms of Service ("Terms") govern access to and use of the PHANTA platform, including our website, dashboard, WhatsApp-based Service Advisor, and related services (together, the "Service"). By creating an account, clicking "I agree," or using the Service, you ("Customer", "you") enter into a binding electronic agreement with us under section 22 of the Electronic Communications and Transactions Act 25 of 2002 ("ECTA").
 
