@@ -189,6 +189,11 @@ class Payment(Base):
     channel: Mapped[Optional[str]] = mapped_column(String(50))
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     metadata_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
 
 class Plan(Base):
