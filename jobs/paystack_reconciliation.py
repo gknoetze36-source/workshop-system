@@ -51,4 +51,11 @@ def run_paystack_reconciliation(*, older_than_minutes: int = 15, limit: int = 10
         finally:
             session.close()
 
+    failed = [r for r in results if r["status"] == "error"]
+    if failed:
+        raise RuntimeError(
+            f"Paystack reconciliation failed for {len(failed)} location(s): "
+            + "; ".join(f'{r["location_id"]}: {r["error"]}' for r in failed)
+        )
     return results
+
