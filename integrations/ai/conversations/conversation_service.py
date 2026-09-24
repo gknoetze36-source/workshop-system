@@ -98,22 +98,11 @@ class AIConversationService:
                     # logged -- leaving the customer with silence and nobody
                     # aware they were waiting. Hand to a human and answer them.
                     text = self._refuse_safely(registry, guard.reasons)
-                if deliver_response is not None:
-                    delivery = deliver_response(
-                        location_id=location_id,
-                        conversation_id=conversation_id,
-                        customer_id=customer_id,
-                        text=text,
-                    )
-                    return {"text": text, "message_id": getattr(delivery, "id", None),
-                            "delivery": delivery, "tool_rounds": tool_rounds}
-                outbound = Message(
-                    location_id=location_id, conversation_id=conversation_id, direction="outbound",
-                    channel=conversation.channel, body=text, status="queued",
+                return self._deliver_and_record(
+                    session=session, conversation=conversation, location_id=location_id,
+                    conversation_id=conversation_id, customer_id=customer_id, text=text,
+                    deliver_response=deliver_response, tool_rounds=tool_rounds,
                 )
-                session.add(outbound)
-                session.flush()
-                return {"text": text, "message_id": outbound.id, "tool_rounds": tool_rounds}
 
             tool_rounds += 1
             messages.append({
@@ -136,7 +125,50 @@ class AIConversationService:
                     "content": json.dumps(result, default=str),
                 })
 
-        raise RuntimeError("Service Advisor exceeded maximum tool rounds; human handoff required")
+        # Previously raised RuntimeError here uncaught. The webhook layer
+        # (routes/webhooks.py) has only a generic except Exception around
+        # this call -- it logged the error and returned 200 to Meta, but
+        # never created a handoff task and never replied to the customer,
+        # despite the exception's own message claiming "human handoff
+        # required". Runs the exact same escalation _refuse_safely()
+        # already uses for a guard-refused reply (creates a real
+        # Task(type="human_handoff") via the escalate_to_human tool, best-
+        # effort -- see that method's own docstring for why a failed
+        # escalation must not also silence the reply), then delivers the
+        # resulting safe fallback text through the same path every normal
+        # reply uses, so the customer gets an actual answer instead of
+        # silence.
+        text = self._refuse_safely(
+            registry,
+            ["Service Advisor exceeded the maximum number of tool-call rounds without producing a final reply"],
+        )
+        return self._deliver_and_record(
+            session=session, conversation=conversation, location_id=location_id,
+            conversation_id=conversation_id, customer_id=customer_id, text=text,
+            deliver_response=deliver_response, tool_rounds=tool_rounds,
+        )
+
+    @staticmethod
+    def _deliver_and_record(*, session, conversation, location_id: int, conversation_id: int,
+                             customer_id: int, text: str, deliver_response, tool_rounds: int) -> dict:
+        """The exact delivery/persistence logic every successful reply
+        already used inline, factored out unchanged so the max-tool-rounds
+        escalation path (above) can reuse it instead of duplicating it a
+        second time or, as before, skipping it entirely."""
+        if deliver_response is not None:
+            delivery = deliver_response(
+                location_id=location_id, conversation_id=conversation_id,
+                customer_id=customer_id, text=text,
+            )
+            return {"text": text, "message_id": getattr(delivery, "id", None),
+                    "delivery": delivery, "tool_rounds": tool_rounds}
+        outbound = Message(
+            location_id=location_id, conversation_id=conversation_id, direction="outbound",
+            channel=conversation.channel, body=text, status="queued",
+        )
+        session.add(outbound)
+        session.flush()
+        return {"text": text, "message_id": outbound.id, "tool_rounds": tool_rounds}
 
     @staticmethod
     def _refuse_safely(registry, reasons) -> str:

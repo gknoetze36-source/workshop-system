@@ -3,13 +3,11 @@
 {% block content %}
 <div class="topbar">
   <div class="heading"><h1>Flyer Lady</h1><p>Submit a workshop special, approve it, then publish it publicly.</p></div>
-  <div class="actions">
-    <a class="button secondary" href="{{ url_for('flyer_lady.social_connect_start') }}">Connect Facebook / Instagram</a>
-    <a class="button secondary" href="{{ url_for('google_business.connect_start') }}">Connect Google Business Profile</a>
-  </div>
 </div>
-<div id="status" class="status-card" style="margin-bottom:8px;">Loading…</div>
-<div id="google-status" class="status-card" style="margin-bottom:24px;">Loading…</div>
+<section class="card" id="connections" style="margin-bottom:24px;">
+  <h2>Connections</h2>
+  <div id="connections-list">Loading…</div>
+</section>
 <div class="grid two">
   <section class="card">
     <h2>Create a special</h2>
@@ -49,11 +47,56 @@
 <script>
 async function api(url, options={}) { const csrfToken=document.querySelector('meta[name=csrf-token]')?.content || ''; const headers={'Content-Type':'application/json','X-CSRFToken':csrfToken,...(options.headers||{})}; const r=await fetch(url,{...options,headers}); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Request failed'); return d; }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+// Platform display names and where "Connect"/"Reconnect" actually go --
+// only facebook/instagram (one shared connection) and google_business
+// have a real connect route today; x, threads and tiktok are connector-
+// layer only so far (no web OAuth route yet), so their Connect/Reconnect
+// labels show as plain text rather than a dead link.
+const PLATFORM_META = {
+  facebook: {label: 'Facebook', connectUrl: '{{ url_for("flyer_lady.social_connect_start") }}'},
+  instagram: {label: 'Instagram', connectUrl: '{{ url_for("flyer_lady.social_connect_start") }}'},
+  threads: {label: 'Threads', connectUrl: null},
+  x: {label: 'X', connectUrl: null},
+  tiktok: {label: 'TikTok', connectUrl: null},
+  google_business: {label: 'Google Business Profile', connectUrl: '{{ url_for("google_business.connect_start") }}'},
+};
+// Fixed display order, independent of whatever order the connector
+// registry happens to return.
+const PLATFORM_ORDER = ['facebook','instagram','threads','x','tiktok','google_business'];
+
+let availablePostTypes=[]; // populated by load(), read by renderSpecials()
+
+function renderConnections(connectors){
+  const byPlatform=Object.fromEntries(connectors.map(c=>[c.platform,c]));
+  const rows=PLATFORM_ORDER.map(key=>{
+    const meta=PLATFORM_META[key];
+    const c=byPlatform[key];
+    if(!c) return '';
+    const needsAction=c.ui_status==='Connect'||c.ui_status==='Reconnect';
+    const action=needsAction && meta.connectUrl ? `<a class="button secondary" href="${meta.connectUrl}">${esc(c.ui_status)}</a>` : `<span class="muted">${esc(c.ui_status)}</span>`;
+    return `<div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;"><strong>${esc(meta.label)}</strong>${action}</div>`;
+  }).join('');
+  document.getElementById('connections-list').innerHTML=rows||'<p class="muted">No platforms configured.</p>';
+}
+
+function renderSpecials(specials){
+  document.getElementById('specials').innerHTML=specials.length?specials.map(s=>{
+    const checkboxes=availablePostTypes.map(pt=>`<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" class="platform-check" data-special="${s.id}" value="${pt}" checked> ${esc(pt.replaceAll('_',' '))}</label>`).join('')
+      + `<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" class="platform-check" data-special="${s.id}" value="whatsapp_status_prepared" checked> whatsapp status</label>`;
+    return `<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p>${s.status==='approved'?`<div class="muted" style="margin:6px 0;">${checkboxes}</div>`:''}<div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue selected</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div></div>`;
+  }).join(''):'<p class="muted">No specials yet.</p>';
+}
+
 async function load(){
   const d=await api('{{ url_for("flyer_lady.index") }}');
-  document.getElementById('status').innerHTML=d.social_connection.connected ? `Connected to <strong>${esc(d.social_connection.page_name||d.social_connection.page_id)}</strong>` : 'Facebook / Instagram is not connected yet.';
-  document.getElementById('google-status').innerHTML=d.google_connection.connected ? `Google Business Profile connected to <strong>${esc(d.google_connection.business_name||'your listing')}</strong>` : 'Google Business Profile is not connected yet.';
-  document.getElementById('specials').innerHTML=d.specials.length?d.specials.map(s=>`<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p><div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue publishing</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div></div>`).join(''):'<p class="muted">No specials yet.</p>';
+  renderConnections(d.connectors||[]);
+  // The publishing platform selector's actual gate: only a platform
+  // that is both connected AND capability-ready (e.g. Instagram with a
+  // linked Business Account, TikTok with a confirmed privacy level)
+  // ever appears as a checkbox -- a workshop can never queue a
+  // platform that would fail on the very next publish attempt.
+  availablePostTypes=(d.connectors||[]).filter(c=>c.selectable_for_publish).flatMap(c=>c.capabilities.post_types||[]);
+  renderSpecials(d.specials);
 }
 document.getElementById('special-form').addEventListener('submit',async e=>{e.preventDefault();try{await api('{{ url_for("flyer_lady.create_special") }}',{method:'POST',body:JSON.stringify({location_id:Number(document.getElementById('location_id').value),text:document.getElementById('special_text').value,media_url:document.getElementById('media_url').value||null})});e.target.reset();resetDropzone();await load();}catch(err){alert(err.message);}});
 
@@ -101,7 +144,16 @@ dropzoneFile.addEventListener('change',()=>{if(dropzoneFile.files[0]) uploadFile
 ['dragleave','drop'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='var(--border-strong)';dropzone.style.background='transparent';}));
 dropzone.addEventListener('drop',e=>{const file=e.dataTransfer.files[0];if(file) uploadFile(file);});
 async function approve(id){try{await api(`/dashboard/flyer-lady/specials/${id}/approval`,{method:'POST',body:JSON.stringify({decision:'approved'})});await load();}catch(e){alert(e.message)}}
-async function queue(id){try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms:['facebook_feed','facebook_story','instagram_feed','instagram_story','google_business_post','whatsapp_status_prepared']})});const queued=d.posts.map(p=>p.platform.replaceAll('_',' ')).join(', ');alert(`Queued: ${queued}. Publishing will be processed by the Flyer Lady queue.`);await load();}catch(e){alert(e.message)}}
+async function queue(id){
+  // Only ever sends what the workshop actually checked, and every
+  // checkbox offered was already filtered to selectable_for_publish
+  // platforms in renderSpecials() -- this does not change
+  // queue_special()'s own server-side behavior at all, only what the
+  // client asks it to queue.
+  const platforms=[...document.querySelectorAll(`.platform-check[data-special="${id}"]:checked`)].map(cb=>cb.value);
+  if(!platforms.length){alert('Select at least one platform to queue.');return;}
+  try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms})});const queued=d.posts.map(p=>p.platform.replaceAll('_',' ')).join(', ');alert(`Queued: ${queued}. Publishing will be processed by the Flyer Lady queue.`);await load();}catch(e){alert(e.message)}
+}
 load().catch(e=>document.getElementById('status').textContent=e.message);
 </script>
 {% endblock %}

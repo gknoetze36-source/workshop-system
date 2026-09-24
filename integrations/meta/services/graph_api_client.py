@@ -135,6 +135,13 @@ class GraphApiClient:
     def get_with_token(self, access_token: str, path: str, *, params: Mapping[str, Any] | None = None, timeout: float = 15.0) -> dict[str, Any]:
         return self._request("GET", path, params=params, timeout=timeout, token=access_token)
 
+    def delete_with_token(self, access_token: str, path: str, *, params: Mapping[str, Any] | None = None, timeout: float = 15.0) -> dict[str, Any]:
+        """_request() already accepts an arbitrary HTTP method; this adds
+        the one verb the client had no wrapper for. Used to revoke a
+        grant at Meta itself (DELETE /{user-id}/permissions), e.g. from
+        flyer_lady/connectors/meta_social.py's revoke()."""
+        return self._request("DELETE", path, params=params, timeout=timeout, token=access_token)
+
     def post_with_token(self, access_token: str, path: str, *, data: Mapping[str, Any] | None = None,
                         json_data: Mapping[str, Any] | None = None, timeout: float = 15.0) -> dict[str, Any]:
         return self._request("POST", path, data=data, json_data=json_data, timeout=timeout, token=access_token)

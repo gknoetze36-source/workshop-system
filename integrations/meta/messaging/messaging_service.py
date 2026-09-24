@@ -21,6 +21,22 @@ class MetaMessagingError(RuntimeError):
     pass
 
 
+class MetaSessionWindowClosedError(MetaMessagingError):
+    """Raised by send_auto() specifically when Meta's 24-hour customer
+    service window is closed and no approved template was supplied.
+
+    A distinguishable subclass -- not just MetaMessagingError -- so a
+    caller can tell "the provider requires an approved template we don't
+    have yet" apart from every other send failure (network error, invalid
+    number, genuine API rejection) without parsing the error string. This
+    is a business-as-usual outcome for messages sent well after the
+    customer's last contact (service-due reminders, yearly reminders,
+    post-service review requests), not a bug to retry or alarm on the same
+    way as a real failure.
+    """
+    pass
+
+
 class MetaMessagingService:
     def __init__(self, session: Session, *, graph: GraphApiClient, token_store: MetaTokenStore):
         self.session = session
@@ -74,7 +90,7 @@ class MetaMessagingService:
         if WhatsAppSessionWindow.is_open(self.session, location_id=location_id, conversation_id=conversation_id):
             return self.send_text(location_id=location_id, conversation_id=conversation_id, to=to, body=body)
         if not template_name:
-            raise MetaMessagingError("customer_service_window_closed: approved_template_required")
+            raise MetaSessionWindowClosedError("customer_service_window_closed: approved_template_required")
         return self.send_utility_template(
             location_id=location_id, conversation_id=conversation_id, to=to,
             name=template_name, language_code=template_language, components=template_components

@@ -15,10 +15,11 @@ from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 
+from constants.message_categories import BOOKING_REMINDER, SERVICE_FOLLOWUP, VEHICLE_READY
 from models.core import Booking, Customer, FollowUp, Recommendation, Vehicle
 from ai.recommendations.rule_engine import ServiceRuleEngine
 from repositories.audit_repo import AuditLogRepository
-from integrations.meta.messaging.messaging_service import MetaMessagingService
+from integrations.meta.messaging.messaging_service import MetaMessagingService, MetaSessionWindowClosedError
 
 
 class DeterministicFollowUpService:
@@ -50,7 +51,17 @@ class DeterministicFollowUpService:
             raise ValueError("ready_collection_nudge_hours must be at least 1")
         self.ready_collection_nudge_hours = configured
 
-    def _send(self, location_id: int, customer_id: int, text: str):
+    def _send(self, location_id: int, customer_id: int, text: str, *, category=None):
+        """category defaults to None (operational) -- every current caller in
+        this class sends service_due/booking_reminder/ready_for_collection_nudge,
+        all OPERATIONAL_CATEGORIES in constants/message_categories.py, so this
+        gate is currently a no-op for every real message this class sends
+        today. Added for the same reason ai/communications/lifecycle.py's
+        identical _send() has it: this class had no consent/opt-out check at
+        all before this fix, unlike lifecycle.py's -- harmless while every
+        message type stays operational, but a real gap the moment a marketing
+        category is ever added here without anyone noticing the check was
+        missing."""
         if self.messaging is None:
             raise RuntimeError("MetaMessagingService is required for outbound follow-up communication")
         customer = self.session.scalar(select(Customer).where(
@@ -58,6 +69,11 @@ class DeterministicFollowUpService:
         ))
         if not customer:
             raise ValueError("customer not found")
+
+        from constants.message_categories import is_marketing
+        from services.consent_service import may_send_marketing
+        if is_marketing(category) and not may_send_marketing(customer_id, location_id):
+            return None
         from models.core import Conversation
         conversation = self.session.scalar(
             select(Conversation)
@@ -284,7 +300,7 @@ class DeterministicFollowUpService:
                     if not recommendation:
                         item.status = "cancelled"
                         continue
-                    self._send(location_id, item.customer_id, self.SERVICE_DUE_TEXT)
+                    message = self._send(location_id, item.customer_id, self.SERVICE_DUE_TEXT, category=SERVICE_FOLLOWUP)
                 elif item.type == "booking_reminder":
                     booking = self.session.scalar(select(Booking).where(
                         Booking.id == booking_id, Booking.location_id == location_id
@@ -292,9 +308,10 @@ class DeterministicFollowUpService:
                     if not booking or booking.status in {"cancelled", "no_show", "completed"}:
                         item.status = "cancelled"
                         continue
-                    self._send(
+                    message = self._send(
                         location_id, item.customer_id,
                         self.BOOKING_REMINDER_TEXT.format(date=booking.start_time.date().isoformat()),
+                        category=BOOKING_REMINDER,
                     )
                 elif item.type == "ready_for_collection_nudge":
                     booking = self.session.scalar(select(Booking).where(
@@ -304,13 +321,74 @@ class DeterministicFollowUpService:
                     if not booking or booking.status != "ready_for_collection":
                         item.status = "cancelled"
                         continue
-                    self._send(location_id, item.customer_id, self.READY_COLLECTION_NUDGE_TEXT)
+                    message = self._send(location_id, item.customer_id, self.READY_COLLECTION_NUDGE_TEXT, category=VEHICLE_READY)
+                else:
+                    message = None
+                if message is None:
+                    # _send() returns None only when a marketing-category
+                    # message was suppressed by consent (see _send()'s own
+                    # docstring -- dormant today, since every current type
+                    # here is operational). Must not be marked "sent": no
+                    # message actually went out. "cancelled" matches the
+                    # same status this function already uses for every other
+                    # "nothing to do here" case above.
+                    item.status = "cancelled"
+                    continue
+                # The WhatsApp message is now genuinely sent. Everything from
+                # here on is bookkeeping, not the operation itself -- it must
+                # not be able to undo "sent" or trigger a retry. Previously
+                # audit.record() sat inside the same try block as the send:
+                # if it (or anything else here) threw, the except below set
+                # status="failed" and re-raised, which jobs/follow_up.py
+                # rolls the whole location's transaction back for -- reverting
+                # this row to "scheduled" even though the customer already
+                # received the message, so the next run five minutes later
+                # would send it again. Marking sent first, and treating the
+                # audit entry as best-effort, closes that window.
                 item.status = "sent"
                 sent.append(item.id)
-                self.audit.record(
-                    location_id, "system", f"follow_up.{item.type}_sent",
-                    "follow_up", item.id,
-                )
+                # A plain try/except here is not enough: audit.record()
+                # flushes, and if that flush fails with a genuine DB-level
+                # error, PostgreSQL poisons the rest of this transaction --
+                # the outer session would refuse every later statement
+                # (including this same item's own status flush) until
+                # rolled back, which jobs/follow_up.py does for the whole
+                # location, undoing "sent" anyway. A SAVEPOINT genuinely
+                # isolates the audit write: if it fails, only the savepoint
+                # rolls back, and item.status="sent" -- set before entering
+                # it -- survives to the outer transaction's own commit.
+                try:
+                    with self.session.begin_nested():
+                        self.audit.record(
+                            location_id, "system", f"follow_up.{item.type}_sent",
+                            "follow_up", item.id,
+                        )
+                except Exception:
+                    pass
+            except MetaSessionWindowClosedError:
+                # Not a failure to retry or alarm on -- the provider is
+                # correctly refusing a business-initiated message to a
+                # customer outside the 24-hour window with no approved
+                # template available yet. Distinguishing this from a real
+                # failure serves two purposes: the item never re-enters
+                # process_due()'s "scheduled" query again (its own
+                # duplicate-send protection now also prevents an infinite
+                # retry loop hitting the same rejection every 5 minutes),
+                # and staff/reporting can eventually tell "genuinely
+                # failed" apart from "blocked, needs a template" instead of
+                # both collapsing into the same opaque "failed" status.
+                # Deliberately not re-raised: unlike a real failure, this
+                # is expected and must not stop the rest of this location's
+                # other due items from being processed in the same cycle.
+                item.status = "blocked_requires_template"
+                try:
+                    with self.session.begin_nested():
+                        self.audit.record(
+                            location_id, "system", f"follow_up.{item.type}_blocked_requires_template",
+                            "follow_up", item.id,
+                        )
+                except Exception:
+                    pass
             except Exception:
                 item.status = "failed"
                 raise

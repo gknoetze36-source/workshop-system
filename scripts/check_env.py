@@ -102,10 +102,6 @@ INTEGRATIONS = {
         "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
         "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL",
     ],
-    "Flyer Lady image uploads (Cloudflare R2)": [
-        "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
-        "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL",
-    ],
     "Payments (Paystack)": ["PAYSTACK_SECRET_KEY", "PAYSTACK_PUBLIC_KEY", "PAYSTACK_WEBHOOK_SECRET"],
     "AI Service Advisor": ["OPENAI_API_KEY"],
     "Google Business Profile (optional)": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],

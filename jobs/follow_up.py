@@ -15,7 +15,18 @@ from integrations.meta.services.graph_api_client import GraphApiClient
 def run_follow_up_worker() -> list[dict]:
     session = SessionLocal()
     try:
-        location_ids = list(session.scalars(select(Location.id).where(Location.active.is_(True))))
+        # access_locked excludes locations the payment wall has shut off for
+        # non-payment. Location.active alone does not -- lock_location()
+        # (services/access_lock_service.py) only ever sets access_locked; it
+        # never touches active. Without this, a locked-out, non-paying
+        # workshop's customers would keep receiving real WhatsApp messages
+        # through PHANTA's own Meta API credentials indefinitely, the one
+        # channel the payment wall (services/auth_service.py, enforced on
+        # every authenticated route) has no reach into because this job has
+        # no request/session context to check against.
+        location_ids = list(session.scalars(
+            select(Location.id).where(Location.active.is_(True), Location.access_locked.is_(False))
+        ))
     finally:
         session.close()
 

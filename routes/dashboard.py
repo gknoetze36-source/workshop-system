@@ -52,9 +52,37 @@ def workshop_dashboard():
             overdue_vehicles=q.overdue_vehicles(),
             booking_requests=q.booking_requests_needing_confirmation(),
             unanswered_messages=q.unanswered_messages(),
+            human_handoffs=q.human_handoffs(),
             connection_health=q.connection_health(),
             billing_state=q.billing_state(),
         )
+    finally:
+        session.close()
+
+
+@workshop_dashboard_bp.post("/tasks/<int:task_id>/resolve")
+def resolve_task(task_id: int):
+    """Closes the loop GATE flagged: escalate_to_human() creates a
+    Task with nowhere for a human to see or act on it. This is the
+    "act on it" half -- a staff member marking one handled, scoped to
+    their own location the same way every other write in this file
+    already is."""
+    from services.auth_service import active_location_required
+    inactive_redirect = active_location_required()
+    if inactive_redirect:
+        return inactive_redirect
+    try:
+        location_id = current_location_id()
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 401
+    session = get_session()
+    try:
+        from repositories.task_repo import TaskRepository
+        task = TaskRepository(session).resolve(location_id, task_id)
+        if task is None:
+            return jsonify({"error": "task not found"}), 404
+        session.commit()
+        return jsonify({"id": task.id, "status": task.status})
     finally:
         session.close()
 

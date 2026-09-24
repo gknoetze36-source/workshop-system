@@ -54,3 +54,15 @@ class GoogleTokenStore:
 
     def get_refresh_token(self, connection) -> str:
         return self.decrypt(connection.encrypted_refresh_token)
+
+    def save_pending_oauth_token(self, session: Session, oauth_session, refresh_token: str):
+        """Encrypt the refresh token onto a GoogleBusinessOAuthSession row
+        -- the server-side holding place for it between the OAuth
+        callback and the account/location picker, so it is never carried
+        in the browser-held Flask session."""
+        oauth_session.encrypted_refresh_token = self.encrypt(refresh_token)
+        session.flush()
+        return oauth_session
+
+    def get_pending_oauth_token(self, oauth_session) -> str:
+        return self.decrypt(oauth_session.encrypted_refresh_token)

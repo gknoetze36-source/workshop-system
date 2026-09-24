@@ -16,7 +16,13 @@ from integrations.meta.services.token_status_service import MetaTokenStatusServi
 def run_meta_token_monitor() -> list[dict]:
     session = SessionLocal()
     try:
-        location_ids = list(session.scalars(select(Location.id).where(Location.active.is_(True))))
+        # See jobs/follow_up.py's identical filter for why access_locked is
+        # checked separately from active. Here it also avoids spending an
+        # external Graph API call per five-minute cycle on a location the
+        # payment wall has already shut off.
+        location_ids = list(session.scalars(
+            select(Location.id).where(Location.active.is_(True), Location.access_locked.is_(False))
+        ))
     finally:
         session.close()
 
