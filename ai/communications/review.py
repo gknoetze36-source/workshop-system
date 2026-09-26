@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from models.core import Booking, Conversation, Customer, FollowUp, Location
 from repositories.audit_repo import AuditLogRepository
-from integrations.meta.messaging.messaging_service import MetaMessagingService
+from integrations.meta.messaging.messaging_service import MetaMessagingService, MetaSessionWindowClosedError
 
 
 class ReviewConfigurationError(ValueError):
@@ -147,12 +147,58 @@ class PostServiceReviewService:
 
         conversation = self._conversation(location_id, customer.id)
         body = self.DEFAULT_MESSAGE.format(workshop=location.name, url=url)
-        message = self.messaging.send_auto(
-            location_id=location_id,
-            conversation_id=conversation.id,
-            to=customer.whatsapp_number,
-            body=body,
-        )
+        try:
+            message = self.messaging.send_auto(
+                location_id=location_id,
+                conversation_id=conversation.id,
+                to=customer.whatsapp_number,
+                body=body,
+            )
+        except MetaSessionWindowClosedError:
+            # send_for_booking() is called synchronously from
+            # routes/bookings.py's change_booking_status() -- the staff
+            # action that marks a job completed. Before this fix, an
+            # uncaught MetaSessionWindowClosedError here propagated all the
+            # way up (routes/bookings.py's except only catches KeyError and
+            # ValueError; MetaMessagingError is a RuntimeError, so it was
+            # never caught) into an unhandled 500, and because the whole
+            # request shares one session, session.commit() was never
+            # reached -- so the booking's own status change to COMPLETED
+            # was lost too. A customer whose WhatsApp session happens to be
+            # closed (very plausible: the review request fires the moment
+            # staff marks the job done, which can easily be days after the
+            # customer last messaged) meant staff could not complete the
+            # booking at all. An optional, opt-in review-request feature
+            # must never be able to block the core act of finishing a job.
+            # Recorded the same way a genuine send is, so the existing
+            # dedup check above (which does not filter on status) still
+            # prevents a second automatic attempt for the same booking --
+            # a blocked attempt still counts as "attempted."
+            record = FollowUp(
+                location_id=location_id,
+                customer_id=customer.id,
+                type="post_service_review",
+                scheduled_for=booking.updated_at,
+                status="blocked_requires_template",
+                channel="whatsapp",
+                payload={
+                    "booking_id": booking.id,
+                    "vehicle_id": booking.vehicle_id,
+                    "review_platform": location.review_platform,
+                    "review_url": url,
+                },
+            )
+            self.session.add(record)
+            self.session.flush()
+            self.audit.record(
+                location_id,
+                "system",
+                "review.post_service_request_blocked_requires_template",
+                "booking",
+                booking.id,
+                after={"review_platform": location.review_platform},
+            )
+            return None
 
         # Use FollowUp as the durable idempotency record, not as a scheduled
         # message. The message is sent immediately on completion.

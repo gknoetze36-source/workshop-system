@@ -384,6 +384,38 @@ class MetaSocialConnection(Base):
     last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
+class GoogleBusinessOAuthSession(Base):
+    """Short-lived server-side state for the Google Business Profile
+    connect flow, holding the refresh token between the OAuth callback
+    and the account/location picker being submitted.
+
+    Mirrors MetaSocialOAuthSession exactly, for the identical reason: the
+    refresh token must never sit in the browser-held Flask session
+    (signed, not encrypted -- readable by anyone with the cookie) for
+    however long the user takes to pick a listing. Only this row's
+    opaque integer id travels through the browser, as a hidden form
+    field on the picker page, the same way Flyer Lady's oauth_session_id
+    already does."""
+    __tablename__ = "google_business_oauth_sessions"
+    __table_args__ = (UniqueConstraint("state_nonce", name="uq_google_business_oauth_state_nonce"), Index("ix_google_business_oauth_location_status", "location_id", "status"))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    state_nonce: Mapped[str] = mapped_column(String(128), nullable=False)
+    encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    # The exact account/location options Google returned to THIS OAuth
+    # grant during the callback -- not a permission list, an allow-list.
+    # /connect/complete must validate the submitted account_id +
+    # google_location_id against this before trusting them; without it,
+    # those two fields arrive from the browser with no proof they were
+    # ever actually returned by Google for this authenticated flow.
+    options_json: Mapped[Optional[list]] = mapped_column(JSON)
+    redirect_uri: Mapped[str] = mapped_column(String(2000), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="started", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
 class GoogleBusinessConnection(Base):
     """Location-scoped Google Business Profile connection, for posting
     Local Posts (see flyer_lady/platforms/google_business_publisher.py).
@@ -397,6 +429,175 @@ class GoogleBusinessConnection(Base):
     google_location_id: Mapped[str] = mapped_column(String(100), nullable=False)
     business_name: Mapped[Optional[str]] = mapped_column(String(255))
     encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    token_key_version: Mapped[str] = mapped_column(String(20), default="v1", nullable=False)
+    connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class XOAuthSession(Base):
+    """Short-lived server-side state for the X (Twitter) connect flow.
+
+    Mirrors GoogleBusinessOAuthSession exactly, with one addition X's
+    flow specifically requires: the PKCE code_verifier. X's OAuth 2.0
+    Authorization Code flow mandates PKCE (unlike Meta/Google's plain
+    authorization-code exchange) -- the verifier generated when building
+    authorize_url() must be presented again at token exchange, so it has
+    to survive the browser round-trip the same way the refresh token
+    does: server-side here, never in the browser-held Flask session.
+    """
+    __tablename__ = "x_oauth_sessions"
+    __table_args__ = (UniqueConstraint("state_nonce", name="uq_x_oauth_state_nonce"), Index("ix_x_oauth_location_status", "location_id", "status"))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    state_nonce: Mapped[str] = mapped_column(String(128), nullable=False)
+    code_verifier: Mapped[str] = mapped_column(String(128), nullable=False)
+    encrypted_refresh_token: Mapped[Optional[str]] = mapped_column(Text)
+    redirect_uri: Mapped[str] = mapped_column(String(2000), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="started", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class XConnection(Base):
+    """Location-scoped X (Twitter) connection, for posting to
+    flyer_lady/platforms/x_publisher.py. Mirrors MetaSocialConnection
+    and GoogleBusinessConnection's shape -- same one-connection-per-
+    location pattern, same encrypted-token-at-rest approach."""
+    __tablename__ = "x_connections"
+    __table_args__ = (UniqueConstraint("location_id", name="uq_x_connection_location"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    x_user_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    x_username: Mapped[Optional[str]] = mapped_column(String(100))
+    encrypted_access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted_refresh_token: Mapped[Optional[str]] = mapped_column(Text)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    token_key_version: Mapped[str] = mapped_column(String(20), default="v1", nullable=False)
+    connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class XUsageCounter(Base):
+    """Atomic monthly post counters enforcing the billing safety
+    requirement: X API usage is paid by VANTA, so a per-tenant monthly
+    post limit and a global monthly limit across every tenant both have
+    to hold even under a retry bug hammering the publish path.
+
+    One row per (scope, scope_key, month_key). scope is "tenant" (one
+    row per location per month) or "global" (one row per month,
+    scope_key is always the literal string "global"). The count is
+    incremented only via a single atomic
+    `UPDATE ... SET count = count + 1 WHERE count < :limit`
+    (flyer_lady/billing/x_spend_guard.py) -- never read-then-write in
+    two steps, which would leave a real race window under concurrent
+    workers. This table has no data of its own value beyond that
+    counter; it is not a per-post audit ledger."""
+    __tablename__ = "x_usage_counters"
+    __table_args__ = (UniqueConstraint("scope", "scope_key", "month_key", name="uq_x_usage_counter_scope"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope: Mapped[str] = mapped_column(String(20), nullable=False)
+    scope_key: Mapped[str] = mapped_column(String(40), nullable=False)
+    month_key: Mapped[str] = mapped_column(String(7), nullable=False)
+    count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class ThreadsOAuthSession(Base):
+    """Short-lived server-side state for the Threads connect flow.
+
+    Mirrors GoogleBusinessOAuthSession's shape (no PKCE needed here --
+    unlike X, Threads' OAuth 2.0 flow is a plain authorization-code
+    exchange with a client secret, confirmed directly against
+    developers.facebook.com/documentation/threads/get-started/
+    get-access-tokens-and-permissions). Holds the long-lived token
+    only transiently between the callback and account confirmation,
+    same reasoning as every other *OAuthSession model in this file: it
+    must never sit in the browser-held Flask session."""
+    __tablename__ = "threads_oauth_sessions"
+    __table_args__ = (UniqueConstraint("state_nonce", name="uq_threads_oauth_state_nonce"), Index("ix_threads_oauth_location_status", "location_id", "status"))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    state_nonce: Mapped[str] = mapped_column(String(128), nullable=False)
+    encrypted_long_lived_token: Mapped[Optional[str]] = mapped_column(Text)
+    redirect_uri: Mapped[str] = mapped_column(String(2000), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="started", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class ThreadsConnection(Base):
+    """Location-scoped Threads connection, for posting to
+    flyer_lady/platforms/threads_publisher.py. Mirrors XConnection's
+    shape -- same one-connection-per-location pattern, same
+    encrypted-token-at-rest approach. Only one token is stored (Threads
+    long-lived user access tokens are self-refreshing in place, unlike
+    X's separate access/refresh token pair -- see
+    integrations/threads/auth/token_store.py)."""
+    __tablename__ = "threads_connections"
+    __table_args__ = (UniqueConstraint("location_id", name="uq_threads_connection_location"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    threads_user_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    threads_username: Mapped[Optional[str]] = mapped_column(String(100))
+    encrypted_long_lived_token: Mapped[str] = mapped_column(Text, nullable=False)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    token_key_version: Mapped[str] = mapped_column(String(20), default="v1", nullable=False)
+    connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class TikTokOAuthSession(Base):
+    """Short-lived server-side state for the TikTok connect flow.
+
+    No PKCE column, unlike XOAuthSession: confirmed directly against
+    TikTok's own Login Kit documentation that PKCE applies to desktop/
+    iOS/Android public clients only -- the web/server flow (a
+    confidential client holding the client_secret server-side, which is
+    what VANTA's Flask backend is) uses the state parameter for
+    CSRF protection instead, the same as Threads."""
+    __tablename__ = "tiktok_oauth_sessions"
+    __table_args__ = (UniqueConstraint("state_nonce", name="uq_tiktok_oauth_state_nonce"), Index("ix_tiktok_oauth_location_status", "location_id", "status"))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    state_nonce: Mapped[str] = mapped_column(String(128), nullable=False)
+    encrypted_access_token: Mapped[Optional[str]] = mapped_column(Text)
+    encrypted_refresh_token: Mapped[Optional[str]] = mapped_column(Text)
+    redirect_uri: Mapped[str] = mapped_column(String(2000), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="started", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class TikTokConnection(Base):
+    """Location-scoped TikTok connection, for posting to
+    flyer_lady/platforms/tiktok_publisher.py.
+
+    selected_privacy_level is deliberately its own column, nullable,
+    with no default: the required flow's own ordering -- creator_info,
+    show nickname, THEN the user selects a privacy level, THEN
+    publishing becomes possible -- and the explicit "do not silently
+    choose a privacy level" requirement both mean a connection can
+    exist in a real, valid state (OAuth complete, account discovered)
+    while still being unable to publish, because this is not set yet.
+    flyer_lady/publish_service.py's tiktok_post branch checks for
+    exactly that and refuses to guess."""
+    __tablename__ = "tiktok_connections"
+    __table_args__ = (UniqueConstraint("location_id", name="uq_tiktok_connection_location"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    tiktok_open_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    tiktok_username: Mapped[Optional[str]] = mapped_column(String(100))
+    creator_nickname: Mapped[Optional[str]] = mapped_column(String(255))
+    allowed_privacy_levels: Mapped[Optional[list]] = mapped_column(JSON)
+    selected_privacy_level: Mapped[Optional[str]] = mapped_column(String(40))
+    encrypted_access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     token_key_version: Mapped[str] = mapped_column(String(20), default="v1", nullable=False)
     connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)

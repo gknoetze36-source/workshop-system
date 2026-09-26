@@ -11,9 +11,19 @@ def test_dedicated_railway_cron_config_is_finite_and_scheduled():
 
 
 def test_web_service_does_not_run_the_cron_scheduler():
-    text = (ROOT / "railway.toml").read_text()
-    assert "gunicorn phanta_app:app" in text
-    assert "cronSchedule" not in text
+    # railway.toml's startCommand was refactored to indirect through
+    # start.sh (for --bind/$PORT and --forwarded-allow-ips), so the
+    # literal "gunicorn phanta_app:app" string moved out of railway.toml
+    # itself. The property this test actually protects -- the web
+    # service never also runs jobs.scheduler, which would double-execute
+    # every job on top of the dedicated 5-minute cron service -- is
+    # checked against wherever that command now actually lives.
+    railway_toml = (ROOT / "railway.toml").read_text()
+    start_sh = (ROOT / "start.sh").read_text()
+    assert "cronSchedule" not in railway_toml
+    assert "jobs.scheduler" not in railway_toml
+    assert "jobs.scheduler" not in start_sh
+    assert "gunicorn phanta_app:app" in railway_toml or "gunicorn phanta_app:app" in start_sh
 
 
 def test_scheduler_registers_all_required_jobs():

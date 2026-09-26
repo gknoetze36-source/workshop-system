@@ -87,6 +87,14 @@ class Location(Base, TimestampMixin):
     review_request_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     review_message_template: Mapped[Optional[str]] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Added by migration 0023_location_access_lock but never mapped here --
+    # the column has always existed in the database (raw query_db/execute_db
+    # callers in services/access_lock_service.py and services/auth_service.py
+    # read/write it directly), it just wasn't visible to the ORM. Mapping it
+    # lets background jobs (jobs/*.py) filter it via a type-safe SQLAlchemy
+    # query instead of a raw connection, the same way they already filter
+    # `active`.
+    access_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     owner: Mapped["Owner"] = relationship(back_populates="location", uselist=False)
     customers: Mapped[list["Customer"]] = relationship(back_populates="location", cascade="all, delete-orphan")

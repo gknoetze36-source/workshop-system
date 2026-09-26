@@ -1,84 +1,29 @@
+"""Financial Service -- subscription/feature-gating.
+
+Repaired: this file previously also re-exported repositories.financial_repository
+(get_last_payment, plan_features, get_billing_record_by_id, get_invoices,
+get_invoice_by_reference, get_payments_for_location, get_revenue_summary,
+get_monthly_revenue) -- confirmed, this loop, to have zero callers anywhere in
+the repository, for every one of those functions, and repositories/financial_repository.py
+itself had zero callers for ANY of its functions, from any file. Deleted, not
+repaired: the real billing source of truth (VANTA subscription -> billing_records
+-> Paystack -> webhook -> reconciliation -> reporting) is services/billing_service.py,
+confirmed by its own real caller (integrations/paystack/webhooks/event_handlers/
+charge_handlers.py) -- these functions were a separate, unwired, duplicated
+attempt at billing data access, never connected to that live workflow at all.
+
+What remains below -- refresh_subscription_status() through can_send_messages()
+-- is the genuinely live half: can_create_booking() gates
+services/booking_service.py's own booking creation, can_send_messages() gates
+services/messaging_service.py's own send path. Confirmed by direct caller
+search, not assumed.
 """
-Financial Service for Workshop System Version 2.
+from datetime import datetime
 
-This service contains financial business logic and delegates database access
-to the Financial Repository.
-"""
-from database import execute_db, query_db, utc_now, fetch_one, fetch_all
-from helpers.dates import parse_date, utc_today
-from datetime import datetime, timedelta
-import os
-
-
+from database import execute_db, utc_now, fetch_one
+from helpers.dates import parse_date
 from helpers.common import boolish
-from database import transaction
-from services.usage_service import track_message_usage
-from services.billing_service import (
-    close_billing_period,
-    mark_billing_paid,
-    create_payment_link,
-    expire_due_subscriptions,
-)
-from services.usage_reporting_service import monthly_usage_summary, daily_usage_summary
-
-
-from repositories.financial_repository import (
-    get_billing_record_by_id as _get_billing_record_by_id,
-    get_invoice_by_reference as _get_invoice_by_reference,
-    get_invoices as _get_invoices,
-    get_last_payment as _get_last_payment,
-    get_monthly_revenue as _get_monthly_revenue,
-    get_payments_for_location as _get_payments_for_location,
-    get_revenue_summary as _get_revenue_summary,
-)
-
-
-def get_last_payment(location_id):
-    """Get the most recent billing payment for a location."""
-    return _get_last_payment(location_id)
-
-def plan_features(location):
-    """Return the features included in the Core subscription."""
-    return [
-        "Core Platform",
-        "Unlimited locations",
-        "Unlimited users",
-        "Automations included",
-        "AI Chatbot included",
-        "Reporting included",
-        "Priority support included",
-        "Custom integrations included",
-    ]
-
-
-def get_billing_record_by_id(billing_id):
-    """Get a billing record by ID."""
-    return _get_billing_record_by_id(billing_id)
-
-
-def get_invoices(location_id):
-    """Get invoices for a location."""
-    return _get_invoices(location_id)
-
-
-def get_invoice_by_reference(invoice_reference):
-    """Get an invoice by reference."""
-    return _get_invoice_by_reference(invoice_reference)
-
-
-def get_payments_for_location(location_id):
-    """Get payments for a location."""
-    return _get_payments_for_location(location_id)
-
-
-def get_revenue_summary(location_id):
-    """Get the revenue summary for a location."""
-    return _get_revenue_summary(location_id)
-
-
-def get_monthly_revenue(location_id, year_month):
-    """Get monthly revenue for a location and billing month."""
-    return _get_monthly_revenue(location_id, year_month)
+from services.usage_service import track_message_usage  # noqa: F401 -- re-exported; services/reminder_service.py imports this name from here, not from usage_service directly
 
 
 def refresh_subscription_status(location):
@@ -145,11 +90,3 @@ def can_run_automation(location):
 def can_send_messages(location):
     """Return True if messaging is allowed."""
     return can_use_paid_feature(location)
-
-    
-
-    
-    
-
-    
-    

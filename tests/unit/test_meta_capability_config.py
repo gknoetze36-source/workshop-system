@@ -11,6 +11,20 @@ def _env(monkeypatch, **values):
         "META_SYSTEM_USER_TOKEN", "META_APP_DOMAINS",
         "META_WHATSAPP_CONFIG_ID", "META_EMBEDDED_SIGNUP_CONFIG_ID",
         "META_FLYER_LADY_CONFIG_ID",
+        # tests/conftest.py sets these two globally via os.environ.setdefault
+        # (needed by real call paths like routes/bookings.py's
+        # change_booking_status() that construct a real GraphApiClient even
+        # on a failure branch) -- setdefault-set values are not test-scoped
+        # or auto-reverted by monkeypatch, so a test asserting "unconfigured"
+        # must explicitly clear them itself rather than assume a blank slate.
+        "META_WHATSAPP_APP_ID", "META_WHATSAPP_APP_SECRET",
+        # services/integration_status.py's actual required vars for
+        # flyer_lady's "configured" check -- this test asserts
+        # configured=False without setting these, so they must genuinely be
+        # absent regardless of what any other test in the same session left
+        # behind (order-dependent before this fix, per the same class of
+        # gap as the two vars above).
+        "META_FLYER_LADY_APP_ID", "META_FLYER_LADY_APP_SECRET",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in values.items():

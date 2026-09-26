@@ -10,20 +10,30 @@ that just records what it was asked to store, so the actual validation
 (size limit, magic-byte content sniffing, capability-gated 503) is what's
 under test, not network behavior.
 """
+import io
 import re
 from unittest.mock import MagicMock, patch
 
 import pytest
+from PIL import Image
 
 from database import query_db
 from integrations.storage.r2_client import MAX_UPLOAD_BYTES
 
-# Real magic bytes for a 1x1 image of each accepted type -- enough for
-# sniff_image_type() to recognize, not a full valid image (nothing here
-# ever decodes the image, only checks its header).
-JPEG_HEADER = b"\xff\xd8\xff\xe0" + b"\x00" * 100
-PNG_HEADER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 NOT_AN_IMAGE = b"<html>not an image</html>"
+
+
+def _real_jpeg(size=(20, 20), color=(200, 50, 50)):
+    """A genuinely decodable JPEG -- upload_media() now decodes every
+    upload (see integrations/storage/image_processing.py), so a bare
+    magic-byte header is no longer enough to pass; unlike the old
+    header-only fixture this replaces, this actually opens with PIL."""
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+JPEG_HEADER = _real_jpeg()
 
 
 def _register_and_create_location(client, suffix):
@@ -100,7 +110,7 @@ def test_rejects_a_file_that_is_not_really_an_image(monkeypatch):
         )
 
     assert response.status_code == 400
-    assert "not a recognized" in response.get_json()["error"]
+    assert "not a valid image" in response.get_json()["error"]
     fake_s3.put_object.assert_not_called()
 
 
@@ -155,3 +165,33 @@ def test_rejects_when_no_file_is_present(monkeypatch):
         content_type="multipart/form-data",
     )
     assert response.status_code == 400
+
+
+def test_a_png_upload_is_stored_as_jpeg_end_to_end(monkeypatch):
+    """The route-level proof that normalize_to_jpeg() is actually wired
+    in, not just correct in isolation: a genuine PNG upload must reach
+    R2 as image/jpeg with a .jpg key, exactly like a native JPEG
+    upload -- the pixel-level conversion itself is covered in depth by
+    test_image_processing.py."""
+    _r2_env(monkeypatch)
+    client = _client()
+    csrf_from, _ = _register_and_create_location(client, "pngupload")
+    token = csrf_from("/dashboard/flyer-lady/ui")
+
+    png_buf = io.BytesIO()
+    Image.new("RGB", (30, 30), (0, 200, 0)).save(png_buf, format="PNG")
+
+    fake_s3 = MagicMock()
+    with patch("integrations.storage.r2_client.boto3.client", return_value=fake_s3):
+        response = client.post(
+            "/dashboard/flyer-lady/uploads",
+            data={"file": (io.BytesIO(png_buf.getvalue()), "special.png"), "csrf_token": token},
+            content_type="multipart/form-data",
+        )
+
+    assert response.status_code == 201
+    body = response.get_json()
+    assert body["media_url"].endswith(".jpg")
+    assert fake_s3.put_object.call_args.kwargs["ContentType"] == "image/jpeg"
+    stored_bytes = fake_s3.put_object.call_args.kwargs["Body"]
+    assert stored_bytes[:3] == b"\xff\xd8\xff"

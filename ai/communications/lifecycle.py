@@ -18,7 +18,7 @@ from constants.message_categories import (
 from models.core import AuditLog, Booking, Conversation, Customer, FollowUp, Service
 from ai.follow_up.service import DeterministicFollowUpService
 from repositories.audit_repo import AuditLogRepository
-from integrations.meta.messaging.messaging_service import MetaMessagingService
+from integrations.meta.messaging.messaging_service import MetaMessagingService, MetaSessionWindowClosedError
 
 
 logger = logging.getLogger(__name__)
@@ -254,10 +254,31 @@ class LifecycleCommunicationService:
         # exists for this booking, do not send another customer message.
         if already_sent or prior_audit:
             return None
-        message = self._send(
-            location_id, booking.customer_id, self.READY_FOR_COLLECTION_TEXT,
-            category=VEHICLE_READY,
-        )
+        # Called synchronously from routes/lifecycle.py's ready_for_collection()
+        # -- a staff dashboard action, same "an optional customer message
+        # must never block a core staff action" reasoning as
+        # send_for_booking() and booking_missed(). A vehicle just finished
+        # being worked on; the customer may well not have messaged since
+        # drop-off, so this is a real, not theoretical, session-window risk.
+        try:
+            message = self._send(
+                location_id, booking.customer_id, self.READY_FOR_COLLECTION_TEXT,
+                category=VEHICLE_READY,
+            )
+        except MetaSessionWindowClosedError:
+            record = FollowUp(
+                location_id=location_id, customer_id=booking.customer_id,
+                type="ready_for_collection_nudge", scheduled_for=datetime.now(timezone.utc),
+                status="blocked_requires_template", channel="whatsapp",
+                payload={"booking_id": booking.id},
+            )
+            self.session.add(record)
+            self.session.flush()
+            self.audit.record(
+                location_id, "staff", "lifecycle.ready_for_collection_message_blocked_requires_template",
+                "booking", booking.id,
+            )
+            return None
         self.audit.record(
             location_id, "staff", "lifecycle.ready_for_collection_message_sent",
             "booking", booking.id, after={"message_id": message.id}
@@ -281,7 +302,7 @@ class LifecycleCommunicationService:
             FollowUp.location_id == location_id, FollowUp.customer_id == booking.customer_id,
             FollowUp.type == "missed_booking_recovery",
             FollowUp.payload["booking_id"].as_integer() == booking.id,
-            FollowUp.status.in_(["sent", "scheduled"]),
+            FollowUp.status.in_(["sent", "scheduled", "blocked_requires_template"]),
         ))
         prior_audit = self.session.scalar(select(AuditLog.id).where(
             AuditLog.location_id == location_id,
@@ -292,8 +313,30 @@ class LifecycleCommunicationService:
         # second recovery message if staff presses the button twice.
         if already_sent or prior_audit:
             return None
-        message = self._send(location_id, booking.customer_id, self.MISSED_BOOKING_TEXT,
-                             category=SERVICE_FOLLOWUP)
+        # Called synchronously from routes/bookings.py's change_booking_status()
+        # for the NO_SHOW transition -- the same route, same "an optional
+        # message must never block the core staff action" reasoning as
+        # ai/communications/review.py's send_for_booking() fix. A customer
+        # who missed their booking has, by definition, not been in
+        # WhatsApp contact recently, so this is one of the more likely
+        # paths to actually hit a closed session window.
+        try:
+            message = self._send(location_id, booking.customer_id, self.MISSED_BOOKING_TEXT,
+                                 category=SERVICE_FOLLOWUP)
+        except MetaSessionWindowClosedError:
+            record = FollowUp(
+                location_id=location_id, customer_id=booking.customer_id,
+                type="missed_booking_recovery", scheduled_for=datetime.now(timezone.utc),
+                status="blocked_requires_template", channel="whatsapp",
+                payload={"booking_id": booking.id},
+            )
+            self.session.add(record)
+            self.session.flush()
+            self.audit.record(
+                location_id, "staff", "lifecycle.missed_booking_message_blocked_requires_template",
+                "booking", booking.id,
+            )
+            return None
         self.audit.record(
             location_id, "staff", "lifecycle.missed_booking_message_sent",
             "booking", booking.id, after={"message_id": message.id}
@@ -403,6 +446,24 @@ class LifecycleCommunicationService:
                 item.status = "sent"
                 sent_ids.append(item.id)
                 self.audit.record(location_id, "system", f"lifecycle.{kind}_sent", "follow_up", item.id)
+            except MetaSessionWindowClosedError:
+                # See ai/follow_up/service.py's process_due() for the full
+                # reasoning -- same fix, same shape: this is an expected
+                # provider outcome (window closed, no approved template),
+                # not a failure. Marking it separately from "failed" stops
+                # it re-entering this query every cycle (this file's
+                # scheduled_for <= now / status == "scheduled" filter is
+                # the same shape as process_due()'s) without needing a
+                # retry loop or new workflow, and keeps it from blocking
+                # the rest of this location's due items in the same run.
+                item.status = "blocked_requires_template"
+                try:
+                    with self.session.begin_nested():
+                        self.audit.record(
+                            location_id, "system", f"lifecycle.{kind}_blocked_requires_template", "follow_up", item.id
+                        )
+                except Exception:
+                    pass
             except Exception:
                 item.status = "failed"
                 raise

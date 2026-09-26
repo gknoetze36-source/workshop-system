@@ -15,39 +15,55 @@ from __future__ import annotations
 from database import query_db, raw_location_scope
 
 
+def _next_period_start(billing_period: str) -> str:
+    """The first day of the calendar month after billing_period
+    ('YYYY-MM'). Every metric below was previously filtered with only
+    created_at >= period_start, no upper bound -- harmless for the
+    current, latest billing period (the only one either caller,
+    routes/billing_statement.py and routes/billing_wall.py, ever
+    actually requests), but a real bug waiting for the first time
+    anything asks for a historical statement: it would silently
+    include every subsequent period's activity too."""
+    year, month = (int(part) for part in billing_period.split("-"))
+    if month == 12:
+        return f"{year + 1}-01-01"
+    return f"{year}-{month + 1:02d}-01"
+
+
 def build_monthly_recap(location_id: int, billing_period: str) -> dict:
     """billing_period is 'YYYY-MM', matching close_billing_period()'s own
     convention (services/billing_service.py) so the recap and the invoice
     it's shown alongside always describe the same period."""
     period_start = f"{billing_period}-01"
+    period_end = _next_period_start(billing_period)
     with raw_location_scope(location_id):
         automations_sent = query_db(
             """
             SELECT COUNT(*) AS c FROM automation_logs
-            WHERE location_id=%s AND status='ok' AND created_at >= %s
+            WHERE location_id=%s AND status='ok' AND created_at >= %s AND created_at < %s
             """,
-            (location_id, period_start), one=True,
+            (location_id, period_start, period_end), one=True,
         )
         bookings_handled = query_db(
             """
             SELECT COUNT(*) AS c FROM bookings
-            WHERE location_id=%s AND created_at >= %s
+            WHERE location_id=%s AND created_at >= %s AND created_at < %s
             """,
-            (location_id, period_start), one=True,
+            (location_id, period_start, period_end), one=True,
         )
         bookings_completed = query_db(
             """
             SELECT COUNT(*) AS c FROM bookings
-            WHERE location_id=%s AND status='completed' AND created_at >= %s
+            WHERE location_id=%s AND status='completed' AND created_at >= %s AND created_at < %s
             """,
-            (location_id, period_start), one=True,
+            (location_id, period_start, period_end), one=True,
         )
         flyer_posts_published = query_db(
             """
             SELECT COUNT(*) AS c FROM flyer_lady_special_posts
-            WHERE location_id=%s AND status='published' AND created_at >= %s
+            WHERE location_id=%s AND status='published' AND created_at >= %s AND created_at < %s
             """,
-            (location_id, period_start), one=True,
+            (location_id, period_start, period_end), one=True,
         )
         billing_record = query_db(
             """
