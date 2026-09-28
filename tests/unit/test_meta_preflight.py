@@ -28,3 +28,21 @@ def test_reports_the_failure_reason(monkeypatch):
     monkeypatch.setattr(TechProviderOnboardingService, "verify_provider_configuration", boom)
     report = run_meta_preflight()
     assert report["ok"] is False and "does not match" in report["error"]
+
+
+def test_flyer_lady_report_never_contains_the_secret(monkeypatch):
+    import jobs.meta_preflight as mp
+    monkeypatch.setenv("META_FLYER_LADY_APP_ID", "1082265940977910")
+    monkeypatch.setenv("META_FLYER_LADY_APP_SECRET", "abcdef0123456789abcdef0123456789")
+    monkeypatch.setenv("META_FLYER_LADY_APP_DOMAINS", "https://app.vantaautomations.co.za")
+
+    class Resp:
+        status_code, content = 200, b"x"
+        def json(self): return {"id": "1082265940977910", "name": "Vanta Automations FL"}
+    seen = {}
+    def fake_get(url, params, timeout):
+        seen.update(params); return Resp()
+    monkeypatch.setattr("requests.get", fake_get)
+    report = mp._flyer_lady_report()
+    assert report["ok"] and report["app_name"] == "Vanta Automations FL"
+    assert "abcdef0123456789abcdef0123456789" not in repr(report)
