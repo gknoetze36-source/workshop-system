@@ -16,7 +16,6 @@ init_sentry()
 from .meta_token_monitor import run_meta_token_monitor
 from .template_sync import run_template_sync
 from .meta_preflight import run_meta_preflight
-from .phone_deregister import run_phone_deregister  # TEMPORARY
 from .lifecycle_communication import run_lifecycle_communication
 from .follow_up import run_follow_up_worker
 from .flyer_lady import run_flyer_lady_publish_queue
@@ -44,7 +43,6 @@ def run_scheduled_jobs() -> dict:
     return {
         "meta_token_monitor": _run("meta_token_monitor", run_meta_token_monitor),
         "meta_preflight": _run("meta_preflight", run_meta_preflight),
-        "phone_deregister": _run("phone_deregister", run_phone_deregister),  # TEMPORARY
         "template_sync": _run("template_sync", run_template_sync),
         "lifecycle_communication": _run("lifecycle_communication", run_lifecycle_communication),
         "follow_up": _run("follow_up", run_follow_up_worker),
