@@ -36,7 +36,12 @@ def _register_and_create_location(client, suffix):
     def csrf_from(path):
         html = client.get(path).get_data(as_text=True)
         m = re.search(r'name="csrf_token" value="([^"]+)"', html)
-        return m.group(1) if m else None
+        if m:
+            return m.group(1)
+        # Some pages (settings/dashboard) carry the token as a <meta> tag
+        # for their JS-driven fetch() calls, not a form <input>.
+        m2 = re.search(r'name="csrf-token" content="([^"]+)"', html)
+        return m2.group(1) if m2 else None
 
     token = csrf_from("/register")
     client.post("/register", data={
@@ -142,11 +147,17 @@ def test_connect_complete_form_post_saves_connection_and_redirects():
 
     token = csrf_from("/settings/business")
     with patch("routes.flyer_lady.MetaSocialGraphClient") as mock_graph, \
-         patch("routes.flyer_lady.MetaAuthConfig") as mock_config, \
+         patch("routes.flyer_lady.FlyerLadyMetaConfig") as mock_config, \
          patch("routes.flyer_lady.GraphApiClient"):
         mock_config.from_env.return_value = MagicMock()
         mock_graph.return_value.list_pages.return_value = {"data": [
-            {"id": "12345", "name": "Test Workshop Page", "access_token": "page_token_xyz", "tasks": ["MANAGE"]}
+            # routes/flyer_lady.py's connect_complete() requires CREATE_CONTENT
+            # specifically in the page's tasks -- "MANAGE" alone (what this
+            # mock previously used) fails that real permission check with a
+            # 400, since MANAGE and CREATE_CONTENT are different Facebook
+            # Page task grants.
+            {"id": "12345", "name": "Test Workshop Page", "access_token": "page_token_xyz",
+             "tasks": ["MANAGE", "CREATE_CONTENT"]}
         ]}
         response = client.post("/dashboard/flyer-lady/connect/complete", data={
             "csrf_token": token, "oauth_session_id": str(oauth_id), "page_id": "12345", "onboarding": "1",

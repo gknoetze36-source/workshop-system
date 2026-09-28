@@ -48,6 +48,11 @@
       <span class="value">{{ unanswered_messages|length }}</span>
       <span class="sub">Latest customer messages awaiting reply</span>
     </article>
+    <article class="workshop-metric {% if human_handoffs %}danger{% endif %}">
+      <span class="label">Needs a person</span>
+      <span class="value">{{ human_handoffs|length }}</span>
+      <span class="sub">The AI handed these to a human -- see below</span>
+    </article>
   </section>
 
   <div class="workshop-layout">
@@ -168,6 +173,16 @@
           </div>
         </header>
         <div class="attention-list">
+          {% for task in human_handoffs %}
+          <div class="attention-item" id="handoff-{{ task.id }}">
+            <span class="attention-icon" aria-hidden="true">🧑‍🔧</span>
+            <div>
+              <strong>AI handed a conversation to a person{% if task.priority == 'high' %} -- high priority{% endif %}</strong>
+              <span>{{ (task.details or {}).get('reason', 'No reason recorded.') }}</span>
+            </div>
+            <button class="button secondary resolve-handoff-btn" data-task-id="{{ task.id }}" style="margin-left:auto;">Resolved</button>
+          </div>
+          {% endfor %}
           {% for booking in overdue_vehicles[:5] %}
           <div class="attention-item">
             <span class="attention-icon" aria-hidden="true">⚠</span>
@@ -186,7 +201,7 @@
             </div>
           </div>
           {% endif %}
-          {% if not overdue_vehicles and not unanswered_messages and not booking_requests %}
+          {% if not overdue_vehicles and not unanswered_messages and not booking_requests and not human_handoffs %}
           <div class="empty-dashboard" style="padding:20px 8px;">
             <div class="empty-icon" aria-hidden="true">✓</div>
             <strong>Nothing urgent.</strong>
@@ -242,6 +257,7 @@ window.PHANTA_GHOST_DATA = {
   overdueVehicles: {{ overdue_vehicles|length }},
   bookingRequests: {{ booking_requests|length }},
   unansweredMessages: {{ unanswered_messages|length }},
+  humanHandoffs: {{ human_handoffs|length }},
   connectionHealth: {{ connection_health|tojson }},
   billingState: {{ billing_state|tojson }}
 };
@@ -352,6 +368,19 @@ window.PHANTA_GHOST_DATA = {
         alert(error.message);
       } finally {
         button.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('.resolve-handoff-btn').forEach(button => {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        await postJson('/dashboard/tasks/' + button.dataset.taskId + '/resolve');
+        document.getElementById('handoff-' + button.dataset.taskId).remove();
+      } catch (error) {
+        button.disabled = false;
+        alert(error.message);
       }
     });
   });

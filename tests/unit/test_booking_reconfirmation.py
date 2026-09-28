@@ -85,7 +85,7 @@ def test_sends_the_approved_template_with_the_booking_date():
     session = setup_session()
     location, customer, vehicle, booking, token_store = seed(session)
     session.add(MetaMessageTemplate(
-        location_id=location.id, name="booking_confirmation_request", language="en_ZA",
+        location_id=location.id, name="booking_confirmation_request", language="en",
         category="UTILITY", status="APPROVED",
     ))
     session.commit()
@@ -126,7 +126,7 @@ def test_raises_meta_connection_not_ready_when_whatsapp_is_not_connected():
     # is exactly why routes/public_booking.py checks the connection
     # directly rather than branching on this message string.
     session.add(MetaMessageTemplate(
-        location_id=location.id, name="booking_confirmation_request", language="en_ZA",
+        location_id=location.id, name="booking_confirmation_request", language="en",
         category="UTILITY", status="APPROVED",
     ))
     session.commit()

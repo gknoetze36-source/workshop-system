@@ -140,6 +140,56 @@ def test_correctly_scoped_session_sees_its_own_row(rls_test_env, table):
     assert count == 1, f"{table}: a session scoped to the seeded location should see exactly 1 row, saw {count}"
 
 
+@pytest.mark.parametrize("table", ["notes", "automation_rules"])
+def test_location_a_cannot_see_location_bs_row_under_the_restricted_role(rls_test_env, table):
+    """Explicit two-tenant attack, not just unscoped-vs-scoped: seeds a
+    second location's row on the same table under the same restricted
+    role, then proves a session scoped to Location A's own
+    app.location_id sees exactly its own row and zero of Location B's --
+    real PostgreSQL enforcement under FORCE ROW LEVEL SECURITY, not
+    application-level filtering (this query has no WHERE location_id=...
+    of its own at all; RLS alone is doing the filtering)."""
+    from database import execute_db, query_db, utc_now
+
+    execute_db("INSERT INTO owners (name, email, active, created_at, updated_at) VALUES (%s,%s,TRUE,%s,%s)",
+               ("RLS Test Owner B", "rlstestb@example.com", utc_now(), utc_now()))
+    owner_b_id = query_db("SELECT id FROM owners WHERE email=%s", ("rlstestb@example.com",), one=True)["id"]
+    execute_db("INSERT INTO locations (owner_id, name, industry, active, created_at, updated_at) VALUES (%s,%s,'workshop',TRUE,%s,%s)",
+               (owner_b_id, "RLS Test Location B", utc_now(), utc_now()))
+    location_b_id = query_db("SELECT id FROM locations WHERE owner_id=%s", (owner_b_id,), one=True)["id"]
+
+    if table == "notes":
+        execute_db(
+            "INSERT INTO notes (location_id, subject_type, subject_id, content, created_at, updated_at) "
+            "VALUES (%s,'vehicle',2,'location B note',%s,%s)",
+            (location_b_id, utc_now(), utc_now()),
+        )
+    else:
+        execute_db(
+            "INSERT INTO automation_rules (name, event_type, delay_minutes, active, created_at, updated_at, location_id) "
+            "VALUES ('location B rule','x',0,TRUE,%s,%s,%s)",
+            (utc_now(), utc_now(), location_b_id),
+        )
+
+    import psycopg2
+    conn = psycopg2.connect(rls_test_env["restricted_url"])
+    try:
+        with conn.cursor() as cur:
+            # Scoped to A -- must see exactly A's row, never B's.
+            cur.execute("SELECT set_config('app.location_id', %s, false)", (str(rls_test_env["location_id"]),))
+            cur.execute(f"SELECT location_id FROM {table}")
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    location_ids_seen = {r[0] for r in rows}
+    assert location_ids_seen == {rls_test_env["location_id"]}, (
+        f"{table}: Location A's session must see only its own location_id "
+        f"({rls_test_env['location_id']}), saw {location_ids_seen} -- "
+        f"Location B's row ({location_b_id}) must never appear"
+    )
+
+
 def test_flyer_lady_public_redirect_finds_special_under_restricted_role(rls_test_env):
     """Regression test for a severe bug found 2026-08-25: routes/
     flyer_lady.py's public, unauthenticated tracking-link redirect
@@ -300,7 +350,18 @@ def test_onboarding_flow_survives_real_postgres_boolean_columns(rls_test_env):
     })
     assert r2.status_code == 302, "onboarding_state creation must not fail on real Postgres booleans"
 
-    for path in ("/onboarding/services", "/onboarding/automation", "/onboarding/review", "/onboarding/team"):
+    # /onboarding/services was in this list originally, but routes/onboarding.py's
+    # own onboarding_workshop() docstring confirms it was deliberately removed --
+    # services are now configured later in settings, not during onboarding, so
+    # signup isn't blocked on building a service catalogue. Confirmed against
+    # the real, current route table (routes/onboarding.py), not assumed: no
+    # route named /onboarding/services exists at all. This is a stale test
+    # expectation from before that removal, not a Postgres/RLS/boolean defect --
+    # every other step in this exact flow (registration, location creation,
+    # which both touch boolean columns just as much) already passed against
+    # real Postgres booleans above.
+    for path in ("/onboarding/business", "/onboarding/workshop", "/onboarding/automation",
+                 "/onboarding/review", "/onboarding/team"):
         response = client.get(path)
         assert response.status_code == 200, f"{path} must not 500 on real Postgres"
 

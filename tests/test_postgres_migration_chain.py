@@ -94,7 +94,13 @@ def test_full_migration_chain_succeeds_from_empty_postgres(fresh_postgres_env):
         with conn.cursor() as cur:
             cur.execute("SELECT version_num FROM alembic_version")
             version = cur.fetchone()[0]
-            assert version == "0024_google_business_connections"
+            # Stale as of this loop: the chain has genuinely grown to
+            # 0039_tiktok_connector since this assertion was written
+            # (confirmed against `alembic heads` and this same run's own
+            # migration log -- 0025 through 0039 all applied cleanly with
+            # zero exceptions). Not a migration defect; the chain itself
+            # is exactly what's expected to reach head correctly.
+            assert version == "0039_tiktok_connector"
 
             cur.execute("SELECT to_regclass('public.tenants')")
             assert cur.fetchone()[0] is None, "a 'tenants' table should never exist - the location model is canonical"

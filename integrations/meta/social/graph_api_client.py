@@ -14,7 +14,14 @@ class MetaSocialGraphClient:
     def publish_photo_story(self, page_id: str, page_token: str, photo_id: str) -> dict[str, Any]:
         return self.client.post_with_token(page_token, f"/{page_id}/photo_stories", data={"photo_id": photo_id})
     def create_instagram_container(self, ig_id: str, token: str, media_url: str, caption: str, *, stories: bool = False) -> dict[str, Any]:
-        return self.client.post_with_token(token, f"/{ig_id}/media", data={"image_url": media_url, "caption": caption, "media_type": "STORIES" if stories else "IMAGE"})
+        # media_type is required by Meta for Stories/Reels/video, but a
+        # normal image feed post must not send media_type=IMAGE -- Meta
+        # infers a standard image container when the key is simply
+        # omitted, so it is only included for the Stories case here.
+        data = {"image_url": media_url, "caption": caption}
+        if stories:
+            data["media_type"] = "STORIES"
+        return self.client.post_with_token(token, f"/{ig_id}/media", data=data)
     def get_instagram_container_status(self, token: str, creation_id: str) -> dict[str, Any]:
         return self.client.get_with_token(token, f"/{creation_id}", params={"fields": "status_code"})
     def get_instagram_content_publishing_limit(self, ig_id: str, token: str) -> dict[str, Any]:

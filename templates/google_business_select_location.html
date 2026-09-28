@@ -16,6 +16,7 @@
     <form method="post" action="{{ url_for('google_business.connect_complete') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="onboarding" value="{{ '1' if onboarding else '' }}">
+        <input type="hidden" name="oauth_session_id" value="{{ oauth_session_id }}">
         <label>Business Profile listing
             <select name="_selection" id="location-select" required>
                 <option value="" disabled selected>Choose a listing</option>

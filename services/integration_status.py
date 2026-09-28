@@ -30,6 +30,9 @@ META_FLYER_LADY_APP_REQUIRED = ("META_FLYER_LADY_APP_ID", "META_FLYER_LADY_APP_S
 META_FLYER_LADY_SOCIAL_REQUIRED = ("META_FLYER_LADY_CONFIG_ID",)
 
 GOOGLE_REQUIRED = ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET")
+X_REQUIRED = ("X_CLIENT_ID", "X_CLIENT_SECRET")
+THREADS_REQUIRED = ("THREADS_APP_ID", "THREADS_APP_SECRET")
+TIKTOK_REQUIRED = ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET")
 PAYSTACK_REQUIRED = ("PAYSTACK_SECRET_KEY",)
 R2_REQUIRED = (
     "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
@@ -75,6 +78,9 @@ def integration_status(name: str) -> dict:
         # unconfigured whenever the WhatsApp App's credentials were absent.
         "flyer_lady": META_FLYER_LADY_APP_REQUIRED + META_FLYER_LADY_SOCIAL_REQUIRED,
         "google_business": GOOGLE_REQUIRED,
+        "x": X_REQUIRED,
+        "threads": THREADS_REQUIRED,
+        "tiktok": TIKTOK_REQUIRED,
         "paystack": PAYSTACK_REQUIRED,
         "flyer_lady_uploads": R2_REQUIRED,
     }
@@ -107,7 +113,7 @@ def all_integration_status() -> dict:
         name: integration_status(name)
         for name in (
             "meta_app", "meta_system_user", "meta_webhook", "whatsapp",
-            "embedded_signup", "flyer_lady", "google_business", "paystack",
+            "embedded_signup", "flyer_lady", "google_business", "x", "threads", "tiktok", "paystack",
             "flyer_lady_uploads",
         )
     }

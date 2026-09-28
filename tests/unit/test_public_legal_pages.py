@@ -58,7 +58,20 @@ def test_privacy_policy_renders_the_actual_source_document(anon_client):
     -- not a placeholder page, not a different document."""
     body = anon_client.get("/privacy-policy").get_data(as_text=True)
     assert "POPIA" in body
-    assert "Information Officer" in body
+    # legal_documents/02-Privacy-Policy.md now uses "Responsible Party" (the
+    # correct POPIA term for the organisation, analogous to GDPR's "Data
+    # Controller") rather than naming an "Information Officer" -- a
+    # separate, specific POPIA concept (a designated individual registered
+    # with the Information Regulator, POPIA s55). This document was
+    # deliberately rewritten by a human operator since this assertion was
+    # written (confirmed: most of the document's placeholders were also
+    # resolved in the same edit, not left as stale artifacts). Whether a
+    # named Information Officer still needs to be designated and disclosed
+    # is a real, separate compliance question this test cannot answer --
+    # flagged to the founder rather than silently dropped or assumed
+    # resolved. This test's only job is confirming the route renders the
+    # actual current source document, which it does.
+    assert "Responsible Party" in body
 
 
 def test_legal_pages_state_the_real_company_name(anon_client):
@@ -100,17 +113,12 @@ def test_privacy_policy_unresolved_placeholders_are_the_known_set(anon_client):
         if not m.startswith("[type=") and not m.startswith("[aria-")
         and not m.startswith("[data-")
     }
-    expected = {
-        "[Effective Date]", "[Date]", "[Name]",
-        "[Email]", "[Phone]", "[pending / registration number]",
-        "[Privacy Email]",
-        "[confirm each against the provider's current documentation and "
-        "the region your infrastructure is deployed in before publishing]",
-        "[duration of Account + X years — confirm with accountant/legal]",
-        "[per FICA/tax record-keeping requirements — confirm exact period before publishing]",
-        "[confirm retention period before publishing]",
-        "[Legal review required — see 00-README before publishing.]",
-    }
+    # The document was subsequently rewritten by a human operator and every
+    # previously-known placeholder below was genuinely resolved with real
+    # values -- confirmed empty, not assumed. Pinned to the empty set for
+    # the same reason the original comment gives: so a future change that
+    # newly introduces a placeholder is caught as a deliberate test update.
+    expected = set()
     assert legal_brackets == expected, (
         f"Privacy Policy placeholder set changed. New: {legal_brackets - expected}, "
         f"resolved: {expected - legal_brackets}"
@@ -124,14 +132,11 @@ def test_terms_of_service_unresolved_placeholders_are_the_known_set(anon_client)
         if not m.startswith("[type=") and not m.startswith("[aria-")
         and not m.startswith("[data-")
     }
-    expected = {
-        "[Registration Number]", "[Registered Address]",
-        "[Effective Date]", "[Date]",
-        "[Support Email]", "[Phone Number]", "[Website URL]",
-        "[Update if this changes.]", "[14/30]", "[3/6]",
-        "[Governing City/Province]", "[Legal/Support Email]",
-        "[Legal review required — see 00-README before publishing.]",
-    }
+    # Unlike the Privacy Policy (fully resolved), the Terms of Service was
+    # only partially rewritten -- these three genuinely remain unresolved
+    # in the current document, confirmed by actually reading the response
+    # body rather than assuming both documents were finished together.
+    expected = {"[Governing City/Province]", "[3/6]", "[14/30]"}
     assert legal_brackets == expected, (
         f"Terms of Service placeholder set changed. New: {legal_brackets - expected}, "
         f"resolved: {expected - legal_brackets}"

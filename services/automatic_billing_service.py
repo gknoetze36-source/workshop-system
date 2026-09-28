@@ -56,21 +56,36 @@ def _attempt_is_due(record) -> bool:
     return datetime.now(timezone.utc) >= last + timedelta(hours=wait_hours)
 
 
-def _claim_billing_record(billing_id) -> bool:
+def _claim_billing_record(billing_id, location_id) -> bool:
     """Atomically move a record from unpaid to processing.
 
-    Without this, two overlapping runs of run_automatic_billing() -- Railway
-    retrying a crashed cron execution (restartPolicyMaxRetries=2 in
-    railway-cron-billing.toml) is the realistic way this happens -- could
+    Without the status check, two overlapping runs of run_automatic_billing()
+    -- Railway retrying a crashed cron execution (restartPolicyMaxRetries=2
+    in railway-cron-billing.toml) is the realistic way this happens -- could
     both read the same unpaid record, both pass the backoff check, and both
     call Paystack: a genuine double charge on the customer's card. The
     UPDATE ... WHERE status='unpaid' ... RETURNING id is atomic at the
     database level regardless of how many processes race to run it; only
     one can ever see a returned row for a given record.
+
+    The AND location_id=%s clause is the actual tenant-isolation fix: both
+    of this function's real callers (routes/billing_wall.py's
+    attempt_payment(), and run_automatic_billing()'s own loop) always pass
+    a location_id that already matches the record they fetched it with, so
+    this never rejects anything in the live path -- but charge_billing_record()
+    itself, one level up, had no independent check that its two arguments
+    actually agreed, only trusting the caller's convention. Proven exploitable
+    directly (tests/unit/test_billing_tenant_isolation.py): calling
+    charge_billing_record(location_A_id, location_B_record) proceeded all
+    the way to actually calling Paystack's charge_overage with A's saved
+    card against B's invoice amount. This one clause is the actual
+    enforcement point -- a forged pair now claims zero rows and is rejected
+    the same safe way a genuine double-claim race already was.
     """
     claimed = query_db(
-        "UPDATE billing_records SET status='processing', updated_at=%s WHERE id=%s AND status='unpaid' RETURNING id",
-        (utc_now(), billing_id),
+        "UPDATE billing_records SET status='processing', updated_at=%s "
+        "WHERE id=%s AND location_id=%s AND status='unpaid' RETURNING id",
+        (utc_now(), billing_id, location_id),
     )
     return bool(claimed)
 
@@ -109,8 +124,12 @@ def charge_billing_record(location_id: int, record: dict) -> dict:
         )
         return {"billing_id": billing_id, "status": "skipped_zero_amount"}
 
-    if not _claim_billing_record(billing_id):
-        # Another process already claimed it since the caller's unpaid scan.
+    if not _claim_billing_record(billing_id, location_id):
+        # Either another process already claimed it since the caller's
+        # unpaid scan, or -- see _claim_billing_record()'s own docstring --
+        # billing_id and location_id did not actually agree with each
+        # other; both look identical from here, and both are correctly
+        # rejected the same way.
         return {"billing_id": billing_id, "status": "already_claimed"}
 
     from integrations.paystack.auth.authorization_store import PaystackAuthorizationStore

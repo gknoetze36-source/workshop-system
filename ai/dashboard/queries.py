@@ -77,6 +77,17 @@ class WorkshopDashboardQueries:
             .order_by(Booking.created_at.asc())
         ).all())
 
+    def human_handoffs(self) -> list:
+        """Open Task(type="human_handoff") rows for this location --
+        the escalation signal AIConversationService._refuse_safely()
+        and its own max-tool-rounds path already create, which
+        previously had no consumer anywhere in the application (GATE
+        stage finding: escalate_to_human() creates a real row, but
+        nothing displayed it to a human). Reuses the existing, already
+        location-scoped TaskRepository rather than a new query."""
+        from repositories.task_repo import TaskRepository
+        return TaskRepository(self.session).list_open(self.location_id, task_type="human_handoff")
+
     def unanswered_messages(self) -> list[Message]:
         """Return conversations whose latest customer message is unanswered."""
         latest_inbound = select(func.max(Message.id)).where(

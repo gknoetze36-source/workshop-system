@@ -21,6 +21,22 @@ class MetaMessagingError(RuntimeError):
     pass
 
 
+class MetaSessionWindowClosedError(MetaMessagingError):
+    """Raised by send_auto() specifically when Meta's 24-hour customer
+    service window is closed and no approved template was supplied.
+
+    A distinguishable subclass -- not just MetaMessagingError -- so a
+    caller can tell "the provider requires an approved template we don't
+    have yet" apart from every other send failure (network error, invalid
+    number, genuine API rejection) without parsing the error string. This
+    is a business-as-usual outcome for messages sent well after the
+    customer's last contact (service-due reminders, yearly reminders,
+    post-service review requests), not a bug to retry or alarm on the same
+    way as a real failure.
+    """
+    pass
+
+
 class MetaMessagingService:
     def __init__(self, session: Session, *, graph: GraphApiClient, token_store: MetaTokenStore):
         self.session = session
@@ -46,16 +62,19 @@ class MetaMessagingService:
 
     def send_utility_template(
         self, *, location_id: int, conversation_id: int, to: str, name: str,
-        language_code: str = "en_ZA", components: list[Mapping[str, Any]] | None = None,
+        language_code: str = "en", components: list[Mapping[str, Any]] | None = None,
         max_attempts: int = 3,
     ) -> Message:
         template = self.templates.get(self.session, location_id=location_id, name=name, language=language_code)
+        # A missing/unapproved template means "blocked, needs a template" --
+        # the same outcome callers already handle for a closed session
+        # window, so they record it instead of failing the staff action.
         if template is None:
-            raise MetaMessagingError("template_not_registered")
+            raise MetaSessionWindowClosedError("template_not_registered")
         if template.category.upper() != "UTILITY":
-            raise MetaMessagingError("template_category_must_be_utility")
+            raise MetaSessionWindowClosedError("template_category_must_be_utility")
         if template.status.upper() != "APPROVED":
-            raise MetaMessagingError(f"template_not_sendable:{template.status}")
+            raise MetaSessionWindowClosedError(f"template_not_sendable:{template.status}")
         return self._send(
             location_id=location_id, conversation_id=conversation_id, to=to,
             body=f"[template:{name}]",
@@ -68,13 +87,13 @@ class MetaMessagingService:
 
     def send_auto(
         self, *, location_id: int, conversation_id: int, to: str, body: str,
-        template_name: str | None = None, template_language: str = "en_ZA",
+        template_name: str | None = None, template_language: str = "en",
         template_components: list[Mapping[str, Any]] | None = None,
     ) -> Message:
         if WhatsAppSessionWindow.is_open(self.session, location_id=location_id, conversation_id=conversation_id):
             return self.send_text(location_id=location_id, conversation_id=conversation_id, to=to, body=body)
         if not template_name:
-            raise MetaMessagingError("customer_service_window_closed: approved_template_required")
+            raise MetaSessionWindowClosedError("customer_service_window_closed: approved_template_required")
         return self.send_utility_template(
             location_id=location_id, conversation_id=conversation_id, to=to,
             name=template_name, language_code=template_language, components=template_components

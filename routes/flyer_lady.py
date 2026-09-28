@@ -16,9 +16,10 @@ from flyer_lady.models import FlyerLinkClick, Special, SpecialPost
 from models.integration_models import MetaSocialOAuthSession
 from datetime import datetime, timedelta, timezone
 from flyer_lady.platforms.whatsapp_status_asset import prepare as prepare_whatsapp_status
-from flyer_lady.publish_service import FlyerLadyPublishService
 from flyer_lady.service import SpecialService
 from integrations.storage.r2_client import MAX_UPLOAD_BYTES, R2Client, R2UploadError
+from flyer_lady.connectors.ui_status import get_all_connector_ui_states
+from integrations.storage.image_processing import normalize_to_jpeg
 from integrations.meta.auth.capability_config import FlyerLadyMetaConfig
 from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.services.graph_api_client import GraphApiClient
@@ -51,7 +52,12 @@ def index():
         connection = MetaSocialConnectionRepository().get_for_location(db, location_id)
         from models.integration_models import GoogleBusinessConnection
         google_connection = db.query(GoogleBusinessConnection).filter_by(location_id=location_id).one_or_none()
-        return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": click_count(db, location_id, s.id)} for s in specials], "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "google_connection": {"connected": bool(google_connection and google_connection.connection_status == "connected"), "business_name": google_connection.business_name if google_connection else None}})
+        # Registry-driven, covers all six platforms uniformly -- unlike
+        # social_connection/google_connection above, which stay exactly
+        # as they were (existing callers may still read them) rather
+        # than being removed as part of a UI-only task.
+        connectors = get_all_connector_ui_states(db, location_id)
+        return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": click_count(db, location_id, s.id)} for s in specials], "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "google_connection": {"connected": bool(google_connection and google_connection.connection_status == "connected"), "business_name": google_connection.business_name if google_connection else None}, "connectors": connectors})
     finally: db.close()
 
 @flyer_lady_bp.post("/specials")
@@ -107,7 +113,13 @@ def upload_media():
         return jsonify({"error": "Uploaded file is empty"}), 400
 
     try:
-        media_url = R2Client().upload_image(data, location_id=location_id)
+        # Instagram's publishing API expects JPEG; whatever accepted
+        # format was uploaded (JPEG/PNG/WebP) is normalized to a clean,
+        # EXIF-stripped, size-bounded JPEG before R2 ever sees it --
+        # R2Client itself is unchanged, and receives genuine JPEG bytes
+        # exactly as it would for a JPEG upload today.
+        jpeg_data = normalize_to_jpeg(data)
+        media_url = R2Client().upload_image(jpeg_data, location_id=location_id)
     except R2UploadError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -146,15 +158,26 @@ def queue_special(special_id):
 @flyer_lady_bp.post("/special-posts/<int:post_id>/publish")
 @require_role(*MANAGER_ROLES)
 def publish_now(post_id):
+    """Marks the post as immediately due and returns -- it does NOT call
+    FlyerLadyPublishService.publish_post() (the thing that actually talks
+    to Facebook/Instagram/Google) inline inside this web request.
+    jobs/flyer_lady.py's existing scheduler, which already runs every 5
+    minutes and already calls publish_post() for every post it finds due
+    (status pending/failed, next_attempt_at null or past), picks this one
+    up the same way -- "publish now" only clears any backoff delay from a
+    previous failed attempt, it doesn't do the request/response-cycle
+    publish itself anymore.
+    """
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
     db = get_session()
     try:
         post = db.scalar(select(SpecialPost).where(SpecialPost.id == post_id, SpecialPost.location_id == location_id))
         if not post: return jsonify({"error": "post not found"}), 404
-        post = FlyerLadyPublishService().publish_post(db, location_id, post)
-        db.commit(); return jsonify({"id": post.id, "status": post.status, "external_post_id": post.external_post_id, "error": post.error_message})
-    except ValueError as exc: db.rollback(); return jsonify({"error": str(exc)}), 400
+        post.status = "pending"
+        post.next_attempt_at = None
+        db.commit()
+        return jsonify({"id": post.id, "status": post.status}), 202
     finally: db.close()
 
 @flyer_lady_bp.get("/specials/<int:special_id>/whatsapp-status")

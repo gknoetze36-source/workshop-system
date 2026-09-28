@@ -125,7 +125,9 @@ def test_instagram_container_status_and_publish_contracts():
     method, url, kwargs = session.calls[-1]
     assert method == "POST"
     assert url.endswith("/v26.0/ig-1/media")
-    assert kwargs["data"] == {"image_url": "https://cdn.example/a.jpg", "caption": "Caption", "media_type": "IMAGE"}
+    # A normal image feed post must not send media_type=IMAGE -- Meta
+    # infers a standard image container when the key is omitted.
+    assert kwargs["data"] == {"image_url": "https://cdn.example/a.jpg", "caption": "Caption"}
 
     social.create_instagram_container("ig-1", "ig-token", "https://cdn.example/a.jpg", "", stories=True)
     method, url, kwargs = session.calls[-1]
@@ -142,6 +144,27 @@ def test_instagram_container_status_and_publish_contracts():
     assert method == "POST"
     assert url.endswith("/v26.0/ig-1/media_publish")
     assert kwargs["data"] == {"creation_id": "creation-1"}
+
+
+def test_instagram_image_container_omits_media_type():
+    """Focused regression guard for the exact bug: a normal Instagram
+    image feed post must NOT send media_type=IMAGE -- Meta does not
+    require it for a standard image container, only for Stories/Reels/
+    video. Checked as its own test, separate from the broader contract
+    test above, specifically so this one property can never silently
+    regress again."""
+    client, session = graph()
+    social = MetaSocialGraphClient(client)
+
+    social.create_instagram_container("ig-1", "ig-token", "https://cdn.example/photo.jpg", "A caption")
+    _, _, kwargs = session.calls[-1]
+    assert "media_type" not in kwargs["data"]
+    assert kwargs["data"] == {"image_url": "https://cdn.example/photo.jpg", "caption": "A caption"}
+
+    # Stories must be unaffected -- media_type is genuinely required there.
+    social.create_instagram_container("ig-1", "ig-token", "https://cdn.example/photo.jpg", "A caption", stories=True)
+    _, _, kwargs = session.calls[-1]
+    assert kwargs["data"]["media_type"] == "STORIES"
 
 
 def test_token_exchange_and_debug_token_contracts():

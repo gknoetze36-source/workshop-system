@@ -220,8 +220,8 @@ def test_double_charge_is_prevented_on_concurrent_claim(billing_location):
     with raw_location_scope(location_id):
         close_billing_period(usage_month=billing_location["period"], location_id=location_id)
         record = query_db("SELECT id FROM billing_records WHERE location_id=%s", (location_id,), one=True)
-        first_claim = _claim_billing_record(record["id"])
-        second_claim = _claim_billing_record(record["id"])
+        first_claim = _claim_billing_record(record["id"], location_id)
+        second_claim = _claim_billing_record(record["id"], location_id)
 
     assert first_claim is True
     assert second_claim is False, "a record already claimed must not be claimable again"

@@ -94,8 +94,16 @@ def meta_webhook_receive():
     raw_body = request.get_data(cache=True, as_text=False)
     signature = request.headers.get("X-Hub-Signature-256")
     try:
-        MetaSignatureVerifier(_whatsapp_app_secret()).require_valid(raw_body, signature)
+        app_secret = _whatsapp_app_secret()
+    except (RuntimeError, ValueError) as exc:
+        # Config errors name the variable only, never its value.
+        logger.error("meta_webhook_config_invalid error=%s", exc)
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    try:
+        MetaSignatureVerifier(app_secret).require_valid(raw_body, signature)
     except (RuntimeError, ValueError):
+        # Almost always META_WHATSAPP_APP_SECRET belonging to a different
+        # Meta app than the one delivering this webhook.
         logger.warning("meta_webhook_signature_rejected")
         return Response("Forbidden", status=403, mimetype="text/plain")
 
@@ -183,6 +191,34 @@ def meta_webhook_receive():
                 continue
 
             with location_transaction(event_location_id) as ai_session:
+                # A prior turn on this same customer may have already
+                # created a Task(type="human_handoff") -- via
+                # AIConversationService._refuse_safely(), now also reached
+                # by the max-tool-rounds path fixed above. escalate_to_human()
+                # (integrations/ai/tools/registry.py) keys that task by
+                # related_entity=f"customer:{id}", not a per-conversation
+                # field, so this checks the same key: an open handoff for
+                # this customer pauses the AI across all of their
+                # conversations, not just the one that triggered it, which
+                # is the more conservative reading. Nothing previously
+                # checked this at all -- the AI kept auto-replying to every
+                # subsequent message regardless of an open handoff.
+                from models.core import Task
+                open_handoff = ai_session.scalar(
+                    select(Task).where(
+                        Task.location_id == event_location_id,
+                        Task.type == "human_handoff",
+                        Task.status == "open",
+                        Task.related_entity == f"customer:{event_result.get('customer_id')}",
+                    )
+                )
+                if open_handoff is not None:
+                    ai_results.append({
+                        "event_id": item.get("event_id"), "ok": True,
+                        "skipped": "open_human_handoff", "task_id": open_handoff.id,
+                    })
+                    continue
+
                 advisor = build_service_advisor(ai_session)
 
                 def deliver(**kwargs):

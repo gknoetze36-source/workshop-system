@@ -73,12 +73,21 @@ def test_full_oauth_connect_flow_saves_a_real_connection(monkeypatch):
         instance.list_locations.return_value = [{"name": "accounts/12345/locations/67890", "title": "Test Listing"}]
         callback_response = client.get(f"/dashboard/google-business/connect/callback?code=fakecode&state={state}")
         assert callback_response.status_code == 200
-        assert "Test Listing" in callback_response.get_data(as_text=True)
+        callback_html = callback_response.get_data(as_text=True)
+        assert "Test Listing" in callback_html
+
+    # The refresh token no longer travels through the session -- the
+    # picker page's hidden oauth_session_id field is what a real browser
+    # submits back on completion, so the test does the same rather than
+    # assume the old session-based shortcut still works.
+    oauth_session_id = re.search(r'name="oauth_session_id" value="([^"]+)"', callback_html).group(1)
+    assert oauth_session_id
 
     token = csrf_from("/dashboard")
     complete_response = client.post("/dashboard/google-business/connect/complete", data={
         "csrf_token": token, "account_id": "accounts/12345",
         "google_location_id": "accounts/12345/locations/67890", "title": "Test Listing",
+        "oauth_session_id": oauth_session_id,
     })
     assert complete_response.status_code == 302
 
@@ -201,7 +210,14 @@ def test_publish_fails_gracefully_without_a_connection(monkeypatch):
         post_obj = session2.get(SpecialPostModel, post_id)
         result = FlyerLadyPublishService().publish_post(session2, location_id, post_obj)
         session2.commit()
-        assert result.status == "failed"
+        # "not connected" is a plain ValueError raised by publish_post()
+        # itself, before any external call -- retry_policy.py classifies
+        # that as permanent (invalid configuration), not retryable, so
+        # this now resolves to failed_permanently, not failed. Confirmed
+        # this is the current, correct behavior in
+        # test_flyer_lady_retry_policy.py's own dedicated coverage of
+        # exactly this classification.
+        assert result.status == "failed_permanently"
         assert "not connected" in result.error_message
     finally:
         session2.close()

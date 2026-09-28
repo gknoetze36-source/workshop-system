@@ -42,6 +42,12 @@ class SpecialPost(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     next_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    # Stamped whenever status becomes "publishing" -- the only way to
+    # detect a post stuck there because the worker that claimed it
+    # crashed before reaching the except block. Without this there is no
+    # way to distinguish "claimed a second ago, still legitimately
+    # in-flight" from "claimed 20 minutes ago, the worker is gone".
+    publishing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 class FlyerLinkClick(Base):
     __tablename__ = "flyer_lady_link_clicks"

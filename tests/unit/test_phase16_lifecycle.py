@@ -32,10 +32,19 @@ def test_booking_reminder_is_18_previous_day():
 
 
 def test_work_to_be_done_schedules_next_month():
+    from datetime import datetime, timezone
     session,t,c,v,b=seed()
     f=LifecycleCommunicationService(session).work_to_be_done(b.id,t.id,completed=False)
     assert f.type == 'work_to_be_done'
-    assert f.scheduled_for.month == 9
+    # work_to_be_done() computes scheduled = _add_months(datetime.now(utc), 1)
+    # -- genuinely relative to whenever this runs, not a fixed calendar
+    # date. A hardcoded month number (this was `== 9`) is only correct in
+    # whichever month it was written; comparing against the same relative
+    # calculation the code itself uses is correct on any date, including
+    # December -> January's year rollover.
+    now = datetime.now(timezone.utc)
+    expected_month = 1 if now.month == 12 else now.month + 1
+    assert f.scheduled_for.month == expected_month
 
 
 def test_completed_work_does_not_schedule():

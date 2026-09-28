@@ -10,17 +10,19 @@ from __future__ import annotations
 from services.integration_status import require_configured
 
 import secrets
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session as flask_session, url_for
+from sqlalchemy import select
 
 from database import get_session
 from integrations.google.auth.config import GoogleAuthConfig
 from integrations.google.auth.token_store import GoogleTokenStore
 from integrations.google.business.api_client import GoogleBusinessApiClient
-from models.integration_models import GoogleBusinessConnection
-from services.auth_service import login_required
+from models.integration_models import GoogleBusinessConnection, GoogleBusinessOAuthSession
 from helpers.location import current_location_id
+from helpers.permission import require_role, MANAGER_ROLES
 
 google_business_bp = Blueprint("google_business", __name__, url_prefix="/dashboard/google-business")
 
@@ -30,7 +32,7 @@ def _location() -> int:
 
 
 @google_business_bp.get("/connect/start")
-@login_required
+@require_role(*MANAGER_ROLES)
 def connect_start():
     # A deployment without credentials must say so, not raise.
     unconfigured = require_configured("google_business")
@@ -64,7 +66,7 @@ def connect_start():
 
 
 @google_business_bp.get("/connect/callback")
-@login_required
+@require_role(*MANAGER_ROLES)
 def connect_callback():
     """Google redirects the user's real browser here -- like Flyer Lady's
     Facebook callback, this must render a real page for the user to
@@ -124,12 +126,44 @@ def connect_callback():
     if not options:
         return render_template("google_business_select_location.html", error="No Business Profile locations were found for this Google account. Make sure you're an owner/manager of the listing.", onboarding=onboarding)
 
-    flask_session["google_business_pending_refresh_token"] = refresh_token
-    return render_template("google_business_select_location.html", options=options, onboarding=onboarding)
+    # The refresh token is a long-lived credential -- it must never sit in
+    # the browser-held Flask session (signed, not encrypted; readable by
+    # anyone who has the cookie) for however long the user takes to pick
+    # a listing. Stored server-side instead, encrypted, following the
+    # exact same pattern routes/flyer_lady.py's social_connect_callback()
+    # already uses for Meta's equivalent token: only this row's opaque
+    # integer id travels through the browser, as a hidden form field.
+    db = get_session()
+    try:
+        oauth = GoogleBusinessOAuthSession(
+            location_id=location_id, state_nonce=request.args.get("state") or secrets.token_urlsafe(32),
+            encrypted_refresh_token="", redirect_uri=redirect_uri, status="started",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+            # The allow-list /connect/complete validates the submitted
+            # selection against -- exactly what Google returned for this
+            # grant, nothing assumed or trusted from the browser.
+            options_json=options,
+        )
+        db.add(oauth)
+        db.flush()
+        GoogleTokenStore().save_pending_oauth_token(db, oauth, refresh_token)
+        oauth.status = "options_loaded"
+        db.commit()
+        # Captured as a plain value before the session closes below --
+        # db.commit() expires the ORM object's attributes by default, so
+        # reading oauth.id after db.close() risks a DetachedInstanceError.
+        oauth_session_id = oauth.id
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+    return render_template("google_business_select_location.html", options=options, oauth_session_id=oauth_session_id, onboarding=onboarding)
 
 
 @google_business_bp.post("/connect/complete")
-@login_required
+@require_role(*MANAGER_ROLES)
 def connect_complete():
     try:
         location_id = _location()
@@ -142,32 +176,69 @@ def connect_complete():
     account_id = payload.get("account_id")
     google_location_id = payload.get("google_location_id")
     title = payload.get("title")
+    oauth_session_id = payload.get("oauth_session_id")
 
     def _fail(message, status=400):
         if is_form_post:
             return render_template("google_business_select_location.html", error=message, onboarding=onboarding), status
         return jsonify({"error": message}), status
 
-    refresh_token = flask_session.get("google_business_pending_refresh_token")
-    if not refresh_token or not account_id or not google_location_id:
+    if not oauth_session_id or not account_id or not google_location_id:
         return _fail("Your connection session expired. Please try connecting again.")
 
     db = get_session()
     try:
+        oauth = db.scalar(select(GoogleBusinessOAuthSession).where(
+            GoogleBusinessOAuthSession.id == oauth_session_id,
+            GoogleBusinessOAuthSession.location_id == location_id,
+        ))
+        if not oauth or oauth.status != "options_loaded" or oauth.consumed_at is not None:
+            return _fail("Your connection session expired. Please try connecting again.")
+        # expires_at is DateTime(timezone=True) and always written as an
+        # aware UTC value, but SQLite silently returns it naive on
+        # round-trip -- normalizing rather than assuming either backend's
+        # behavior, matching routes/flyer_lady.py's identical handling of
+        # this exact gap for the same reason.
+        expires_at = oauth.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            return _fail("Your connection session expired. Please try connecting again.")
+
+        # account_id/google_location_id arrive from the browser with no
+        # inherent proof they were ever actually returned by Google for
+        # this authenticated grant -- a submitted pair not present in
+        # what the callback stored is rejected outright, rather than
+        # trusted because the surrounding oauth session is otherwise
+        # valid. Matches by value, not by trusting the request's title,
+        # which is why the connection is saved with the STORED title
+        # below rather than the submitted one.
+        matched_option = next(
+            (opt for opt in (oauth.options_json or [])
+             if opt.get("account_id") == account_id and opt.get("location_id") == google_location_id),
+            None,
+        )
+        if matched_option is None:
+            return _fail("That Business Profile listing wasn't offered during your Google sign-in. Please try connecting again.")
+
+        refresh_token = GoogleTokenStore().get_pending_oauth_token(oauth)
+        verified_title = matched_option.get("title") or title
+
         connection = db.query(GoogleBusinessConnection).filter_by(location_id=location_id).one_or_none()
         if connection is None:
             connection = GoogleBusinessConnection(
                 location_id=location_id, google_account_id=account_id, google_location_id=google_location_id,
-                business_name=title, encrypted_refresh_token="",
+                business_name=verified_title, encrypted_refresh_token="",
             )
             db.add(connection)
         else:
             connection.google_account_id = account_id
             connection.google_location_id = google_location_id
-            connection.business_name = title
+            connection.business_name = verified_title
         GoogleTokenStore().save_refresh_token(db, connection, refresh_token)
+        oauth.status = "consumed"
+        oauth.consumed_at = datetime.now(timezone.utc)
         db.commit()
-        flask_session.pop("google_business_pending_refresh_token", None)
         if is_form_post:
             return redirect(url_for("onboarding.onboarding_business") if onboarding else url_for("flyer_lady.ui"))
         return jsonify({"status": "connected", "business_name": connection.business_name})
