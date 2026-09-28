@@ -99,6 +99,7 @@ class FakeOperations:
             "account_review_status": "APPROVED",
         }
         self.assigned_users: list[dict] = []
+        self.business_system_users: list[dict] = []
         self.assign_result = {"success": True}
         self.extended_credits = [{"id": CREDIT_LINE_ID, "legal_entity_name": "VANTA"}]
         self.existing_allocations: list[dict] = []
@@ -135,6 +136,10 @@ class FakeOperations:
     def get_system_user_identity(self):
         self._record("get_system_user_identity")
         return self.identity
+
+    def list_business_system_users(self, business_id):
+        self._record("list_business_system_users", business_id)
+        return list(self.business_system_users)
 
     def list_assigned_users(self, waba_id):
         self._record("list_assigned_users", waba_id)
@@ -1168,7 +1173,7 @@ def test_configured_system_user_id_is_verified_against_meta(db):
     db.commit()
 
     assert result.completed is False
-    assert "META_SYSTEM_USER_ID does not match" in result.error["message"]
+    assert "does not match the System User" in result.error["message"]
 
 
 def test_missing_provider_configuration_fails_before_any_meta_call(db):
@@ -1240,3 +1245,14 @@ def test_provider_config_reads_the_whatsapp_system_user_token_name(monkeypatch):
     monkeypatch.delenv("META_SYSTEM_USER_TOKEN", raising=False)
     monkeypatch.setenv("META_WHATSAPP_SYSTEM_USER_TOKEN", "EAAGsystemusertoken")
     assert MetaProviderConfig.from_env().system_user_token == "EAAGsystemusertoken"
+
+
+def test_business_scoped_system_user_id_is_accepted_when_me_returns_another(db):
+    """Meta's /me can return an app-scoped ID; the business-scoped one must still pass."""
+    location = make_location(db)
+    make_connection(db, location)
+    ops = registered_phone_ops()
+    ops.business_system_users = [{"id": "1111111111111111", "name": "VANTA System User"}]
+    service, _ = make_service(operations=ops, provider=provider_config(system_user_id="1111111111111111"))
+    outcome = service.verify_provider_configuration()
+    assert outcome.detail["system_user_id"] == "1111111111111111"

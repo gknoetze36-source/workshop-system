@@ -320,10 +320,24 @@ class TechProviderOnboardingService:
             )
         configured = self.provider.system_user_id
         if configured and configured != resolved_id:
+            # /me may answer with an app-scoped ID; the business-scoped ID in
+            # Business Settings is the one /assigned_users needs. Accept the
+            # configured ID when it is one of the business's System Users.
+            try:
+                business_users = self.operations.list_business_system_users(self.provider.business_id)
+            except MetaGraphAPIError:
+                business_users = []
+            if configured in {str(u.get("id")) for u in business_users if isinstance(u, dict)}:
+                return StepOutcome(
+                    "provider_configuration",
+                    "performed",
+                    {"system_user_id": configured, "me_id": resolved_id, "system_user_name": identity.get("name")},
+                )
             raise OnboardingStepError(
                 step,
-                "META_SYSTEM_USER_ID does not match the System User that META_SYSTEM_USER_TOKEN "
-                "represents at Meta.",
+                f"META_SYSTEM_USER_ID ({configured}) does not match the System User that "
+                f"META_SYSTEM_USER_TOKEN represents at Meta ({resolved_id}), and is not one of "
+                "the business portfolio's System Users.",
                 remediation=(
                     "Correct META_SYSTEM_USER_ID, or generate the token from the intended "
                     "System User."
