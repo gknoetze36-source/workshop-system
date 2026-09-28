@@ -84,7 +84,9 @@ class MetaProviderConfig:
         return cls(
             business_id=_env("META_BUSINESS_ID"),
             system_user_id=_env("META_SYSTEM_USER_ID"),
-            system_user_token=_env("META_SYSTEM_USER_TOKEN"),
+            # Railway carries META_WHATSAPP_SYSTEM_USER_TOKEN (the name the rest
+            # of the app and integration_status use); the bare name is legacy.
+            system_user_token=_env("META_WHATSAPP_SYSTEM_USER_TOKEN") or _env("META_SYSTEM_USER_TOKEN"),
             credit_line_id=_env("META_CREDIT_LINE_ID"),
             assigned_tasks=tasks,
             credit_sharing_enabled=_env_bool("META_CREDIT_SHARING_ENABLED", True),

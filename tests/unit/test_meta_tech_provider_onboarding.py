@@ -1232,3 +1232,11 @@ def test_missing_connection_is_a_clear_error(db):
     service, _ = make_service()
     with pytest.raises(OnboardingStepError, match="No Meta WhatsApp connection"):
         service.run_onboarding(db, location.id)
+
+
+def test_provider_config_reads_the_whatsapp_system_user_token_name(monkeypatch):
+    # Production sets META_WHATSAPP_SYSTEM_USER_TOKEN only; onboarding must see it.
+    from integrations.meta.business.provider_config import MetaProviderConfig
+    monkeypatch.delenv("META_SYSTEM_USER_TOKEN", raising=False)
+    monkeypatch.setenv("META_WHATSAPP_SYSTEM_USER_TOKEN", "EAAGsystemusertoken")
+    assert MetaProviderConfig.from_env().system_user_token == "EAAGsystemusertoken"
