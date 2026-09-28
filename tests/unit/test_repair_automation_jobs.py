@@ -442,6 +442,7 @@ def test_scheduler_one_job_failure_does_not_stop_other_jobs(monkeypatch):
         raise RuntimeError("simulated job failure")
 
     monkeypatch.setattr(scheduler_module, "run_meta_token_monitor", _boom)
+    monkeypatch.setattr(scheduler_module, "run_meta_preflight", lambda: {"ok": True})
     monkeypatch.setattr(scheduler_module, "run_template_sync", lambda: {"ok": True})
     monkeypatch.setattr(scheduler_module, "run_lifecycle_communication", lambda: {"ok": True})
     monkeypatch.setattr(scheduler_module, "run_follow_up_worker", lambda: {"ok": True})
@@ -454,6 +455,6 @@ def test_scheduler_one_job_failure_does_not_stop_other_jobs(monkeypatch):
 
     assert result["meta_token_monitor"]["status"] == "error"
     assert "simulated job failure" in result["meta_token_monitor"]["error"]
-    for name in ("template_sync", "lifecycle_communication", "follow_up", "flyer_lady", "booking_expiry",
+    for name in ("meta_preflight", "template_sync", "lifecycle_communication", "follow_up", "flyer_lady", "booking_expiry",
                  "paystack_reconciliation", "automation_engine"):
         assert result[name]["status"] == "ok", f"{name} must have run despite meta_token_monitor's failure"
