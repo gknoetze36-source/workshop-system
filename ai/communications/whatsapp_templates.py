@@ -20,6 +20,7 @@ VEHICLE_READY = "vehicle_ready_for_collection"           # name, vehicle, worksh
 MISSED_BOOKING = "missed_booking_recovery"               # name, vehicle, workshop, date
 OUTSTANDING_WORK = "outstanding_work_reminder"           # name, workshop, vehicle
 ANNUAL_SERVICE = "annual_service_due"                    # name, vehicle, workshop, last-service date
+SERVICE_DUE = "service_due_reminder"                     # name, workshop, vehicle, service type
 
 
 def _clean(value) -> str:

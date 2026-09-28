@@ -313,7 +313,17 @@ class DeterministicFollowUpService:
                     if not recommendation:
                         item.status = "cancelled"
                         continue
-                    message = self._send(location_id, item.customer_id, self.SERVICE_DUE_TEXT, category=SERVICE_FOLLOWUP)
+                    customer = self.session.scalar(select(Customer).where(
+                        Customer.id == item.customer_id, Customer.location_id == location_id))
+                    vehicle = self.session.scalar(select(Vehicle).where(
+                        Vehicle.id == recommendation.vehicle_id, Vehicle.location_id == location_id))
+                    message = self._send(
+                        location_id, item.customer_id, self.SERVICE_DUE_TEXT, category=SERVICE_FOLLOWUP,
+                        template_name=wt.SERVICE_DUE,
+                        template_components=wt.body(
+                            wt.customer_name(customer), wt.workshop_name(self.session, location_id),
+                            wt.vehicle_label(vehicle), recommendation.service_type),
+                    )
                 elif item.type == "booking_reminder":
                     booking = self.session.scalar(select(Booking).where(
                         Booking.id == booking_id, Booking.location_id == location_id

@@ -70,3 +70,20 @@ def test_template_webhook_reads_metas_language_field():
     })
     row = session.scalar(select(MetaMessageTemplate).where(MetaMessageTemplate.name == "annual_service_due"))
     assert row.language == "en" and row.status == "APPROVED"
+
+
+def test_service_due_uses_template_with_service_type():
+    from models.core import Recommendation
+    session = setup_session()
+    location, _, vehicle, _, token_store = seed(session)
+    _approve(session, location.id, "service_due_reminder")
+    rec = Recommendation(location_id=location.id, vehicle_id=vehicle.id, service_type="Oil change",
+                         due_date=datetime(2026, 9, 1, tzinfo=timezone.utc), status="open")
+    session.add(rec); session.commit()
+    graph = FakeGraph()
+    service = DeterministicFollowUpService(session, MetaMessagingService(session, graph=graph, token_store=token_store))
+    now = datetime(2026, 9, 25, tzinfo=timezone.utc)
+    service.schedule_service_due(location.id, rec.id, now=now)
+    service.process_due(location.id, now=now)
+    assert graph.sent[0]["template"]["name"] == "service_due_reminder"
+    assert _params(graph.sent[0]) == ["Naledi", "Reconfirm Workshop", "Toyota Hilux", "Oil change"]

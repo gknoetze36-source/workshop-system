@@ -14,6 +14,7 @@ configure_logging()
 init_sentry()
 
 from .meta_token_monitor import run_meta_token_monitor
+from .template_sync import run_template_sync
 from .lifecycle_communication import run_lifecycle_communication
 from .follow_up import run_follow_up_worker
 from .flyer_lady import run_flyer_lady_publish_queue
@@ -40,6 +41,7 @@ def run_scheduled_jobs() -> dict:
     """Execute all production scheduled jobs once, then return."""
     return {
         "meta_token_monitor": _run("meta_token_monitor", run_meta_token_monitor),
+        "template_sync": _run("template_sync", run_template_sync),
         "lifecycle_communication": _run("lifecycle_communication", run_lifecycle_communication),
         "follow_up": _run("follow_up", run_follow_up_worker),
         "flyer_lady": _run("flyer_lady", run_flyer_lady_publish_queue),

@@ -94,8 +94,16 @@ def meta_webhook_receive():
     raw_body = request.get_data(cache=True, as_text=False)
     signature = request.headers.get("X-Hub-Signature-256")
     try:
-        MetaSignatureVerifier(_whatsapp_app_secret()).require_valid(raw_body, signature)
+        app_secret = _whatsapp_app_secret()
+    except (RuntimeError, ValueError) as exc:
+        # Config errors name the variable only, never its value.
+        logger.error("meta_webhook_config_invalid error=%s", exc)
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    try:
+        MetaSignatureVerifier(app_secret).require_valid(raw_body, signature)
     except (RuntimeError, ValueError):
+        # Almost always META_WHATSAPP_APP_SECRET belonging to a different
+        # Meta app than the one delivering this webhook.
         logger.warning("meta_webhook_signature_rejected")
         return Response("Forbidden", status=403, mimetype="text/plain")
 
