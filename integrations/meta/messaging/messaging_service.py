@@ -62,16 +62,19 @@ class MetaMessagingService:
 
     def send_utility_template(
         self, *, location_id: int, conversation_id: int, to: str, name: str,
-        language_code: str = "en_ZA", components: list[Mapping[str, Any]] | None = None,
+        language_code: str = "en", components: list[Mapping[str, Any]] | None = None,
         max_attempts: int = 3,
     ) -> Message:
         template = self.templates.get(self.session, location_id=location_id, name=name, language=language_code)
+        # A missing/unapproved template means "blocked, needs a template" --
+        # the same outcome callers already handle for a closed session
+        # window, so they record it instead of failing the staff action.
         if template is None:
-            raise MetaMessagingError("template_not_registered")
+            raise MetaSessionWindowClosedError("template_not_registered")
         if template.category.upper() != "UTILITY":
-            raise MetaMessagingError("template_category_must_be_utility")
+            raise MetaSessionWindowClosedError("template_category_must_be_utility")
         if template.status.upper() != "APPROVED":
-            raise MetaMessagingError(f"template_not_sendable:{template.status}")
+            raise MetaSessionWindowClosedError(f"template_not_sendable:{template.status}")
         return self._send(
             location_id=location_id, conversation_id=conversation_id, to=to,
             body=f"[template:{name}]",
@@ -84,7 +87,7 @@ class MetaMessagingService:
 
     def send_auto(
         self, *, location_id: int, conversation_id: int, to: str, body: str,
-        template_name: str | None = None, template_language: str = "en_ZA",
+        template_name: str | None = None, template_language: str = "en",
         template_components: list[Mapping[str, Any]] | None = None,
     ) -> Message:
         if WhatsAppSessionWindow.is_open(self.session, location_id=location_id, conversation_id=conversation_id):

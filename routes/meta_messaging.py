@@ -43,7 +43,7 @@ def send_message():
             to=str(payload["to"]),
             body=str(payload["body"]),
             template_name=payload.get("template_name"),
-            template_language=str(payload.get("template_language") or "en_ZA"),
+            template_language=str(payload.get("template_language") or "en"),
             template_components=payload.get("template_components"),
         )
         session.commit()

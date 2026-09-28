@@ -15,7 +15,8 @@ from sqlalchemy import select
 from constants.message_categories import (
     BOOKING_CONFIRMATION, BOOKING_REMINDER, VEHICLE_READY, SERVICE_FOLLOWUP,
 )
-from models.core import AuditLog, Booking, Conversation, Customer, FollowUp, Service
+from models.core import AuditLog, Booking, Conversation, Customer, FollowUp, Service, Vehicle
+from ai.communications import whatsapp_templates as wt
 from ai.follow_up.service import DeterministicFollowUpService
 from repositories.audit_repo import AuditLogRepository
 from integrations.meta.messaging.messaging_service import MetaMessagingService, MetaSessionWindowClosedError
@@ -45,7 +46,7 @@ class LifecycleCommunicationService:
     # meta_message_templates, before this will actually send. Until a
     # workshop has that template approved, this raises rather than silently
     # pretending to have asked the customer anything.
-    BOOKING_CONFIRMATION_REQUEST_TEMPLATE_NAME = "booking_confirmation_request"
+    BOOKING_CONFIRMATION_REQUEST_TEMPLATE_NAME = wt.BOOKING_CONFIRMATION_REQUEST
     BOOKING_CONFIRMATION_REQUEST_TEXT = (
         "Please confirm your booking for {date} morning. "
         "Reply YES to confirm or NO to cancel."
@@ -104,7 +105,7 @@ class LifecycleCommunicationService:
 
     def _send(self, location_id: int, customer_id: int, text: str, *,
               category=None, now=None, template_name: str | None = None,
-              template_language: str = "en_ZA", template_components=None):
+              template_language: str = wt.TEMPLATE_LANGUAGE, template_components=None):
         """Send one lifecycle message, subject to the customer's consent.
 
         THIS IS THE LIVE OUTBOUND PATH. Marketing suppression was originally
@@ -150,6 +151,28 @@ class LifecycleCommunicationService:
             template_language=template_language,
             template_components=template_components,
         )
+
+    def _template_parts(self, location_id: int, customer_id: int, vehicle_id: int | None):
+        customer = self.session.scalar(select(Customer).where(
+            Customer.id == customer_id, Customer.location_id == location_id))
+        vehicle = None
+        if vehicle_id is not None:
+            vehicle = self.session.scalar(select(Vehicle).where(
+                Vehicle.id == vehicle_id, Vehicle.location_id == location_id))
+        return (wt.customer_name(customer), wt.vehicle_label(vehicle),
+                wt.workshop_name(self.session, location_id))
+
+    def _last_service_at(self, location_id: int, vehicle_id: int):
+        service = self.session.scalar(select(Service).where(
+            Service.location_id == location_id, Service.vehicle_id == vehicle_id,
+        ).order_by(Service.performed_at.desc()))
+        if service:
+            return service.performed_at
+        booking = self.session.scalar(select(Booking).where(
+            Booking.location_id == location_id, Booking.vehicle_id == vehicle_id,
+            Booking.status == "completed",
+        ).order_by(Booking.start_time.desc()))
+        return booking.start_time if booking else None
 
     @staticmethod
     def _may_send(location_id: int, customer_id: int, category) -> bool:
@@ -261,9 +284,12 @@ class LifecycleCommunicationService:
         # being worked on; the customer may well not have messaged since
         # drop-off, so this is a real, not theoretical, session-window risk.
         try:
+            name, vehicle, workshop = self._template_parts(location_id, booking.customer_id, booking.vehicle_id)
             message = self._send(
                 location_id, booking.customer_id, self.READY_FOR_COLLECTION_TEXT,
                 category=VEHICLE_READY,
+                template_name=wt.VEHICLE_READY,
+                template_components=wt.body(name, vehicle, workshop),
             )
         except MetaSessionWindowClosedError:
             record = FollowUp(
@@ -321,8 +347,12 @@ class LifecycleCommunicationService:
         # WhatsApp contact recently, so this is one of the more likely
         # paths to actually hit a closed session window.
         try:
+            name, vehicle, workshop = self._template_parts(location_id, booking.customer_id, booking.vehicle_id)
             message = self._send(location_id, booking.customer_id, self.MISSED_BOOKING_TEXT,
-                                 category=SERVICE_FOLLOWUP)
+                                 category=SERVICE_FOLLOWUP,
+                                 template_name=wt.MISSED_BOOKING,
+                                 template_components=wt.body(name, vehicle, workshop,
+                                                             wt.human_date(booking.start_time)))
         except MetaSessionWindowClosedError:
             record = FollowUp(
                 location_id=location_id, customer_id=booking.customer_id,
@@ -378,19 +408,9 @@ class LifecycleCommunicationService:
     def yearly_message_for_vehicle(self, location_id: int, vehicle_id: int, *, now=None):
         """Schedule one annual reminder from the latest service record or completed booking."""
         now = now or datetime.now(timezone.utc)
-        service = self.session.scalar(select(Service).where(
-            Service.location_id == location_id, Service.vehicle_id == vehicle_id,
-        ).order_by(Service.performed_at.desc()))
-        if service:
-            base = service.performed_at
-        else:
-            booking = self.session.scalar(select(Booking).where(
-                Booking.location_id == location_id, Booking.vehicle_id == vehicle_id,
-                Booking.status == "completed",
-            ).order_by(Booking.start_time.desc()))
-            if not booking:
-                return None
-            base = booking.start_time
+        base = self._last_service_at(location_id, vehicle_id)
+        if base is None:
+            return None
         if base.tzinfo is None:
             base = base.replace(tzinfo=timezone.utc)
         scheduled = self._add_months(base, 12)
@@ -438,11 +458,25 @@ class LifecycleCommunicationService:
                                self.BOOKING_REMINDER_TEXT.format(date=booking.start_time.date().isoformat()),
                                category=BOOKING_REMINDER)
                 elif kind == "work_to_be_done":
+                    booking = self.session.scalar(select(Booking).where(
+                        Booking.id == booking_id, Booking.location_id == location_id
+                    ))
+                    name, vehicle, workshop = self._template_parts(
+                        location_id, item.customer_id, booking.vehicle_id if booking else None)
                     self._send(location_id, item.customer_id, self.WORK_TO_BE_DONE_TEXT,
-                               category=SERVICE_FOLLOWUP)
+                               category=SERVICE_FOLLOWUP,
+                               template_name=wt.OUTSTANDING_WORK,
+                               template_components=wt.body(name, workshop, vehicle))
                 elif kind == "yearly_message":
+                    vehicle_id = (item.payload or {}).get("vehicle_id")
+                    name, vehicle, workshop = self._template_parts(location_id, item.customer_id, vehicle_id)
+                    last = self._last_service_at(location_id, vehicle_id) if vehicle_id else None
                     self._send(location_id, item.customer_id, self.YEARLY_MESSAGE_TEXT,
-                               category=SERVICE_FOLLOWUP)
+                               category=SERVICE_FOLLOWUP,
+                               template_name=wt.ANNUAL_SERVICE,
+                               template_components=wt.body(
+                                   name, vehicle, workshop,
+                                   wt.human_date(last) if last else "your last visit"))
                 item.status = "sent"
                 sent_ids.append(item.id)
                 self.audit.record(location_id, "system", f"lifecycle.{kind}_sent", "follow_up", item.id)

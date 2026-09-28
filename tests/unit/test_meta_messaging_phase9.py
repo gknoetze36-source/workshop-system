@@ -110,7 +110,7 @@ def test_send_utility_template_requires_approved_template():
     location_id, conversation_id, _, token_store = seed(session, inbound_age_hours=25)
     session.add(MetaMessageTemplate(
         location_id=location_id, waba_id="waba-1", name="booking_confirmation",
-        language="en_ZA", category="UTILITY", status="APPROVED"
+        language="en", category="UTILITY", status="APPROVED"
     ))
     session.commit()
     service = MetaMessagingService(session, graph=FakeGraph(), token_store=token_store)
@@ -126,7 +126,7 @@ def test_template_must_be_approved_and_utility():
     location_id, conversation_id, _, token_store = seed(session, inbound_age_hours=25)
     session.add(MetaMessageTemplate(
         location_id=location_id, waba_id="waba-1", name="pending",
-        language="en_ZA", category="UTILITY", status="PENDING"
+        language="en", category="UTILITY", status="PENDING"
     ))
     session.commit()
     service = MetaMessagingService(session, graph=FakeGraph(), token_store=token_store)

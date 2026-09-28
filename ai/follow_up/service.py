@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from constants.message_categories import BOOKING_REMINDER, SERVICE_FOLLOWUP, VEHICLE_READY
 from models.core import Booking, Customer, FollowUp, Recommendation, Vehicle
+from ai.communications import whatsapp_templates as wt
 from ai.recommendations.rule_engine import ServiceRuleEngine
 from repositories.audit_repo import AuditLogRepository
 from integrations.meta.messaging.messaging_service import MetaMessagingService, MetaSessionWindowClosedError
@@ -51,7 +52,8 @@ class DeterministicFollowUpService:
             raise ValueError("ready_collection_nudge_hours must be at least 1")
         self.ready_collection_nudge_hours = configured
 
-    def _send(self, location_id: int, customer_id: int, text: str, *, category=None):
+    def _send(self, location_id: int, customer_id: int, text: str, *, category=None,
+              template_name: str | None = None, template_components=None):
         """category defaults to None (operational) -- every current caller in
         this class sends service_due/booking_reminder/ready_for_collection_nudge,
         all OPERATIONAL_CATEGORIES in constants/message_categories.py, so this
@@ -95,7 +97,18 @@ class DeterministicFollowUpService:
             conversation_id=conversation.id,
             to=customer.whatsapp_number,
             body=text,
+            template_name=template_name,
+            template_language=wt.TEMPLATE_LANGUAGE,
+            template_components=template_components,
         )
+
+    def _booking_template_parts(self, booking: Booking):
+        customer = self.session.scalar(select(Customer).where(
+            Customer.id == booking.customer_id, Customer.location_id == booking.location_id))
+        vehicle = self.session.scalar(select(Vehicle).where(
+            Vehicle.id == booking.vehicle_id, Vehicle.location_id == booking.location_id))
+        return (wt.customer_name(customer), wt.vehicle_label(vehicle),
+                wt.workshop_name(self.session, booking.location_id))
 
     def _existing(self, location_id: int, followup_type: str, dedupe: dict) -> FollowUp | None:
         rows = list(self.session.scalars(select(FollowUp).where(
@@ -312,6 +325,9 @@ class DeterministicFollowUpService:
                         location_id, item.customer_id,
                         self.BOOKING_REMINDER_TEXT.format(date=booking.start_time.date().isoformat()),
                         category=BOOKING_REMINDER,
+                        template_name=wt.BOOKING_REMINDER,
+                        template_components=wt.body(*self._booking_template_parts(booking),
+                                                    wt.human_date(booking.start_time)),
                     )
                 elif item.type == "ready_for_collection_nudge":
                     booking = self.session.scalar(select(Booking).where(
@@ -321,7 +337,9 @@ class DeterministicFollowUpService:
                     if not booking or booking.status != "ready_for_collection":
                         item.status = "cancelled"
                         continue
-                    message = self._send(location_id, item.customer_id, self.READY_COLLECTION_NUDGE_TEXT, category=VEHICLE_READY)
+                    message = self._send(location_id, item.customer_id, self.READY_COLLECTION_NUDGE_TEXT, category=VEHICLE_READY,
+                                         template_name=wt.VEHICLE_READY,
+                                         template_components=wt.body(*self._booking_template_parts(booking)))
                 else:
                     message = None
                 if message is None:

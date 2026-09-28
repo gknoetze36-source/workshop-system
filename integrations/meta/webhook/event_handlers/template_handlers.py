@@ -16,7 +16,10 @@ class MetaTemplateHandlers:
         event = str(payload.get("event") or payload.get("status") or "UNKNOWN").upper()
         template_id = payload.get("message_template_id")
         name = payload.get("message_template_name") or payload.get("name")
-        language = payload.get("language") or payload.get("language_code") or "en_ZA"
+        language = (
+            payload.get("message_template_language")  # Meta's actual webhook field
+            or payload.get("language") or payload.get("language_code") or "en"
+        )
         category = payload.get("category") or "UTILITY"
         reason = payload.get("reason")
 
