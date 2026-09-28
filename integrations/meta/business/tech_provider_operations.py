@@ -66,6 +66,17 @@ class TechProviderOperations:
         """
         return self._provider_get("/me", {"fields": "id,name"})
 
+    def list_business_system_users(self, business_id: str) -> list[dict[str, Any]]:
+        """GET /<BUSINESS_ID>/system_users -- PROVIDER token.
+
+        The business-scoped System User IDs (the ones Business Settings shows
+        and /assigned_users expects). /me can return a different, app-scoped
+        ID for the same System User, so a mismatch with /me alone is not proof
+        of a wrong META_SYSTEM_USER_ID.
+        """
+        payload = self._provider_get(f"/{business_id}/system_users", {"fields": "id,name"})
+        return list(payload.get("data") or [])
+
     def list_waba_system_users(self, waba_id: str) -> list[dict[str, Any]]:
         """GET /<WABA_ID>/system_users -- PROVIDER token.
 
