@@ -124,3 +124,23 @@ def test_reception_cannot_write_business_settings(client_with_roles):
     after = query_db("SELECT name FROM locations WHERE id=%s", (ctx["location_id"],), one=True)["name"]
 
     assert before == after, "reception account was able to write to /settings/business"
+
+
+def test_paused_whatsapp_setup_shows_reason_and_pin_form(client_with_roles):
+    """A setup paused at phone registration must tell the owner why and offer
+    a way to finish it -- before this the page had nowhere to enter the PIN."""
+    import uuid as _uuid
+    from database import SessionLocal
+    from models.integration_models import MetaBusinessConnection
+    ctx = client_with_roles
+    db = SessionLocal()
+    db.add(MetaBusinessConnection(
+        location_id=ctx["location_id"], waba_id="w-" + _uuid.uuid4().hex[:8],
+        phone_number_id="p-" + _uuid.uuid4().hex[:8], connection_status="onboarding",
+        last_onboarding_error="Meta requires a 6-digit two-step verification PIN to register it.",
+    ))
+    db.commit(); db.close()
+    ctx["login_as"](ctx["owner_email"])
+    html = ctx["client"].get("/settings/whatsapp").get_data(as_text=True)
+    assert "6-digit two-step verification PIN" in html
+    assert 'id="finish-setup"' in html

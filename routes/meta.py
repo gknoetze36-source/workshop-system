@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from services.integration_status import require_configured
 from helpers.permission import require_role, ADMIN_ROLES
 from helpers.location import current_location_id
@@ -9,6 +10,7 @@ from integrations.meta.auth.oauth_client import MetaOAuthClient
 from integrations.meta.services.embedded_signup_service import EmbeddedSignupService
 from integrations.meta.whatsapp.phone_number_service import PhoneNumberService, PhoneRegistrationError
 meta_bp = Blueprint("meta", __name__, url_prefix="/integrations/meta")
+logger = logging.getLogger(__name__)
 
 @meta_bp.get("/embedded-signup/config")
 @require_role(*ADMIN_ROLES)
@@ -72,6 +74,7 @@ def embedded_signup_callback():
         run = _run_onboarding(session, location_id, phone_pin=payload.get("pin"))
         session.commit()
     except Exception:
+        logger.exception("meta_onboarding_run_crashed location_id=%s", location_id)
         session.rollback()
         run = None
     finally:
@@ -100,9 +103,17 @@ def _run_onboarding(session, location_id: int, *, phone_pin=None):
     )
 
     pin = str(phone_pin).strip() if phone_pin else None
-    return TechProviderOnboardingService().run_onboarding(
+    run = TechProviderOnboardingService().run_onboarding(
         session, location_id, phone_pin=pin or None
     )
+    summary = run.as_dict()
+    logger.info(
+        "meta_onboarding_run location_id=%s completed=%s status=%s step=%s awaiting_input=%s error=%s",
+        location_id, summary.get("completed"), summary.get("connection_status"),
+        summary.get("onboarding_step"), summary.get("awaiting_input"),
+        (summary.get("error") or {}).get("message"),
+    )
+    return run
 
 
 @meta_bp.get("/onboarding/status")
@@ -151,6 +162,7 @@ def onboarding_resume():
         session.commit()
         return jsonify(run.as_dict())
     except Exception:
+        logger.exception("meta_onboarding_resume_crashed location_id=%s", location_id)
         session.rollback()
         return jsonify({"error": "Meta onboarding could not be resumed"}), 502
     finally:
