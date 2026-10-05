@@ -17,6 +17,32 @@
  *    promise so the status line actually says what went wrong.
  */
 (function () {
+  // Finish a paused setup (e.g. phone registration waiting for a PIN) via
+  // the existing /onboarding/resume endpoint. The PIN is sent once, never stored.
+  const finish = document.getElementById("finish-setup");
+  if (finish) {
+    finish.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      const out = document.getElementById("finish-status");
+      const pin = (document.getElementById("whatsapp-pin").value || "").trim();
+      if (pin && !/^[0-9]{6}$/.test(pin)) { out.textContent = "The PIN must be exactly 6 digits."; return; }
+      const tag = document.querySelector('meta[name="csrf-token"]');
+      out.textContent = "Finishing WhatsApp setup\u2026";
+      try {
+        const response = await fetch("/integrations/meta/onboarding/resume", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "Accept": "application/json",
+                     "X-CSRFToken": tag ? tag.getAttribute("content") : "" },
+          body: JSON.stringify(pin ? { pin: pin } : {})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.completed) { out.textContent = "Connected"; setTimeout(() => window.location.reload(), 900); return; }
+        out.textContent = (data.error && (data.error.message || data.error)) || data.message ||
+          "Setup is still not finished. Check the PIN and try again.";
+      } catch (_) { out.textContent = "Could not reach PHANTA. Try again."; }
+    });
+  }
+
   const button = document.getElementById("connect-whatsapp");
   const status = document.getElementById("status");
   if (!button) return;

@@ -43,6 +43,18 @@
         {# Setup got part of the way and stopped. Say so plainly rather than
            implying WhatsApp is live -- messages cannot be sent yet. #}
         <p class="connect-note">WhatsApp setup is not finished yet, so messages cannot be sent for this workshop.</p>
+        {% if connection.last_onboarding_error %}
+        <p class="connect-note"><strong>Where it stopped:</strong> {{ connection.last_onboarding_error }}</p>
+        {% endif %}
+        <form id="finish-setup" class="finish-setup">
+          <label for="whatsapp-pin">6-digit WhatsApp PIN</label>
+          <input id="whatsapp-pin" name="pin" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off"
+                 placeholder="Choose a 6-digit PIN for a new number">
+          <button type="submit" class="button primary">Finish setup</button>
+          <p class="connect-note">For a number that is new to the WhatsApp API, choose any 6 digits and keep them safe.
+            If the number was registered before, use the PIN set then. Leave empty to just retry.</p>
+          <p id="finish-status" role="status" aria-live="polite"></p>
+        </form>
         {% endif %}
       </div>
     </div>

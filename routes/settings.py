@@ -478,7 +478,16 @@ def settings_whatsapp():
     if user.get("role") not in {"owner", "admin"}:
         flash("Access denied. Administrator privileges required.", "error")
         return redirect(url_for("workshop_dashboard.workshop_dashboard"))
-    return render_template("connect_whatsapp.html", onboarding=False)
+    from sqlalchemy import select
+    from database import get_session
+    from models.integration_models import MetaBusinessConnection
+    db = get_session()
+    try:
+        connection = db.scalar(select(MetaBusinessConnection).where(
+            MetaBusinessConnection.location_id == user["location_id"]))
+        return render_template("connect_whatsapp.html", connection=connection, onboarding=False)
+    finally:
+        db.close()
 
 
 
