@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from sqlalchemy import select
 
@@ -12,6 +13,8 @@ from models.core import Conversation, Message, ConversationSummary
 
 
 from ai.prompts.system_prompts import SERVICE_ADVISOR_SYSTEM_PROMPT
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SYSTEM_PROMPT = SERVICE_ADVISOR_SYSTEM_PROMPT
 
@@ -94,6 +97,8 @@ class AIConversationService:
                 text = (response.text or "").strip()
                 guard = self.output_guard.validate(text, booking_confirmation_recorded=booking_confirmation_recorded)
                 if not guard.allowed:
+                    logger.warning("service_advisor_reply_blocked location_id=%s conversation_id=%s reasons=%s",
+                                   location_id, conversation_id, "; ".join(guard.reasons))
                     # A refused reply used to raise, which the webhook caught and
                     # logged -- leaving the customer with silence and nobody
                     # aware they were waiting. Hand to a human and answer them.
@@ -138,6 +143,8 @@ class AIConversationService:
         # resulting safe fallback text through the same path every normal
         # reply uses, so the customer gets an actual answer instead of
         # silence.
+        logger.warning("service_advisor_tool_rounds_exhausted location_id=%s conversation_id=%s",
+                       location_id, conversation_id)
         text = self._refuse_safely(
             registry,
             ["Service Advisor exceeded the maximum number of tool-call rounds without producing a final reply"],
