@@ -494,6 +494,20 @@ class TechProviderOnboardingService:
         return None
 
     def assign_system_user(self, session: Session, connection: MetaBusinessConnection) -> StepOutcome:
+        """Assign VANTA's System User to the client's WABA -- best effort.
+
+        Tech Providers message with the client's own business token, and Meta
+        only lets Solution Partners manage WABA users, so a refusal here is
+        recorded as skipped instead of blocking onboarding.
+        """
+        try:
+            return self._assign_system_user(session, connection)
+        except OnboardingStepError as exc:
+            self._advance(connection, exc.step)
+            session.flush()
+            return StepOutcome(exc.step, "skipped", {"reason": str(exc)})
+
+    def _assign_system_user(self, session: Session, connection: MetaBusinessConnection) -> StepOutcome:
         """Assign VANTA's System User to the client's WABA.
 
         Idempotent: the existing assignment list is read first, and Meta
@@ -541,6 +555,11 @@ class TechProviderOnboardingService:
     def verify_system_user_assignment(self, session: Session, connection: MetaBusinessConnection) -> StepOutcome:
         """Confirm at Meta that the assignment actually took effect."""
         step = state.STEP_SYSTEM_USER_VERIFIED
+        if connection.system_user_assigned_at is None:
+            # Assignment was skipped (Tech Provider); nothing to verify.
+            self._advance(connection, step)
+            session.flush()
+            return StepOutcome(step, "skipped", {"reason": "system user not assigned"})
         waba_id = str(connection.waba_id)
         system_user_id = connection.system_user_id or self._resolve_system_user_id(step)
 
@@ -1017,8 +1036,6 @@ class TechProviderOnboardingService:
             problems.append("no business phone number ID")
         if not connection.encrypted_access_token:
             problems.append("no stored client access token")
-        if not connection.system_user_id or not connection.system_user_assigned_at:
-            problems.append("VANTA System User access is not established")
         if not connection.phone_registered_at:
             problems.append("phone registration is not confirmed")
         if not connection.webhook_verified_at:

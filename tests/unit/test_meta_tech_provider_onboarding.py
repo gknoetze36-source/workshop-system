@@ -363,7 +363,9 @@ def test_waba_id_mismatch_is_rejected(db):
 # ---------------------------------------------------------------------------
 
 
-def test_system_user_assignment_failure(db):
+def test_system_user_assignment_refusal_is_skipped_for_tech_providers(db):
+    """Meta lets only Solution Partners manage WABA users; a Tech Provider
+    messages with the client's own token, so the refusal must not block."""
     location = make_location(db)
     connection = make_connection(db, location)
     ops = registered_phone_ops()
@@ -376,11 +378,11 @@ def test_system_user_assignment_failure(db):
     db.commit()
     db.refresh(connection)
 
-    assert result.failed_step == state.STEP_SYSTEM_USER_ASSIGNED
-    assert connection.connection_status != state.STATUS_CONNECTED
+    assert result.completed is True and result.failed_step is None
+    assert connection.connection_status == state.STATUS_CONNECTED
     assert connection.system_user_assigned_at is None
-    # The step before it still persisted, so a resume does not redo it.
-    assert connection.last_successful_onboarding_step == state.STEP_WABA_VERIFIED
+    skipped = {o.step for o in result.outcomes if o.action == "skipped"}
+    assert {state.STEP_SYSTEM_USER_ASSIGNED, state.STEP_SYSTEM_USER_VERIFIED} <= skipped
 
 
 def test_system_user_verification_failure_when_meta_does_not_confirm(db):
@@ -871,7 +873,6 @@ def test_resume_after_pin_pause_completes(db):
     "failing_call, expected_step",
     [
         ("get_waba", state.STEP_WABA_VERIFIED),
-        ("assign_system_user", state.STEP_SYSTEM_USER_ASSIGNED),
         ("list_extended_credits", state.STEP_CREDIT_LINE_RETRIEVED),
         ("share_credit_line", state.STEP_CREDIT_SHARED),
         ("get_allocation_config", state.STEP_CREDIT_VERIFIED),
