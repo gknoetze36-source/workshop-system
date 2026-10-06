@@ -46,3 +46,26 @@ def test_openai_adapter_normalizes_function_call():
     assert r.provider == "openai"
     assert r.tool_calls[0].name == "lookup"
     assert r.input_tokens == 3
+
+
+def test_openai_only_marks_strict_compatible_tools_strict():
+    """OpenAI rejects the whole request if a strict tool has an optional or
+    free-form field -- that broke every Service Advisor reply in production."""
+    from integrations.ai.tools.registry import ServiceAdvisorToolRegistry
+    sent = {}
+
+    def http(method, url, json=None, **_):
+        sent.update(json)
+        return FakeHTTP({"id": "r", "model": "m", "output_text": "ok", "output": [], "usage": {}})()
+
+    tools = ServiceAdvisorToolRegistry(context=None).definitions()
+    OpenAIProvider(api_key="x", http_request=http).complete(
+        AIRequest(messages=[{"role": "user", "content": "hi"}], model="m", tools=tools))
+    by_name = {t["name"]: t for t in sent["tools"]}
+    for tool in sent["tools"]:
+        if tool["strict"]:
+            props = tool["parameters"].get("properties") or {}
+            assert set(tool["parameters"].get("required") or []) == set(props), tool["name"]
+            assert all(p.get("type") != "object" for p in props.values()), tool["name"]
+    assert by_name["capture_customer_context"]["strict"] is False
+    assert by_name["get_vehicle"]["strict"] is True

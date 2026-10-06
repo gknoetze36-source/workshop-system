@@ -29,7 +29,7 @@ class OpenAIProvider(AIProvider):
         if request.max_tokens is not None:
             body["max_output_tokens"] = request.max_tokens
         if request.tools:
-            body["tools"] = [{"type": "function", "name": t.name, "description": t.description, "parameters": t.parameters, "strict": True} for t in request.tools]
+            body["tools"] = [{"type": "function", "name": t.name, "description": t.description, "parameters": t.parameters, "strict": _strict_ok(t.parameters)} for t in request.tools]
         if request.response_schema:
             body["text"] = {"format": {"type": "json_schema", "name": "phanta_output", "strict": True, "schema": request.response_schema}}
         try:
@@ -78,3 +78,12 @@ class OpenAIProvider(AIProvider):
                 calls.append(ToolCall(id=str(item.get("call_id") or item.get("id") or ""), name=str(item.get("name", "")), arguments=args or {}))
         usage = payload.get("usage") or {}
         return AIResponse(text=text, provider=self.name, model=payload.get("model", ""), request_id=payload.get("id"), input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"), tool_calls=calls, raw=payload)
+
+
+def _strict_ok(schema: dict[str, Any]) -> bool:
+    """OpenAI strict mode rejects the whole request unless every property is
+    required and no property is a free-form object. Tools with optional fields
+    are sent non-strict instead (OpenAI still follows the schema)."""
+    props = schema.get("properties") or {}
+    return (set(schema.get("required") or []) == set(props)
+            and all(p.get("type") != "object" for p in props.values()))
