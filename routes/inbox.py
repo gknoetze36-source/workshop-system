@@ -8,6 +8,9 @@ the WhatsApp webhook already checks before letting the AI answer.
 """
 from __future__ import annotations
 
+from datetime import timezone
+from zoneinfo import ZoneInfo
+
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from sqlalchemy import func, select
 
@@ -21,6 +24,14 @@ from services.auth_service import login_required
 inbox_bp = Blueprint("inbox", __name__, url_prefix="/dashboard/inbox")
 
 HANDOFF = "human_handoff"
+# ponytail: every workshop is in South Africa today; use Location.timezone if that changes.
+_LOCAL = ZoneInfo("Africa/Johannesburg")
+
+
+def _local(at):
+    if at is None:
+        return None
+    return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(_LOCAL)
 
 
 def _open_handoffs(session, location_id: int, customer_id: int) -> list[Task]:
@@ -64,7 +75,7 @@ def inbox():
             "id": conv.id,
             "name": f"{cust.first_name} {cust.last_name}".strip() or cust.whatsapp_number,
             "number": cust.whatsapp_number,
-            "last_at": last,
+            "last_at": _local(last),
             "paused": f"customer:{cust.id}" in paused,
         } for conv, cust, last in rows]
 
@@ -77,7 +88,7 @@ def inbox():
                 "inbound": m.direction == "inbound",
                 "ai": m.direction == "outbound" and m.body.startswith(AI_LABEL.strip()),
                 "body": m.body,
-                "at": m.created_at,
+                "at": _local(m.created_at),
                 "status": m.status,
             } for m in session.scalars(
                 select(Message).where(Message.location_id == location_id, Message.conversation_id == conv.id)

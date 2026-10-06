@@ -13,7 +13,8 @@
   .inbox-chat { display: flex; flex-direction: column; }
   .chat-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   .chat-body { flex: 1; overflow-y: auto; max-height: 55vh; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
-  .bubble { max-width: 75%; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); white-space: pre-wrap; word-wrap: break-word; }
+  .bubble { max-width: 75%; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); word-wrap: break-word; }
+  .bubble .text { white-space: pre-wrap; }
   .bubble.in { align-self: flex-start; background: var(--surface-elevated); }
   .bubble.out { align-self: flex-end; background: rgba(224, 255, 79, 0.12); }
   .bubble small { display: block; margin-top: var(--space-1); color: var(--text-muted); font-size: 0.75rem; }
@@ -56,7 +57,7 @@
       </div>
       <div class="chat-body" id="chat-body">
         {% for m in messages %}
-          <div class="bubble {{ 'in' if m.inbound else 'out' }}">{{ m.body }}
+          <div class="bubble {{ 'in' if m.inbound else 'out' }}"><span class="text">{{ m.body }}</span>
             <small>{{ 'Customer' if m.inbound else ('AI assistant' if m.ai else 'Workshop') }} &middot; {{ m.at.strftime('%d %b %H:%M') }}{% if not m.inbound and m.status == 'failed' %} &middot; not delivered{% endif %}</small>
           </div>
         {% endfor %}
