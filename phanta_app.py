@@ -40,6 +40,7 @@ from routes.customer import customer_bp
 from routes.error import register_error_handlers
 from routes.meta import meta_bp
 from routes.meta_messaging import meta_messaging_bp
+from routes.inbox import inbox_bp
 from routes.bookings import bookings_bp
 from routes.lifecycle import lifecycle_bp
 from routes.reviews import reviews_bp
@@ -162,6 +163,7 @@ app.register_blueprint(settings_bp)
 app.register_blueprint(onboarding_bp)
 app.register_blueprint(meta_bp)
 app.register_blueprint(meta_messaging_bp)
+app.register_blueprint(inbox_bp)
 app.register_blueprint(bookings_bp)
 app.register_blueprint(lifecycle_bp)
 app.register_blueprint(reviews_bp)

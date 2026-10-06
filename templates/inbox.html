@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Inbox - PHANTA Workshop Platform{% endblock %}
+{% block content %}
+<style>
+  .inbox { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: var(--space-4); min-height: 70vh; }
+  .inbox-list, .inbox-chat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .inbox-list { overflow-y: auto; max-height: 75vh; }
+  .inbox-item { display: block; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); color: var(--text); text-decoration: none; }
+  .inbox-item:hover { background: var(--surface-hover); }
+  .inbox-item.active { background: var(--surface-active); box-shadow: inset 3px 0 0 var(--primary); }
+  .inbox-item small { display: block; color: var(--text-muted); }
+  .badge-paused { font-size: 0.75rem; color: var(--warning); }
+  .inbox-chat { display: flex; flex-direction: column; }
+  .chat-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .chat-body { flex: 1; overflow-y: auto; max-height: 55vh; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+  .bubble { max-width: 75%; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); white-space: pre-wrap; word-wrap: break-word; }
+  .bubble.in { align-self: flex-start; background: var(--surface-elevated); }
+  .bubble.out { align-self: flex-end; background: rgba(224, 255, 79, 0.12); }
+  .bubble small { display: block; margin-top: var(--space-1); color: var(--text-muted); font-size: 0.75rem; }
+  .chat-reply { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); }
+  .chat-reply textarea { flex: 1; min-height: 3rem; resize: vertical; }
+  .chat-note { padding: 0 var(--space-4) var(--space-3); color: var(--text-muted); font-size: 0.85rem; }
+  @media (max-width: 760px) { .inbox { grid-template-columns: 1fr; } .inbox-list { max-height: 30vh; } }
+</style>
+
+<div class="topbar">
+  <div class="heading"><h1>Inbox</h1><p>Read and answer your customers' WhatsApp messages.</p></div>
+</div>
+
+{% if not chats %}
+  <p>No WhatsApp conversations yet. When a customer messages your WhatsApp number, the chat appears here.</p>
+{% else %}
+<div class="inbox">
+  <nav class="inbox-list" aria-label="Conversations">
+    {% for chat in chats %}
+      <a class="inbox-item {% if current and chat.id == current.id %}active{% endif %}" href="{{ url_for('inbox.inbox', c=chat.id) }}">
+        <strong>{{ chat.name }}</strong>
+        <small>{{ chat.number }}{% if chat.last_at %} &middot; {{ chat.last_at.strftime('%d %b %H:%M') }}{% endif %}</small>
+        {% if chat.paused %}<span class="badge-paused">AI paused &middot; staff handling</span>{% endif %}
+      </a>
+    {% endfor %}
+  </nav>
+
+  <section class="inbox-chat" aria-label="Chat">
+    {% if current %}
+      <div class="chat-head">
+        <div><strong>{{ current.name }}</strong> <small>{{ current.number }}</small></div>
+        {% if current.paused %}
+          <form method="post" action="{{ url_for('inbox.resume_ai', conversation_id=current.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="button" type="submit">Hand back to AI</button>
+          </form>
+        {% else %}
+          <small>AI assistant is answering this chat</small>
+        {% endif %}
+      </div>
+      <div class="chat-body" id="chat-body">
+        {% for m in messages %}
+          <div class="bubble {{ 'in' if m.inbound else 'out' }}">{{ m.body }}
+            <small>{{ 'Customer' if m.inbound else ('AI assistant' if m.ai else 'Workshop') }} &middot; {{ m.at.strftime('%d %b %H:%M') }}{% if not m.inbound and m.status == 'failed' %} &middot; not delivered{% endif %}</small>
+          </div>
+        {% endfor %}
+      </div>
+      <form class="chat-reply" method="post" action="{{ url_for('inbox.reply', conversation_id=current.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <textarea name="body" required placeholder="{{ 'Type a reply…' if window_open else 'The 24-hour reply window has closed' }}" {% if not window_open %}disabled{% endif %} aria-label="Reply"></textarea>
+        <button class="button" type="submit" {% if not window_open %}disabled{% endif %}>Send</button>
+      </form>
+      <p class="chat-note">
+        {% if window_open %}Replying pauses the AI for this customer until you hand it back.
+        {% else %}WhatsApp only allows free replies within 24 hours of the customer's last message.{% endif %}
+      </p>
+      <script>var b=document.getElementById("chat-body");if(b)b.scrollTop=b.scrollHeight;</script>
+    {% endif %}
+  </section>
+</div>
+{% endif %}
+{% endblock %}

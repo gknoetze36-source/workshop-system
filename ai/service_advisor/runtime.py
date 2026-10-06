@@ -48,6 +48,17 @@ def build_booking_service(session, location_id: int):
     return BookingService(session, BookingAvailabilityService(session, schedule))
 
 
+#: Every AI-written WhatsApp message starts with this, so the customer always
+#: knows they are talking to the AI -- and can tell it apart from staff, who
+#: reply from the inbox without it. The inbox also uses it to badge AI replies.
+AI_LABEL = "🤖 AI assistant: "
+
+
+def label_ai_text(text: str) -> str:
+    text = str(text or "").strip()
+    return text if text.startswith(AI_LABEL.strip()) else AI_LABEL + text
+
+
 def deliver_whatsapp(session, *, location_id: int, conversation_id: int, customer_id: int, text: str):
     service = MetaMessagingService(
         session,
