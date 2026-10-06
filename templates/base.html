@@ -511,6 +511,7 @@
                 <div class="nav-label">Workshop</div>
                 <a class="nav-link {% if request.endpoint == 'workshop_dashboard.workshop_dashboard' %}active{% endif %}" href="{{ url_for('workshop_dashboard.workshop_dashboard') }}">Dashboard</a>
                 <a class="nav-link {% if request.endpoint in ['customer.customers', 'customer.customer_profile', 'customer.customer_edit', 'vehicles.vehicle_profile', 'vehicles.vehicle_edit'] %}active{% endif %}" href="{{ url_for('customer.customers') }}">Customers & Vehicles</a>
+                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('inbox.') %}active{% endif %}" href="{{ url_for('inbox.inbox') }}">Inbox</a>
                 <a class="nav-link {% if request.endpoint and request.endpoint.startswith('flyer_lady.') %}active{% endif %}" href="{{ url_for('flyer_lady.ui') }}">Flyer Lady</a>
 
                 <div class="nav-label">Manage</div>

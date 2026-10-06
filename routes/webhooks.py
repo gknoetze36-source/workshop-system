@@ -137,6 +137,7 @@ def meta_webhook_receive():
                 build_service_advisor,
                 build_booking_service,
                 deliver_whatsapp,
+                label_ai_text,
             )
 
             event_location_id = item.get("location_id") or location_id
@@ -222,6 +223,8 @@ def meta_webhook_receive():
                 advisor = build_service_advisor(ai_session)
 
                 def deliver(**kwargs):
+                    # Every Service Advisor reply is labelled as AI.
+                    kwargs["text"] = label_ai_text(kwargs["text"])
                     return deliver_whatsapp(ai_session, **kwargs)
 
                 reply = advisor.reply(
