@@ -69,3 +69,34 @@ def test_openai_only_marks_strict_compatible_tools_strict():
             assert all(p.get("type") != "object" for p in props.values()), tool["name"]
     assert by_name["capture_customer_context"]["strict"] is False
     assert by_name["get_vehicle"]["strict"] is True
+
+
+def test_openai_reads_reply_text_from_rest_output_items():
+    """The REST API has no top-level output_text; reading only that made every
+    Service Advisor reply look empty, so each one became a staff handoff."""
+    http = FakeHTTP({
+        "id": "resp_2", "model": "gpt-5",
+        "output": [
+            {"type": "reasoning", "summary": []},
+            {"type": "message", "role": "assistant",
+             "content": [{"type": "output_text", "text": "Thursday morning is open."}]},
+        ],
+        "usage": {"input_tokens": 5, "output_tokens": 6},
+    })
+    r = OpenAIProvider(api_key="x", http_request=http).complete(req())
+    assert r.text == "Thursday morning is open."
+
+
+def test_reasoning_models_get_low_effort_and_token_headroom():
+    sent = {}
+
+    def http(method, url, json=None, **_):
+        sent.update(json)
+        return FakeHTTP({"id": "r", "model": "m", "output": [], "usage": {}})()
+
+    p = OpenAIProvider(api_key="x", http_request=http)
+    p.complete(AIRequest(messages=[{"role": "user", "content": "hi"}], model="gpt-5", max_tokens=600))
+    assert sent["reasoning"] == {"effort": "low"} and sent["max_output_tokens"] > 600
+    sent.clear()
+    p.complete(AIRequest(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1", max_tokens=600))
+    assert "reasoning" not in sent and sent["max_output_tokens"] == 600

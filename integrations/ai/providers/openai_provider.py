@@ -28,6 +28,12 @@ class OpenAIProvider(AIProvider):
             body["temperature"] = request.temperature
         if request.max_tokens is not None:
             body["max_output_tokens"] = request.max_tokens
+        if _is_reasoning_model(request.model):
+            # Reasoning tokens count against max_output_tokens; without headroom
+            # the model can spend the whole budget thinking and return no text.
+            body["reasoning"] = {"effort": "low"}
+            if "max_output_tokens" in body:
+                body["max_output_tokens"] += REASONING_HEADROOM_TOKENS
         if request.tools:
             body["tools"] = [{"type": "function", "name": t.name, "description": t.description, "parameters": t.parameters, "strict": _strict_ok(t.parameters)} for t in request.tools]
         if request.response_schema:
@@ -67,7 +73,13 @@ class OpenAIProvider(AIProvider):
         if response.status_code >= 400:
             retryable = response.status_code == 429 or response.status_code >= 500
             raise AIProviderError(payload.get("error", {}).get("message", "OpenAI API error"), status_code=response.status_code, retryable=retryable)
-        text = payload.get("output_text") or ""
+        # The REST API has no top-level output_text (only the SDKs add it): the
+        # reply is in output[].content[] parts of type "output_text".
+        text = payload.get("output_text") or "".join(
+            part.get("text", "")
+            for item in payload.get("output", []) or [] if item.get("type") == "message"
+            for part in item.get("content", []) or [] if part.get("type") == "output_text"
+        )
         calls: list[ToolCall] = []
         for item in payload.get("output", []) or []:
             if item.get("type") == "function_call":
@@ -78,6 +90,14 @@ class OpenAIProvider(AIProvider):
                 calls.append(ToolCall(id=str(item.get("call_id") or item.get("id") or ""), name=str(item.get("name", "")), arguments=args or {}))
         usage = payload.get("usage") or {}
         return AIResponse(text=text, provider=self.name, model=payload.get("model", ""), request_id=payload.get("id"), input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"), tool_calls=calls, raw=payload)
+
+
+REASONING_HEADROOM_TOKENS = 4000
+
+
+def _is_reasoning_model(model: str | None) -> bool:
+    m = (model or "").lower()
+    return m.startswith(("gpt-5", "o1", "o3", "o4"))
 
 
 def _strict_ok(schema: dict[str, Any]) -> bool:
