@@ -184,9 +184,13 @@ class TechProviderOperations:
     #: the client's business portfolio ID (needed for credit verification),
     #: ``currency`` drives waba_currency, ``primary_funding_id`` proves the
     #: credit attachment landed.
+    #: primary_funding_id is deliberately NOT here: Meta only lets Solution
+    #: Partners (BSPs) read it, and asking for it makes the whole read fail
+    #: for a Tech Provider. The credit steps read it separately, and only
+    #: when credit sharing is enabled.
     WABA_FIELDS = (
         "id,name,currency,timezone_id,message_template_namespace,"
-        "account_review_status,owner_business_info,primary_funding_id"
+        "account_review_status,owner_business_info"
     )
 
     #: Fields read from the client's business phone number node.
