@@ -1256,3 +1256,9 @@ def test_business_scoped_system_user_id_is_accepted_when_me_returns_another(db):
     service, _ = make_service(operations=ops, provider=provider_config(system_user_id="1111111111111111"))
     outcome = service.verify_provider_configuration()
     assert outcome.detail["system_user_id"] == "1111111111111111"
+
+
+def test_waba_read_never_requests_solution_partner_only_fields():
+    # Meta rejects the entire WABA read for Tech Providers if primary_funding_id is requested.
+    from integrations.meta.business.tech_provider_operations import TechProviderOperations
+    assert "primary_funding_id" not in TechProviderOperations.WABA_FIELDS.split(",")
