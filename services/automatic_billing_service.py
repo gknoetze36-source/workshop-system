@@ -258,11 +258,12 @@ def run_automatic_billing(billing_period: str | None = None, location_id: int | 
     from models.core import Location
     from sqlalchemy import select
 
+    # Billing-exempt (demo/internal) workshops are never billed, so never locked.
+    query = select(Location.id).where(Location.active.is_(True), Location.billing_exempt.is_(False))
     if location_id is not None:
-        location_ids = [location_id]
-    else:
-        with session_scope() as discovery:
-            location_ids = list(discovery.scalars(select(Location.id).where(Location.active.is_(True))))
+        query = query.where(Location.id == location_id)
+    with session_scope() as discovery:
+        location_ids = list(discovery.scalars(query))
 
     summary = {"billing_period": billing_period, "closed": 0, "charged": 0, "failed": 0, "results": []}
 
