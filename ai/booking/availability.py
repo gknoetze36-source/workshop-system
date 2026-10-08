@@ -60,6 +60,9 @@ class WorkshopSchedule:
         return any(w.start <= local_start and local_end <= w.end for w in self.windows_for(start.date()))
 
 
+DEFAULT_DAILY_CAPACITY = 12  # matches locations.daily_capacity's column default
+
+
 class BookingAvailabilityError(ValueError):
     pass
 
@@ -86,6 +89,14 @@ class BookingAvailabilityService:
         if not self.schedule.contains(start_time, end_time):
             raise BookingAvailabilityError("booking must fall within workshop operating hours")
 
+        if bay_id is None and technician_id is None:
+            # PHANTA books every vehicle for morning drop-off at opening time, so
+            # bookings share one slot by design: limit the day's count instead of
+            # treating each as a time clash (that allowed one booking per day).
+            if self._booked_on_day(location_id, start_time, exclude_booking_id) >= self._daily_capacity(location_id):
+                raise BookingAvailabilityError("the workshop is fully booked on that day")
+            return
+
         overlaps = self.bookings.overlaps(
             location_id, start_time, end_time, bay_id=bay_id, technician_id=technician_id
         )
@@ -93,6 +104,25 @@ class BookingAvailabilityService:
             overlaps = [b for b in overlaps if b.id != exclude_booking_id]
         if overlaps:
             raise BookingAvailabilityError("booking conflicts with an existing active booking")
+
+    def _booked_on_day(self, location_id: int, start_time: datetime, exclude_booking_id: int | None) -> int:
+        from sqlalchemy import func, select
+        from models.core import Booking
+        day_start = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        query = select(func.count(Booking.id)).where(
+            Booking.location_id == location_id,
+            Booking.status.not_in(["cancelled", "no_show"]),
+            Booking.start_time >= day_start,
+            Booking.start_time < day_start + timedelta(days=1),
+        )
+        if exclude_booking_id is not None:
+            query = query.where(Booking.id != exclude_booking_id)
+        return int(self.session.scalar(query) or 0)
+
+    def _daily_capacity(self, location_id: int) -> int:
+        from models.core import Location
+        location = self.session.get(Location, location_id)
+        return int(location.daily_capacity) if location and location.daily_capacity else DEFAULT_DAILY_CAPACITY
 
     def available_slots(
         self,

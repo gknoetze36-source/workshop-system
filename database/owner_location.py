@@ -110,6 +110,7 @@ def ensure_owner_location_foundation(connection, backend):
     _add_column(connection, backend, "locations", "access_locked", f"{boolean} DEFAULT FALSE" if backend == "postgres" else f"{boolean} DEFAULT 0")
     _add_column(connection, backend, "locations", "access_locked_reason", "TEXT")
     _add_column(connection, backend, "locations", "access_locked_at", "TEXT")
+    _add_column(connection, backend, "locations", "daily_capacity", "INTEGER DEFAULT 12")
     _add_column(connection, backend, "locations", "billing_exempt", f"{boolean} DEFAULT FALSE" if backend == "postgres" else f"{boolean} DEFAULT 0")
 
     # Canonical identity/scope columns used by the active application.
