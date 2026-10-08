@@ -123,7 +123,7 @@ def active_location_required():
         return redirect(url_for("auth.logout"))
     if not location_id:
         return redirect(url_for("onboarding.onboarding_location"))
-    location=query_db("SELECT id,owner_id,active,access_locked FROM locations WHERE id=%s AND owner_id=%s AND active=TRUE",(location_id,owner_id),one=True)
+    location=query_db("SELECT id,owner_id,active,access_locked,billing_exempt FROM locations WHERE id=%s AND owner_id=%s AND active=TRUE",(location_id,owner_id),one=True)
     if not location:
         flash("Your location is inactive or unavailable. Please contact administrator.","error")
         return redirect(url_for("auth.logout"))
@@ -135,7 +135,7 @@ def active_location_required():
     # bolted onto each route. The wall route itself, login, and logout must
     # stay reachable while locked, or a locked-out owner could never pay
     # their way back in.
-    if location.get("access_locked") and request.endpoint not in {
+    if location.get("access_locked") and not location.get("billing_exempt") and request.endpoint not in {
         "billing_wall.pay_wall", "billing_wall.attempt_payment", "auth.logout", "auth.login",
     }:
         return redirect(url_for("billing_wall.pay_wall"))

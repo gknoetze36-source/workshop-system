@@ -7,6 +7,17 @@
 </div>
 <div class="grid two">
   <section class="card"><h2>Client</h2><p><strong>Location ID:</strong> {{ audit.location.id }}</p>{% if audit.location.legal_name %}<p><strong>Legal name:</strong> {{ audit.location.legal_name }}</p>{% endif %}{% if audit.location.support_email %}<p><strong>Support email:</strong> {{ audit.location.support_email }}</p>{% endif %}{% if audit.location.active is not none %}<p><strong>Active:</strong> {{ 'Yes' if audit.location.active else 'No' }}</p>{% endif %}</section>
+  <section class="card"><h2>Billing</h2>
+    <p><strong>Billing exempt:</strong> {{ 'Yes - never billed, no payment wall' if audit.location.billing_exempt else 'No' }}</p>
+    <p><strong>Payment wall:</strong> {{ 'Locked' if audit.location.access_locked else 'Not locked' }}</p>
+    {% for action, label in [('unexempt' if audit.location.billing_exempt else 'exempt', 'Remove billing exemption' if audit.location.billing_exempt else 'Make billing exempt'), ('unlock' if audit.location.access_locked else 'lock', 'Unlock' if audit.location.access_locked else 'Lock (test payment wall)')] %}
+    <form method="post" action="{{ url_for('platform_dashboard.client_billing_control', location_id=audit.location.id) }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="{{ action }}">
+      <button class="button" type="submit">{{ label }}</button>
+    </form>
+    {% endfor %}
+    {% if audit.location.billing_exempt %}<p><small>Locking has no effect while the workshop is billing exempt.</small></p>{% endif %}
+  </section>
   {% if audit.billing %}<section class="card"><h2>Billing evidence</h2>{% if audit.billing.subscription_status %}<p><strong>Subscription:</strong> {{ audit.billing.subscription_status }}</p>{% endif %}{% if audit.billing.current_period_end %}<p><strong>Period end:</strong> {{ audit.billing.current_period_end }}</p>{% endif %}{% if audit.billing.latest_invoice_status %}<p><strong>Latest invoice:</strong> {{ audit.billing.latest_invoice_status }}</p>{% endif %}</section>{% endif %}
 </div>
 {% if audit.whatsapp %}<section class="card"><h2>WhatsApp evidence</h2><div class="metrics">{% if audit.whatsapp.connection_status %}<div class="metric"><span class="metric-label">Connection</span><strong>{{ audit.whatsapp.connection_status }}</strong></div>{% endif %}{% if audit.whatsapp.waba_id %}<div class="metric"><span class="metric-label">WABA ID</span><strong>{{ audit.whatsapp.waba_id }}</strong></div>{% endif %}{% if audit.whatsapp.phone_number_id %}<div class="metric"><span class="metric-label">Phone Number ID</span><strong>{{ audit.whatsapp.phone_number_id }}</strong></div>{% endif %}{% if audit.whatsapp.token_stored %}<div class="metric"><span class="metric-label">Token</span><strong>Stored</strong></div>{% endif %}</div></section>{% endif %}

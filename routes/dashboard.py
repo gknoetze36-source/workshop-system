@@ -217,6 +217,41 @@ def client_audit_detail(location_id: int):
         db.close()
 
 
+@platform_dashboard_bp.post("/client-audit/<int:location_id>/billing")
+def client_billing_control(location_id: int):
+    """Platform-admin billing controls for one workshop.
+
+    exempt/unexempt: a billing-exempt workshop (demo, internal, Meta App
+    Review) is never billed and never sees the payment wall.
+    lock/unlock: shows or lifts the payment wall on purpose, to test it.
+    """
+    if not _is_platform_admin():
+        return jsonify({"error": "PHANTA platform-admin access required"}), 403
+    from flask import flash
+    from database import execute_db, utc_now
+    from helpers.audit import record_audit
+    from services.access_lock_service import lock_location, unlock_location
+
+    action = request.form.get("action")
+    if action in {"exempt", "unexempt"}:
+        exempt = action == "exempt"
+        execute_db("UPDATE locations SET billing_exempt=%s, updated_at=%s WHERE id=%s", (exempt, utc_now(), location_id))
+        if exempt:
+            unlock_location(location_id)
+        flash("Billing exempt: never billed, no payment wall." if exempt else "Billing exemption removed.", "success")
+    elif action == "lock":
+        lock_location(location_id, "Payment wall test by PHANTA admin.")
+        flash("Workshop locked: its users now see the payment wall.", "success")
+    elif action == "unlock":
+        unlock_location(location_id)
+        flash("Workshop unlocked.", "success")
+    else:
+        return jsonify({"error": "unknown action"}), 400
+    record_audit(f"billing.{action}", "location", entity_id=location_id,
+                 actor_user=session.get("user"), location_id=location_id)
+    return redirect(url_for("platform_dashboard.client_audit_detail", location_id=location_id))
+
+
 @platform_dashboard_bp.get("/client-audit/data/<int:location_id>")
 def client_audit_data(location_id: int):
     if not _is_platform_admin():

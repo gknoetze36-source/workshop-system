@@ -95,6 +95,8 @@ class Location(Base, TimestampMixin):
     # query instead of a raw connection, the same way they already filter
     # `active`.
     access_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Demo/internal workshops: never billed, never shown the payment wall.
+    billing_exempt: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     owner: Mapped["Owner"] = relationship(back_populates="location", uselist=False)
     customers: Mapped[list["Customer"]] = relationship(back_populates="location", cascade="all, delete-orphan")
