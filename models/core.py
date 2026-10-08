@@ -97,6 +97,8 @@ class Location(Base, TimestampMixin):
     access_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Demo/internal workshops: never billed, never shown the payment wall.
     billing_exempt: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Morning drop-offs accepted per day (see BookingAvailabilityService).
+    daily_capacity: Mapped[Optional[int]] = mapped_column(Integer, default=12)
 
     owner: Mapped["Owner"] = relationship(back_populates="location", uselist=False)
     customers: Mapped[list["Customer"]] = relationship(back_populates="location", cascade="all, delete-orphan")

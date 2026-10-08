@@ -35,7 +35,12 @@ class BookingRepository:
             raise ValueError("vehicle does not belong to customer")
         if end_time <= start_time:
             raise ValueError("end_time must be after start_time")
-        if self.overlaps(location_id, start_time, end_time, kwargs.get("bay_id"), kwargs.get("technician_id")):
+        # Only a named bay/technician can clash. Unassigned bookings are morning
+        # drop-offs that share the opening slot; BookingAvailabilityService
+        # limits those per day (daily_capacity).
+        bay_id, technician_id = kwargs.get("bay_id"), kwargs.get("technician_id")
+        if (bay_id is not None or technician_id is not None) and self.overlaps(
+                location_id, start_time, end_time, bay_id, technician_id):
             raise ValueError("booking conflicts with an existing active booking")
         obj = Booking(location_id=location_id, customer_id=customer_id, vehicle_id=vehicle_id,
                       start_time=start_time, end_time=end_time, service_type=service_type, **kwargs)

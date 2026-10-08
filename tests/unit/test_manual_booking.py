@@ -68,3 +68,18 @@ def test_customers_page_links_to_manual_booking(client_with_roles):
     ctx = client_with_roles
     ctx["login_as"](ctx["owner_email"])
     assert "Manual booking" in ctx["client"].get("/customers").get_data(as_text=True)
+
+
+def test_several_bookings_same_day_until_daily_capacity(client_with_roles):
+    """Every booking is a morning drop-off at opening time; the old time-overlap
+    check refused every booking after the first one of the day."""
+    from database import execute_db
+    ctx = client_with_roles
+    ctx["login_as"](ctx["owner_email"])
+    execute_db("UPDATE locations SET daily_capacity=2 WHERE id=%s", (ctx["location_id"],))
+    day = _next(3)
+    first, _ = _post(ctx, booking_date=day)
+    second, _ = _post(ctx, booking_date=day)
+    third, _ = _post(ctx, booking_date=day)
+    assert first.status_code == 302 and second.status_code == 302
+    assert third.status_code == 400 and "fully booked" in third.get_data(as_text=True)
