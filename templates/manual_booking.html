@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Manual Booking{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="heading"><h1>Manual booking</h1><p>Book a customer in yourself. The booking is saved as confirmed.</p></div>
+</div>
+
+<form method="post" action="{{ url_for('customer.manual_booking') }}" class="grid-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <h2>Customer</h2>
+  <div class="grid two">
+    <label>Full name<input type="text" name="full_name" required autocomplete="name" value="{{ form.get('full_name', '') }}"></label>
+    <label>WhatsApp number<input type="tel" name="whatsapp_number" required placeholder="082 123 4567" value="{{ form.get('whatsapp_number', '') }}"></label>
+  </div>
+  <p><small>If this number is already a customer, the booking is added to their record and WhatsApp chats.</small></p>
+
+  <h2>Vehicle</h2>
+  <div class="grid two">
+    <label>Make<input type="text" name="vehicle_make" required placeholder="Toyota" value="{{ form.get('vehicle_make', '') }}"></label>
+    <label>Model<input type="text" name="vehicle_model" required placeholder="Hilux" value="{{ form.get('vehicle_model', '') }}"></label>
+  </div>
+  <div class="grid two">
+    <label>Year (optional)<input type="text" name="vehicle_year" inputmode="numeric" pattern="[0-9]{4}" value="{{ form.get('vehicle_year', '') }}"></label>
+    <label>Registration (optional)<input type="text" name="registration" value="{{ form.get('registration', '') }}"></label>
+  </div>
+
+  <h2>Booking</h2>
+  <div class="grid two">
+    <label>Date<input type="date" name="booking_date" required min="{{ today }}" value="{{ form.get('booking_date', '') }}"></label>
+    <label>Work to be done<input type="text" name="service_type" required maxlength="100" placeholder="Major service" value="{{ form.get('service_type', '') }}"></label>
+  </div>
+  <label>Notes (optional)<textarea name="notes">{{ form.get('notes', '') }}</textarea></label>
+  <p><small>The vehicle is booked in for the morning, when the workshop opens.</small></p>
+
+  <div class="actions">
+    <button type="submit" class="button">Save booking</button>
+    <a href="{{ url_for('customer.customers') }}" class="button alt">Cancel</a>
+  </div>
+</form>
+{% endblock %}
