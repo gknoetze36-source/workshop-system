@@ -34,7 +34,7 @@ correct", so no template needed to change.
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from services.auth_service import active_location_required, login_required, current_user
 from database import get_session
-from helpers.permission import require_role, ADMIN_ROLES
+from helpers.permission import require_role, ADMIN_ROLES, OPERATIONAL_ROLES
 from helpers.security_events import record_security_event
 from repositories.audit_repo import AuditLogRepository
 from services.data_lifecycle import DataLifecycleService
@@ -442,3 +442,107 @@ def customer_delete(customer_id):
     )
     flash("The customer's personal details have been erased.", "success")
     return redirect(url_for("customer.customers"))
+
+
+@customer_bp.route("/customers/manual-booking", methods=["GET", "POST"])
+@login_required
+@require_role(*OPERATIONAL_ROLES)
+def manual_booking():
+    """Staff book a customer in person (they're at the counter or on the phone).
+
+    Reuses the customer when the WhatsApp number matches and the vehicle when
+    the registration matches, so the booking joins the customer's WhatsApp
+    history. Saved as confirmed: staff agreed it with the customer directly,
+    so it must not wait for -- or expire without -- a WhatsApp YES.
+    """
+    inactive_redirect = active_location_required()
+    if inactive_redirect:
+        return inactive_redirect
+    location_id = current_user()["location_id"]
+    from services.operating_hours_service import build_workshop_schedule
+    schedule = build_workshop_schedule(location_id)
+    from helpers.dates import sast_today
+    if request.method == "GET":
+        return render_template("manual_booking.html", form={}, today=sast_today())
+
+    from datetime import date, datetime, timedelta, timezone
+    from sqlalchemy import func, select
+    from validators.phone_validator import normalize_phone
+    from database import location_transaction
+    from models.core import Customer, Vehicle
+    from ai.booking.service import BookingService, BookingStatus
+    from ai.booking.availability import BookingAvailabilityService
+
+    f = request.form
+    full_name = (f.get("full_name") or "").strip()
+    number = normalize_phone(f.get("whatsapp_number"))
+    make, model = (f.get("vehicle_make") or "").strip(), (f.get("vehicle_model") or "").strip()
+    registration = (f.get("registration") or "").strip().upper()
+    service_type = (f.get("service_type") or "").strip()
+    errors = []
+    if not full_name:
+        errors.append("Enter the customer's name.")
+    if len(number) < 9:
+        errors.append("Enter a valid WhatsApp number.")
+    if not make or not model:
+        errors.append("Enter the vehicle make and model.")
+    if not service_type:
+        errors.append("Enter the work to be done.")
+    day = None
+    try:
+        day = date.fromisoformat(f.get("booking_date") or "")
+        if day < date.fromisoformat(sast_today()):
+            errors.append("The booking date can't be in the past.")
+        elif not schedule.windows_for(day):
+            errors.append(f"The workshop is closed on {day.strftime('%A')}.")
+    except ValueError:
+        errors.append("Choose a booking date.")
+    if errors:
+        for message in errors:
+            flash(message, "error")
+        return render_template("manual_booking.html", form=f, today=sast_today()), 400
+
+    first_name, _, last_name = full_name.partition(" ")
+    year_raw = (f.get("vehicle_year") or "").strip()
+    # location_transaction, not get_session(): these tables use forced RLS (see public_booking.py).
+    with location_transaction(location_id) as session:
+        customer = session.scalar(select(Customer).where(
+            Customer.location_id == location_id, Customer.whatsapp_number == number,
+            Customer.deleted_at.is_(None)))
+        if customer is None:
+            customer = Customer(location_id=location_id, first_name=first_name, last_name=last_name,
+                                whatsapp_number=number)
+            session.add(customer)
+            session.flush()
+        elif (customer.first_name, customer.last_name) == ("New", "Customer"):
+            customer.first_name, customer.last_name = first_name, last_name  # placeholder from a WhatsApp-first contact
+
+        vehicle = None
+        if registration:
+            vehicle = session.scalar(select(Vehicle).where(
+                Vehicle.location_id == location_id, Vehicle.customer_id == customer.id,
+                # "CA 123-456" and "ca123456" are the same plate.
+                func.upper(func.replace(func.replace(Vehicle.registration, " ", ""), "-", ""))
+                == registration.replace(" ", "").replace("-", "")))
+        if vehicle is None:
+            vehicle = Vehicle(location_id=location_id, customer_id=customer.id, make=make, model=model,
+                              year=int(year_raw) if year_raw.isdigit() else datetime.now(timezone.utc).year,
+                              registration=registration or None)
+            session.add(vehicle)
+            session.flush()
+
+        start = datetime.combine(day, schedule.windows_for(day)[0].start, tzinfo=timezone.utc)
+        service = BookingService(session, BookingAvailabilityService(session, schedule))
+        try:
+            booking = service.create_booking(
+                location_id=location_id, customer_id=customer.id, vehicle_id=vehicle.id,
+                start_time=start, end_time=start + timedelta(minutes=60), service_type=service_type[:100],
+                source="manual", notes=(f.get("notes") or "").strip()[:2000] or None)
+            service.change_status(location_id, booking.id, BookingStatus.CONFIRMED, actor="staff")
+        except ValueError as exc:
+            session.rollback()  # don't keep a customer/vehicle created for a booking that failed
+            flash(str(exc), "error")
+            return render_template("manual_booking.html", form=f, today=sast_today()), 400
+        customer_id = customer.id
+    flash(f"Manual booking saved for {full_name} on {day.strftime('%d %B %Y')}.", "success")
+    return redirect(url_for("customer.customer_profile", customer_id=customer_id))

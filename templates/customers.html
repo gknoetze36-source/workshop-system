@@ -12,6 +12,7 @@
             <input type="text" name="search" placeholder="Search by name, phone, registration..." value="{{ request.args.get('search', '') }}" class="search-input">
             <button type="submit" class="button alt">Search</button>
         </form>
+        <a class="button" href="{{ url_for('customer.manual_booking') }}">+ Manual booking</a>
     </div>
 </div>
 
