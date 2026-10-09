@@ -185,3 +185,9 @@ def test_expires_at_comparison_survives_a_naive_datetime():
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     # Must not raise TypeError
     assert expires_at > datetime.now(timezone.utc)
+
+
+def test_no_pages_message_names_missing_permissions():
+    from routes.flyer_lady import no_pages_message
+    assert "pages_manage_posts" in no_pages_message(["public_profile", "pages_show_list", "pages_read_engagement"])
+    assert "no Page was selected" in no_pages_message(["pages_show_list", "pages_read_engagement", "pages_manage_posts"])

@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import logging
 from services.integration_status import require_configured
 from helpers.permission import require_role, MANAGER_ROLES
 import os
@@ -25,6 +27,19 @@ from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.services.graph_api_client import GraphApiClient
 from integrations.meta.social.graph_api_client import MetaSocialGraphClient
 from integrations.meta.social.repositories.connection_repo import MetaSocialConnectionRepository
+
+logger = logging.getLogger(__name__)
+PAGE_PERMISSIONS = ("pages_show_list", "pages_read_engagement", "pages_manage_posts")
+
+
+def no_pages_message(granted) -> str:
+    missing = [p for p in PAGE_PERMISSIONS if p not in granted]
+    if missing:
+        return ("Meta didn't return any Facebook Pages. Meta did not grant: " + ", ".join(missing)
+                + ". Check the Flyer Lady Facebook Login configuration's permissions.")
+    return ("Meta didn't return any Facebook Pages. Permissions are fine, so no Page was selected in the "
+            "Facebook popup, or this account isn't an admin of any Page.")
+
 
 flyer_lady_bp = Blueprint("flyer_lady", __name__, url_prefix="/dashboard/flyer-lady")
 
@@ -300,7 +315,15 @@ def social_connect_callback():
         pages = MetaSocialGraphClient(client).list_pages(long_lived_token).get("data", [])
         oauth.status = "pages_loaded"; db.commit(); flask_session.pop("flyer_lady_oauth_state", None)
         if not pages:
-            return render_template("flyer_lady_select_page.html", error="Meta didn't return any Facebook Pages for this account. Make sure you're an admin of the Page you want to connect.", onboarding=onboarding)
+            # Say what Meta actually granted: an empty list is almost always a
+            # login configuration without Page permissions or no Page ticked.
+            try:
+                perms = client.get_with_token(long_lived_token, "/me/permissions").get("data", [])
+                granted = sorted(p["permission"] for p in perms if p.get("status") == "granted")
+            except Exception:
+                granted = []
+            logger.warning("flyer_lady_no_pages location_id=%s granted=%s", location_id, ",".join(granted))
+            return render_template("flyer_lady_select_page.html", error=no_pages_message(granted), onboarding=onboarding)
         return render_template("flyer_lady_select_page.html", oauth_session_id=oauth.id, pages=pages, onboarding=onboarding)
     except Exception:
         db.rollback(); raise
