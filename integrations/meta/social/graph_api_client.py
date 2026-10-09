@@ -5,8 +5,20 @@ from integrations.meta.services.graph_api_client import GraphApiClient
 class MetaSocialGraphClient:
     """Social facade over PHANTA's existing authenticated Graph API client."""
     def __init__(self, client: GraphApiClient): self.client = client
+    PAGE_FIELDS = "id,name,access_token,tasks,instagram_business_account"
+
     def list_pages(self, user_token: str) -> dict[str, Any]:
-        return self.client.get_with_token(user_token, "/me/accounts", params={"fields": "id,name,access_token,tasks,instagram_business_account", "limit": 100})
+        result = self.client.get_with_token(user_token, "/me/accounts", params={"fields": self.PAGE_FIELDS, "limit": 100})
+        if result.get("data"):
+            return result
+        # Facebook Login for Business: Pages owned by a business portfolio can be
+        # granted yet missing from /me/accounts. The Pages the person selected in
+        # the popup are recorded on the token's granular scopes, so read those.
+        scopes = (self.client.debug_customer_token(user_token).get("data") or {}).get("granular_scopes") or []
+        page_ids = {str(t) for s in scopes if s.get("scope") in ("pages_show_list", "pages_manage_posts")
+                    for t in (s.get("target_ids") or [])}
+        return {"data": [self.client.get_with_token(user_token, f"/{page_id}", params={"fields": self.PAGE_FIELDS})
+                         for page_id in sorted(page_ids)]}
     def publish_feed_photo(self, page_id: str, page_token: str, media_url: str, caption: str) -> dict[str, Any]:
         return self.client.post_with_token(page_token, f"/{page_id}/photos", data={"url": media_url, "caption": caption, "published": "true"})
     def upload_unpublished_photo(self, page_id: str, page_token: str, media_url: str) -> dict[str, Any]:

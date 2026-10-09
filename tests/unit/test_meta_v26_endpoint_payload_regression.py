@@ -86,6 +86,8 @@ def test_whatsapp_template_payload_contract():
 
 def test_social_page_discovery_contract():
     client, session = graph()
+    session.request = lambda method, url, **kwargs: (session.calls.append((method, url, kwargs)),
+                                                     Response({"data": [{"id": "page-1"}]}))[1]
     MetaSocialGraphClient(client).list_pages("user-token")
     method, url, kwargs = session.calls[-1]
     assert method == "GET"
