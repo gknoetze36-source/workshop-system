@@ -83,7 +83,8 @@ def test_boost_route_end_to_end(client_with_roles, monkeypatch):
     from flyer_lady.models import Special, SpecialPost
     from integrations.meta.auth.token_store import MetaTokenStore
     from integrations.meta.social.repositories.connection_repo import MetaSocialConnectionRepository
-    from models.integration_models import FlyerBoost, MetaAdAccountConnection
+    from flyer_lady.models import FlyerBoost
+    from models.integration_models import MetaAdAccountConnection
     ctx = client_with_roles
     loc = ctx["location_id"]
     ctx["login_as"](ctx["owner_email"])

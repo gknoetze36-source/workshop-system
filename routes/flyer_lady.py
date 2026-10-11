@@ -72,7 +72,7 @@ def index():
         # as they were (existing callers may still read them) rather
         # than being removed as part of a UI-only task.
         connectors = get_all_connector_ui_states(db, location_id)
-        from models.integration_models import FlyerBoost
+        from flyer_lady.models import FlyerBoost
         ids = [s.id for s in specials]
         fb_live = set(db.scalars(select(SpecialPost.special_id).where(SpecialPost.location_id == location_id, SpecialPost.special_id.in_(ids), SpecialPost.platform == "facebook_feed", SpecialPost.status == "published")).all()) if ids else set()
         boosts = {}
@@ -633,7 +633,7 @@ def _ad_connection(db, location_id):
 @require_role(*MANAGER_ROLES)
 def boost_special(special_id):
     from flyer_lady.boost_service import BoostError, BoostService, validate
-    from models.integration_models import FlyerBoost
+    from flyer_lady.models import FlyerBoost
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
     payload = request.get_json(silent=True) or {}
@@ -676,7 +676,7 @@ def boost_special(special_id):
 def boost_results(boost_id):
     from flyer_lady.boost_service import BoostService, meta_message
     from integrations.meta.services.graph_api_client import MetaGraphAPIError
-    from models.integration_models import FlyerBoost
+    from flyer_lady.models import FlyerBoost
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
     db = get_session()
