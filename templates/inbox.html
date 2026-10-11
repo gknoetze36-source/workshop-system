@@ -76,4 +76,28 @@
   </section>
 </div>
 {% endif %}
+<script>
+// Auto-refresh: re-fetch this page every 10s and swap in the chat list and
+// messages only, so a half-typed reply is never lost.
+(function () {
+  async function refresh() {
+    if (document.hidden) return;
+    try {
+      const r = await fetch(location.href, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}});
+      if (!r.ok || r.redirected) return;
+      const next = new DOMParser().parseFromString(await r.text(), "text/html");
+      if (!document.querySelector(".inbox") && next.querySelector(".inbox")) { location.reload(); return; }
+      const body = document.getElementById("chat-body");
+      const atBottom = body && body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+      for (const sel of [".inbox-list", "#chat-body", ".chat-head"]) {
+        const cur = document.querySelector(sel), fresh = next.querySelector(sel);
+        if (cur && fresh && cur.innerHTML !== fresh.innerHTML) cur.innerHTML = fresh.innerHTML;
+      }
+      if (body && atBottom) body.scrollTop = body.scrollHeight;
+    } catch (e) { /* offline or deploying: try again next tick */ }
+  }
+  setInterval(refresh, 10000);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) refresh(); });
+})();
+</script>
 {% endblock %}
