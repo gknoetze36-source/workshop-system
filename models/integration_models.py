@@ -550,6 +550,25 @@ class ThreadsConnection(Base):
     last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
+class InstagramConnection(Base):
+    """Location-scoped Instagram connection via Instagram API with Instagram
+    Login -- its own Meta app, separate from MetaSocialConnection (Facebook
+    Page). Mirrors ThreadsConnection: one per location, one long-lived
+    60-day token, encrypted at rest and refreshed by
+    jobs/instagram_token_refresh.py."""
+    __tablename__ = "instagram_connections"
+    __table_args__ = (UniqueConstraint("location_id", name="uq_instagram_connection_location"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    instagram_user_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    instagram_username: Mapped[Optional[str]] = mapped_column(String(100))
+    encrypted_access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    token_refreshed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
 class TikTokOAuthSession(Base):
     """Short-lived server-side state for the TikTok connect flow.
 

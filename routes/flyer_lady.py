@@ -433,3 +433,84 @@ def redirect_special(special_id):
         pass
 
     return redirect(target, code=302)
+
+# --- Instagram (Instagram API with Instagram Login; its own Meta app) ------
+
+def _instagram_back(message: str, category: str):
+    from flask import flash
+    flash(message, category)
+    return redirect(url_for("flyer_lady.ui"))
+
+
+@flyer_lady_bp.get("/instagram/connect")
+@require_role(*MANAGER_ROLES)
+def instagram_connect_start():
+    unconfigured = require_configured("instagram")
+    if unconfigured:
+        return _instagram_back(unconfigured[0]["message"], "error")
+    try:
+        _location()
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 401
+    from integrations.instagram.config import InstagramAuthConfig
+    from integrations.instagram.api_client import InstagramLoginClient
+    config = InstagramAuthConfig.from_env()
+    # Must match the redirect URL registered in the Instagram app exactly.
+    redirect_uri = config.redirect_uri or url_for("flyer_lady.instagram_connect_callback", _external=True)
+    state = secrets.token_urlsafe(32)
+    flask_session["instagram_oauth_state"] = state
+    flask_session["instagram_oauth_redirect_uri"] = redirect_uri
+    return redirect(InstagramLoginClient(config).authorize_url(redirect_uri=redirect_uri, state=state))
+
+
+@flyer_lady_bp.get("/instagram/callback")
+@require_role(*MANAGER_ROLES)
+def instagram_connect_callback():
+    try:
+        location_id = _location()
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 401
+    expected_state = flask_session.pop("instagram_oauth_state", None)
+    redirect_uri = flask_session.pop("instagram_oauth_redirect_uri", None)
+    if request.args.get("error"):
+        return _instagram_back("Instagram connection was cancelled or declined.", "error")
+    if not expected_state or not secrets.compare_digest(expected_state, request.args.get("state") or ""):
+        return _instagram_back("Instagram connection expired. Please try again.", "error")
+    code = (request.args.get("code") or "").split("#")[0]  # Meta appends "#_" to the code
+    if not code:
+        return _instagram_back("Instagram did not return an authorization code. Please try again.", "error")
+
+    from integrations.instagram.config import InstagramAuthConfig
+    from integrations.instagram.api_client import InstagramAPIError, InstagramLoginClient
+    from integrations.instagram.tokens import save_token
+    from models.integration_models import InstagramConnection
+    client = InstagramLoginClient(InstagramAuthConfig.from_env())
+    try:
+        short = client.exchange_code(code=code, redirect_uri=redirect_uri)
+        long_lived = client.exchange_for_long_lived_token(short["access_token"])
+        me = client.get_me(long_lived["access_token"])
+    except InstagramAPIError as exc:
+        logger.warning("instagram_connect_failed location_id=%s error=%s", location_id, exc)
+        return _instagram_back("Instagram connection failed. Make sure it's a Business or Creator account, then try again.", "error")
+    ig_user_id = str(me.get("user_id") or me.get("id") or short.get("user_id") or "")
+    if not ig_user_id:
+        return _instagram_back("Instagram did not return an account ID. Please try again.", "error")
+
+    db = get_session()
+    try:
+        connection = db.scalar(select(InstagramConnection).where(InstagramConnection.location_id == location_id))
+        if connection is None:
+            connection = InstagramConnection(location_id=location_id, instagram_user_id=ig_user_id, encrypted_access_token="")
+            db.add(connection)
+        connection.instagram_user_id = ig_user_id
+        connection.instagram_username = me.get("username")
+        save_token(connection, long_lived)
+        db.add(AuditLog(location_id=location_id, actor=_actor(), action="instagram.connected",
+                        entity_type="instagram_connection", entity_id=ig_user_id))
+        db.commit()
+    except Exception:
+        db.rollback(); raise
+    finally:
+        db.close()
+    name = f"@{me['username']}" if me.get("username") else "Your Instagram account"
+    return _instagram_back(f"{name} is connected to Flyer Lady.", "success")

@@ -14,7 +14,8 @@ from unittest.mock import patch
 import pytest
 
 from flyer_lady.connectors import FlyerLadyConnector, get_connector, registered_platforms
-from flyer_lady.connectors.meta_social import FacebookConnector, InstagramConnector
+from flyer_lady.connectors.meta_social import FacebookConnector
+from flyer_lady.connectors.instagram_platform import InstagramConnector
 from flyer_lady.connectors.google_business import GoogleBusinessConnector
 
 
@@ -77,17 +78,20 @@ def test_facebook_authorize_url_matches_the_real_route(monkeypatch):
     assert actual_url == expected_url
 
 
-def test_instagram_and_facebook_share_the_same_authorize_url(monkeypatch):
-    """There is one Meta OAuth flow, not two -- Instagram's connector
-    must build the identical URL Facebook's does, since they share the
-    same underlying connection."""
+def test_instagram_uses_its_own_instagram_login_not_facebooks(monkeypatch):
+    """Instagram is a separate Meta app (Instagram API with Instagram
+    Login): its own App ID and instagram.com login, never Flyer Lady's
+    Facebook app or config."""
     monkeypatch.setenv("META_FLYER_LADY_APP_ID", "123456789012345")
     monkeypatch.setenv("META_FLYER_LADY_APP_SECRET", "a" * 32)
     monkeypatch.setenv("META_FLYER_LADY_CONFIG_ID", "999888777")
-    fb = FacebookConnector()
-    ig = InstagramConnector()
-    assert fb.authorize_url(redirect_uri="https://x.test/cb", state="s1") == \
-        ig.authorize_url(redirect_uri="https://x.test/cb", state="s1")
+    monkeypatch.setenv("META_INSTAGRAM_APP_ID", "555444333")
+    monkeypatch.setenv("META_INSTAGRAM_APP_SECRET", "b" * 32)
+    url = InstagramConnector().authorize_url(redirect_uri="https://x.test/cb", state="s1")
+    assert url.startswith("https://www.instagram.com/oauth/authorize?")
+    assert "client_id=555444333" in url and "123456789012345" not in url and "config_id" not in url
+    assert "instagram_business_content_publish" in url
+    assert url != FacebookConnector().authorize_url(redirect_uri="https://x.test/cb", state="s1")
 
 
 def test_facebook_discover_accounts_calls_the_existing_list_pages(monkeypatch):
@@ -107,19 +111,14 @@ def test_facebook_discover_accounts_calls_the_existing_list_pages(monkeypatch):
     assert result == fake_pages["data"]
 
 
-def test_instagram_discover_accounts_filters_to_pages_with_linked_instagram(monkeypatch):
-    monkeypatch.setenv("META_FLYER_LADY_APP_ID", "123456789012345")
-    monkeypatch.setenv("META_FLYER_LADY_APP_SECRET", "a" * 32)
-
-    fake_pages = {"data": [
-        {"id": "page-1", "name": "Has IG", "instagram_business_account": {"id": "ig-1"}},
-        {"id": "page-2", "name": "No IG"},
-    ]}
-    with patch("flyer_lady.connectors.meta_social.MetaSocialGraphClient.list_pages", return_value=fake_pages):
-        result = InstagramConnector().discover_accounts(token="user-token-xyz")
-
-    assert len(result) == 1
-    assert result[0]["id"] == "page-1"
+def test_instagram_discover_accounts_returns_the_one_logged_in_account(monkeypatch):
+    monkeypatch.setenv("META_INSTAGRAM_APP_ID", "555444333")
+    monkeypatch.setenv("META_INSTAGRAM_APP_SECRET", "b" * 32)
+    with patch("integrations.instagram.api_client.InstagramLoginClient.get_me",
+               return_value={"user_id": "1789", "username": "demo_workshop"}) as mock_me:
+        result = InstagramConnector().discover_accounts(token="ig-token")
+    mock_me.assert_called_once_with("ig-token")
+    assert result == [{"user_id": "1789", "username": "demo_workshop"}]
 
 
 def test_facebook_refresh_is_honestly_not_implemented():

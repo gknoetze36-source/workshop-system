@@ -48,13 +48,13 @@
 async function api(url, options={}) { const csrfToken=document.querySelector('meta[name=csrf-token]')?.content || ''; const headers={'Content-Type':'application/json','X-CSRFToken':csrfToken,...(options.headers||{})}; const r=await fetch(url,{...options,headers}); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Request failed'); return d; }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
 // Platform display names and where "Connect"/"Reconnect" actually go --
-// only facebook/instagram (one shared connection) and google_business
+// facebook, instagram (its own Instagram login) and google_business
 // have a real connect route today; x, threads and tiktok are connector-
 // layer only so far (no web OAuth route yet), so their Connect/Reconnect
 // labels show as plain text rather than a dead link.
 const PLATFORM_META = {
   facebook: {label: 'Facebook', connectUrl: '{{ url_for("flyer_lady.social_connect_start") }}'},
-  instagram: {label: 'Instagram', connectUrl: '{{ url_for("flyer_lady.social_connect_start") }}'},
+  instagram: {label: 'Instagram', connectUrl: '{{ url_for("flyer_lady.instagram_connect_start") }}'},
   threads: {label: 'Threads', connectUrl: null},
   x: {label: 'X', connectUrl: null},
   tiktok: {label: 'TikTok', connectUrl: null},

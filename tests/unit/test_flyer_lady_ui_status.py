@@ -165,48 +165,16 @@ def test_connected_and_capable_is_selectable(client, monkeypatch):
     assert result["capabilities"]["post_types"] == ["facebook_feed", "facebook_story"]
 
 
-def test_instagram_connected_but_no_linked_account_is_not_selectable(client, monkeypatch):
-    """The exact scenario this task's second requirement guards
-    against: Facebook's OAuth genuinely succeeded (connection_status=
-    connected), but the connected Page has no linked Instagram
-    Business Account -- publish_service.py's own instagram branch
-    would raise "Instagram Business Account is not connected" on the
-    very next attempt. The selector must exclude it before that ever
-    happens."""
+def test_facebook_page_with_linked_instagram_does_not_connect_instagram(client, monkeypatch):
+    """Instagram is its own Meta app now: a connected Facebook Page (even one
+    with a linked Instagram account) must not make Instagram selectable."""
     monkeypatch.setenv("META_FLYER_LADY_APP_ID", "1")
     monkeypatch.setenv("META_FLYER_LADY_APP_SECRET", "2")
     monkeypatch.setenv("META_FLYER_LADY_CONFIG_ID", "3")
+    monkeypatch.setenv("META_INSTAGRAM_APP_ID", "4")
+    monkeypatch.setenv("META_INSTAGRAM_APP_SECRET", "5")
     monkeypatch.setenv("META_TOKEN_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
     location_id = _register_and_onboard(client, "ignolink")
-
-    from database import get_session
-    from models.integration_models import MetaSocialConnection
-    from integrations.meta.auth.token_store import MetaTokenStore
-
-    db = get_session()
-    try:
-        connection = MetaSocialConnection(
-            location_id=location_id, meta_user_id="m1", page_id="p1", page_name="Page",
-            connection_status="connected", encrypted_page_access_token="",
-        )
-        db.add(connection)
-        db.flush()
-        MetaTokenStore().save_social_token(db, connection, "tok")
-        db.commit()
-
-        result = get_connector_ui_state(db, location_id, "instagram")
-    finally:
-        db.close()
-
-    assert result["selectable_for_publish"] is False
-
-
-def test_instagram_with_linked_account_is_selectable(client, monkeypatch):
-    monkeypatch.setenv("META_FLYER_LADY_APP_ID", "1")
-    monkeypatch.setenv("META_FLYER_LADY_APP_SECRET", "2")
-    monkeypatch.setenv("META_FLYER_LADY_CONFIG_ID", "3")
-    monkeypatch.setenv("META_TOKEN_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-    location_id = _register_and_onboard(client, "iglinked")
 
     from database import get_session
     from models.integration_models import MetaSocialConnection
@@ -222,6 +190,31 @@ def test_instagram_with_linked_account_is_selectable(client, monkeypatch):
         db.add(connection)
         db.flush()
         MetaTokenStore().save_social_token(db, connection, "tok")
+        db.commit()
+
+        result = get_connector_ui_state(db, location_id, "instagram")
+    finally:
+        db.close()
+
+    assert result["ui_status"] == UI_CONNECT
+    assert result["selectable_for_publish"] is False
+
+
+def test_instagram_login_connection_is_selectable(client, monkeypatch):
+    monkeypatch.setenv("META_INSTAGRAM_APP_ID", "4")
+    monkeypatch.setenv("META_INSTAGRAM_APP_SECRET", "5")
+    monkeypatch.setenv("META_TOKEN_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    location_id = _register_and_onboard(client, "iglinked")
+
+    from database import get_session
+    from models.integration_models import InstagramConnection
+    from integrations.instagram.tokens import save_token
+
+    db = get_session()
+    try:
+        connection = InstagramConnection(location_id=location_id, instagram_user_id="1789", encrypted_access_token="")
+        save_token(connection, {"access_token": "ig-tok", "expires_in": 5184000})
+        db.add(connection)
         db.commit()
 
         result = get_connector_ui_state(db, location_id, "instagram")
