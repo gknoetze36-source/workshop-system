@@ -138,7 +138,12 @@ def test_submission_creates_a_real_confirmed_booking():
     assert booking["status"] == "confirmed"
     assert booking["source"] == "public_web"
 
-    confirm_response = public_client.get(response.headers["Location"])
+    # Production RLS hides every booking from an unscoped query_db read
+    # (SQLite here doesn't enforce RLS), so the page must not use one.
+    import database
+    from unittest.mock import patch
+    with patch.object(database, "query_db", side_effect=AssertionError("unscoped read: 404s under RLS")):
+        confirm_response = public_client.get(response.headers["Location"])
     assert confirm_response.status_code == 200
     assert "booked in" in confirm_response.get_data(as_text=True).lower()
 

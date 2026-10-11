@@ -252,15 +252,16 @@ def confirmed(slug, booking_id):
     location = location_for_public_booking(slug)
     if not location:
         abort(404)
-    from database import query_db
+    from models.core import Booking
     # status is read fresh from the row rather than passed through the
     # redirect, so this page is honest even if reloaded or bookmarked --
     # e.g. after the customer has already replied YES on WhatsApp, or
     # after the 48-hour expiry job has cancelled an unanswered request.
-    booking = query_db(
-        "SELECT start_time, service_type, status FROM bookings WHERE id=%s AND location_id=%s",
-        (booking_id, location["id"]), one=True,
-    )
+    # location_transaction, not query_db: under production RLS a connection
+    # without app.location_id sees no bookings at all, so this page 404'd.
+    with location_transaction(location["id"]) as session:
+        row = session.scalar(select(Booking).where(Booking.id == booking_id, Booking.location_id == location["id"]))
+        booking = {"start_time": row.start_time, "service_type": row.service_type, "status": row.status} if row else None
     if not booking:
         abort(404)
     return render_template("public_booking_confirmed.html", location=location, booking=booking)
