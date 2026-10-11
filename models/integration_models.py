@@ -621,3 +621,43 @@ class TikTokConnection(Base):
     connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class MetaAdAccountConnection(Base):
+    """The workshop's own Meta ad account, connected through a separate
+    Facebook Login for Business configuration (ads_management, ads_read) on
+    the Flyer Lady app. The workshop pays Meta directly; VANTA never holds
+    ad money."""
+    __tablename__ = "meta_ad_account_connections"
+    __table_args__ = (UniqueConstraint("location_id", name="uq_meta_ad_account_location"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    ad_account_id: Mapped[str] = mapped_column(String(64), nullable=False)  # digits only, no "act_"
+    ad_account_name: Mapped[Optional[str]] = mapped_column(String(255))
+    currency: Mapped[Optional[str]] = mapped_column(String(8))
+    encrypted_access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
+    connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class FlyerBoost(Base):
+    """A paid boost of a published Flyer Lady Facebook post."""
+    __tablename__ = "flyer_lady_boosts"
+    __table_args__ = (Index("ix_flyer_boosts_location_special", "location_id", "special_id"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
+    special_id: Mapped[int] = mapped_column(ForeignKey("flyer_lady_specials.id", ondelete="CASCADE"), nullable=False)
+    ad_account_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    campaign_id: Mapped[Optional[str]] = mapped_column(String(64))
+    adset_id: Mapped[Optional[str]] = mapped_column(String(64))
+    ad_id: Mapped[Optional[str]] = mapped_column(String(64))
+    budget_minor: Mapped[int] = mapped_column(Integer, nullable=False)  # cents, in the ad account's currency
+    currency: Mapped[Optional[str]] = mapped_column(String(8))
+    days: Mapped[int] = mapped_column(Integer, nullable=False)
+    area: Mapped[str] = mapped_column(String(120), nullable=False)
+    radius_km: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="active", nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

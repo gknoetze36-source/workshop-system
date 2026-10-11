@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Choose ad account{% endblock %}
+{% block content %}
+<div class="topbar"><div class="heading"><h1>Choose your ad account</h1><p>Boosts are paid from this account's payment method.</p></div></div>
+<form method="post" action="{{ url_for('flyer_lady.ads_connect_complete') }}" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% for a in accounts %}
+  <label style="display:block;margin:8px 0;font-weight:normal;"><input type="radio" name="ad_account_id" value="{{ a.account_id }}" required {% if loop.first %}checked{% endif %}> {{ a.name or a.account_id }} ({{ a.currency }})</label>
+  {% endfor %}
+  <div class="actions"><button type="submit" class="primary">Connect ad account</button><a class="button secondary" href="{{ url_for('flyer_lady.ui') }}">Cancel</a></div>
+</form>
+{% endblock %}

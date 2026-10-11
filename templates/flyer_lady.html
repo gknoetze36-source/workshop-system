@@ -78,18 +78,42 @@ function renderConnections(connectors){
   }).join('');
   document.getElementById('connections-list').innerHTML=rows||'<p class="muted">No platforms configured.</p>';
 }
+function renderAds(ads){
+  const action=ads.connected?`<span class="muted">Connected: ${esc(ads.name)}</span>`:ads.configured?`<a class="button secondary" href="{{ url_for("flyer_lady.ads_connect_start") }}">Connect ad account</a>`:'<span class="muted">Not set up</span>';
+  document.getElementById('connections-list').insertAdjacentHTML('beforeend',`<div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;"><strong>Facebook ads (paid boosts)</strong>${action}</div>`);
+}
+let adsConnected=false;
+function boostHtml(s){
+  const done=s.boosts.map(b=>`<p class="muted" style="margin:4px 0;">Boosted: R${b.budget} over ${b.days} day(s) around ${esc(b.area)} (${b.radius_km} km) · <a href="#" onclick="boostResults(${b.id},this);return false;">Results</a></p>`).join('');
+  if(!s.facebook_published) return done;
+  if(!adsConnected) return done+'<p class="muted" style="margin:4px 0;">Connect your ad account above to boost this post.</p>';
+  return done+`<form class="boost-form" onsubmit="boost(event,${s.id})" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:8px 0;">
+    <label style="font-weight:normal;">Budget (R)<input name="budget" type="number" min="50" max="20000" value="200" required style="width:100px;"></label>
+    <label style="font-weight:normal;">Days<input name="days" type="number" min="1" max="30" value="5" required style="width:70px;"></label>
+    <label style="font-weight:normal;">Town / city<input name="area" required placeholder="Pretoria" style="width:140px;"></label>
+    <label style="font-weight:normal;">Radius (km)<input name="radius_km" type="number" min="17" max="80" value="25" required style="width:80px;"></label>
+    <button type="submit">Boost on Facebook</button></form>`;
+}
+async function boost(e,id){e.preventDefault();const f=new FormData(e.target);const btn=e.target.querySelector('button');
+  if(!confirm(`Spend up to R${f.get('budget')} from your Meta ad account over ${f.get('days')} day(s)?`))return;
+  btn.disabled=true;btn.textContent='Boosting…';
+  try{await api(`{{ url_for("flyer_lady.index") }}/specials/${id}/boost`,{method:'POST',body:JSON.stringify(Object.fromEntries(f))});alert('Boost submitted. Meta reviews ads before they run, usually within 24 hours.');await load();}
+  catch(err){alert(err.message);btn.disabled=false;btn.textContent='Boost on Facebook';}}
+async function boostResults(id,el){try{const r=await api(`{{ url_for("flyer_lady.index") }}/boosts/${id}/results`);el.outerHTML=`<span>Spent R${esc(r.spend)} · Reach ${esc(r.reach)} · Clicks ${esc(r.clicks)}</span>`;}catch(err){alert(err.message);}}
 
 function renderSpecials(specials){
   document.getElementById('specials').innerHTML=specials.length?specials.map(s=>{
     const checkboxes=availablePostTypes.map(pt=>`<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" class="platform-check" data-special="${s.id}" value="${pt}" checked> ${esc(pt.replaceAll('_',' '))}</label>`).join('')
       + `<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" class="platform-check" data-special="${s.id}" value="whatsapp_status_prepared" checked> whatsapp status</label>`;
-    return `<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p>${s.status==='approved'?`<div class="muted" style="margin:6px 0;">${checkboxes}</div>`:''}<div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue selected</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div></div>`;
+    return `<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p>${s.status==='approved'?`<div class="muted" style="margin:6px 0;">${checkboxes}</div>`:''}<div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue selected</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div>${boostHtml(s)}</div>`;
   }).join(''):'<p class="muted">No specials yet.</p>';
 }
 
 async function load(){
   const d=await api('{{ url_for("flyer_lady.index") }}');
   renderConnections(d.connectors||[]);
+  adsConnected=!!(d.ads_connection&&d.ads_connection.connected);
+  if(d.ads_connection) renderAds(d.ads_connection);
   // The publishing platform selector's actual gate: only a platform
   // that is both connected AND capability-ready (e.g. Instagram with a
   // linked Business Account, TikTok with a confirmed privacy level)
