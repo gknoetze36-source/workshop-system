@@ -72,7 +72,15 @@ def index():
         # as they were (existing callers may still read them) rather
         # than being removed as part of a UI-only task.
         connectors = get_all_connector_ui_states(db, location_id)
-        return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": click_count(db, location_id, s.id)} for s in specials], "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "google_connection": {"connected": bool(google_connection and google_connection.connection_status == "connected"), "business_name": google_connection.business_name if google_connection else None}, "connectors": connectors})
+        from models.integration_models import FlyerBoost
+        ids = [s.id for s in specials]
+        fb_live = set(db.scalars(select(SpecialPost.special_id).where(SpecialPost.location_id == location_id, SpecialPost.special_id.in_(ids), SpecialPost.platform == "facebook_feed", SpecialPost.status == "published")).all()) if ids else set()
+        boosts = {}
+        for b in (db.scalars(select(FlyerBoost).where(FlyerBoost.location_id == location_id, FlyerBoost.special_id.in_(ids)).order_by(FlyerBoost.created_at)).all() if ids else []):
+            boosts.setdefault(b.special_id, []).append({"id": b.id, "budget": b.budget_minor // 100, "days": b.days, "area": b.area, "radius_km": b.radius_km, "ends_at": b.ends_at.isoformat() if b.ends_at else None})
+        ads = _ad_connection(db, location_id)
+        return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": click_count(db, location_id, s.id), "facebook_published": s.id in fb_live, "boosts": boosts.get(s.id, [])} for s in specials],
+                        "ads_connection": {"connected": bool(ads), "name": ads.ad_account_name if ads else None, "configured": bool(os.getenv("META_FLYER_LADY_ADS_CONFIG_ID", "").strip())}, "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "google_connection": {"connected": bool(google_connection and google_connection.connection_status == "connected"), "business_name": google_connection.business_name if google_connection else None}, "connectors": connectors})
     finally: db.close()
 
 @flyer_lady_bp.post("/specials")
@@ -516,3 +524,169 @@ def instagram_connect_callback():
         db.close()
     name = f"@{me['username']}" if me.get("username") else "Your Instagram account"
     return _instagram_back(f"{name} is connected to Flyer Lady.", "success")
+
+
+# --- Paid boosts (Meta Marketing API, the workshop's own ad account) --------
+ADS_SCOPES = "ads_management,ads_read"
+
+
+def _ads_back(message: str, category: str):
+    return _instagram_back(message, category)
+
+
+def _ads_graph():
+    return GraphApiClient(FlyerLadyMetaConfig.from_env())
+
+
+def _save_ad_account(location_id: int, token: str, expires_in, account: dict):
+    from models.integration_models import MetaAdAccountConnection
+    db = get_session()
+    try:
+        conn = db.scalar(select(MetaAdAccountConnection).where(MetaAdAccountConnection.location_id == location_id))
+        if conn is None:
+            conn = MetaAdAccountConnection(location_id=location_id, ad_account_id="", encrypted_access_token="")
+            db.add(conn)
+        conn.ad_account_id = str(account["account_id"])
+        conn.ad_account_name = account.get("name")
+        conn.currency = account.get("currency")
+        conn.encrypted_access_token = MetaTokenStore().encrypt(token)
+        conn.token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in or 5184000))
+        conn.connection_status = "connected"
+        conn.connected_at = datetime.now(timezone.utc)
+        db.flush()
+        db.add(AuditLog(location_id=location_id, actor=_actor(), action="flyer_ad_account_connected", entity_type="MetaAdAccountConnection", entity_id=str(conn.id), after={"ad_account_id": conn.ad_account_id}))
+        db.commit()
+    finally:
+        db.close()
+    return _ads_back(f"Ad account '{account.get('name') or account['account_id']}' is connected. You can now boost published Facebook posts.", "success")
+
+
+@flyer_lady_bp.get("/ads/connect")
+@require_role(*MANAGER_ROLES)
+def ads_connect_start():
+    try: _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    config_id = os.getenv("META_FLYER_LADY_ADS_CONFIG_ID", "").strip()
+    if not config_id:
+        return _ads_back("Boosting isn't set up yet: META_FLYER_LADY_ADS_CONFIG_ID is missing.", "error")
+    config = FlyerLadyMetaConfig.from_env()
+    redirect_uri = url_for("flyer_lady.ads_connect_callback", _external=True)
+    state = secrets.token_urlsafe(32)
+    flask_session["flyer_ads_oauth_state"], flask_session["flyer_ads_oauth_redirect_uri"] = state, redirect_uri
+    params = urlencode({"client_id": config.app_id, "config_id": config_id, "redirect_uri": redirect_uri, "state": state, "scope": ADS_SCOPES, "response_type": "code"})
+    return redirect(f"https://www.facebook.com/{config.graph_api_version}/dialog/oauth?{params}")
+
+
+@flyer_lady_bp.get("/ads/callback")
+@require_role(*MANAGER_ROLES)
+def ads_connect_callback():
+    try: location_id = _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    expected = flask_session.pop("flyer_ads_oauth_state", None)
+    redirect_uri = flask_session.pop("flyer_ads_oauth_redirect_uri", None)
+    if not expected or not secrets.compare_digest(expected, request.args.get("state") or ""):
+        return _ads_back("The ad account connection expired. Please try again.", "error")
+    code = request.args.get("code")
+    if not code:
+        return _ads_back("Meta didn't connect the ad account (cancelled or declined).", "error")
+    config = FlyerLadyMetaConfig.from_env()
+    client = _ads_graph()
+    try:
+        resp = client.session.get(config.graph_base_url() + "/oauth/access_token", params={"client_id": config.app_id, "client_secret": config.app_secret, "redirect_uri": redirect_uri, "code": code}, timeout=15)
+        short = resp.json() if resp.ok else {}
+        long_lived = client.exchange_for_long_lived_user_token(short["access_token"])
+        token = long_lived["access_token"]
+        accounts = client.get_with_token(token, "/me/adaccounts", params={"fields": "account_id,name,currency,account_status", "limit": 100}).get("data") or []
+    except Exception as exc:
+        logger.warning("flyer_ads_connect_failed location_id=%s error=%s", location_id, exc)
+        return _ads_back("Meta ad account connection failed. Please try again.", "error")
+    active = [a for a in accounts if a.get("account_status") == 1]
+    if not active:
+        return _ads_back("Meta didn't return an active ad account. Create one in Meta Business Suite, add a payment method, then connect again.", "error")
+    if len(active) == 1:
+        return _save_ad_account(location_id, token, long_lived.get("expires_in"), active[0])
+    flask_session["flyer_ads_pending"] = {"token": MetaTokenStore().encrypt(token), "expires_in": long_lived.get("expires_in"), "accounts": active}
+    return render_template("flyer_lady_select_ad_account.html", accounts=active)
+
+
+@flyer_lady_bp.post("/ads/complete")
+@require_role(*MANAGER_ROLES)
+def ads_connect_complete():
+    try: location_id = _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    pending = flask_session.pop("flyer_ads_pending", None)
+    if not pending:
+        return _ads_back("The ad account connection expired. Please try again.", "error")
+    account = next((a for a in pending["accounts"] if str(a["account_id"]) == request.form.get("ad_account_id")), None)
+    if not account:
+        return _ads_back("That ad account wasn't one Meta returned. Please try again.", "error")
+    return _save_ad_account(location_id, MetaTokenStore().decrypt(pending["token"]), pending.get("expires_in"), account)
+
+
+def _ad_connection(db, location_id):
+    from models.integration_models import MetaAdAccountConnection
+    conn = db.scalar(select(MetaAdAccountConnection).where(MetaAdAccountConnection.location_id == location_id))
+    return conn if conn and conn.connection_status == "connected" else None
+
+
+@flyer_lady_bp.post("/specials/<int:special_id>/boost")
+@require_role(*MANAGER_ROLES)
+def boost_special(special_id):
+    from flyer_lady.boost_service import BoostError, BoostService, validate
+    from models.integration_models import FlyerBoost
+    try: location_id = _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    payload = request.get_json(silent=True) or {}
+    db = get_session()
+    try:
+        budget, days, area, radius_km = validate(payload.get("budget"), payload.get("days"), payload.get("area"), payload.get("radius_km"))
+        special = SpecialService().get(db, location_id, special_id)
+        if not special: return jsonify({"error": "special not found"}), 404
+        post = db.scalar(select(SpecialPost).where(SpecialPost.special_id == special_id, SpecialPost.location_id == location_id, SpecialPost.platform == "facebook_feed", SpecialPost.status == "published"))
+        if not post or not post.external_post_id:
+            raise BoostError("Publish this special to the Facebook feed first, then boost it.")
+        ads = _ad_connection(db, location_id)
+        if not ads:
+            raise BoostError("Connect your Meta ad account first (Connections → Facebook ads).")
+        page = MetaSocialConnectionRepository().get_for_location(db, location_id)
+        if not page or page.connection_status != "connected":
+            raise BoostError("Facebook isn't connected.")
+        if (ads.currency or "ZAR") != "ZAR":
+            raise BoostError(f"Your ad account uses {ads.currency}; boosts are priced in Rand, so it must be a ZAR ad account.")
+        result = BoostService(_ads_graph()).boost(
+            token=MetaTokenStore().decrypt(ads.encrypted_access_token), ad_account_id=ads.ad_account_id,
+            page_token=MetaTokenStore().get_social_token(page), external_post_id=post.external_post_id,
+            name=special.text[:60], budget=budget, days=days, area=area, radius_km=radius_km)
+        boost = FlyerBoost(location_id=location_id, special_id=special_id, ad_account_id=ads.ad_account_id,
+                           campaign_id=result["campaign_id"], adset_id=result["adset_id"], ad_id=result["ad_id"],
+                           budget_minor=budget * 100, currency="ZAR", days=days, area=result["area"], radius_km=radius_km,
+                           status="active", created_by=_actor(), ends_at=result["ends_at"])
+        db.add(boost); db.flush()
+        db.add(AuditLog(location_id=location_id, actor=_actor(), action="flyer_special_boosted", entity_type="FlyerBoost", entity_id=str(boost.id), after={"special_id": special_id, "budget_rand": budget, "days": days, "area": boost.area}))
+        db.commit()
+        return jsonify({"id": boost.id, "status": boost.status, "campaign_id": boost.campaign_id}), 201
+    except BoostError as exc:
+        db.rollback(); return jsonify({"error": str(exc)}), 400
+    finally:
+        db.close()
+
+
+@flyer_lady_bp.get("/boosts/<int:boost_id>/results")
+@require_role(*MANAGER_ROLES)
+def boost_results(boost_id):
+    from flyer_lady.boost_service import BoostService, meta_message
+    from integrations.meta.services.graph_api_client import MetaGraphAPIError
+    from models.integration_models import FlyerBoost
+    try: location_id = _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    db = get_session()
+    try:
+        boost = db.scalar(select(FlyerBoost).where(FlyerBoost.id == boost_id, FlyerBoost.location_id == location_id))
+        ads = _ad_connection(db, location_id)
+        if not boost or not ads: return jsonify({"error": "boost not found"}), 404
+        try:
+            return jsonify(BoostService(_ads_graph()).results(MetaTokenStore().decrypt(ads.encrypted_access_token), boost.campaign_id))
+        except MetaGraphAPIError as exc:
+            return jsonify({"error": meta_message(exc)}), 502
+    finally:
+        db.close()
