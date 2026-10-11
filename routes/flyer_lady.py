@@ -81,7 +81,9 @@ def create_special():
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
     payload = request.get_json(silent=True) or {}
-    location = get_location_by_id(payload.get("location_id"), location_id=location_id) if payload.get("location_id") else None
+    if payload.get("location_id") not in (None, "", location_id):
+        return jsonify({"error": "specials can only be created for your own workshop"}), 403
+    location = get_location_by_id(location_id)
     db = get_session()
     try:
         special = SpecialService().create(db, location_id, _actor(), payload.get("text", ""), location=location, media_url=payload.get("media_url"))
