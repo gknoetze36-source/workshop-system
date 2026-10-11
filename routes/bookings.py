@@ -1,5 +1,6 @@
 """Phase 11 booking engine API."""
 from __future__ import annotations
+import logging
 from helpers.permission import require_role, OPERATIONAL_ROLES
 
 from helpers.location import current_location_id
@@ -16,9 +17,10 @@ from ai.communications.lifecycle import LifecycleCommunicationService
 from ai.communications.review import PostServiceReviewService
 from integrations.meta.auth.capability_config import WhatsAppMetaConfig
 from integrations.meta.auth.token_store import MetaTokenStore
-from integrations.meta.messaging.messaging_service import MetaMessagingService
+from integrations.meta.messaging.messaging_service import MetaMessagingError, MetaMessagingService
 from integrations.meta.services.graph_api_client import GraphApiClient
 
+logger = logging.getLogger(__name__)
 bookings_bp = Blueprint("bookings", __name__, url_prefix="/bookings")
 
 
@@ -203,6 +205,7 @@ def confirm_booking(booking_id: int):
     payload = request.get_json(silent=True) or {}
     customer_id = payload.get("customer_id")
     raw_message = payload.get("raw_message")
+    notice = None
     session = get_session()
     try:
         if not isinstance(customer_id, int) or customer_id <= 0:
@@ -224,9 +227,18 @@ def confirm_booking(booking_id: int):
                 ),
             )
             lifecycle.schedule_booking_reminder(record.booking)
-            lifecycle.booking_confirmed(record.booking)
+            try:
+                # Savepoint: a refused WhatsApp send must not undo the confirmation.
+                with session.begin_nested():
+                    lifecycle.booking_confirmed(record.booking)
+            except MetaMessagingError as exc:
+                # e.g. web bookings: the customer never messaged, so WhatsApp's
+                # 24-hour window is closed and no approved template exists yet.
+                logger.warning("booking_confirmed_message_failed location_id=%s booking_id=%s error=%s", location_id, booking_id, exc)
+                notice = "Booking confirmed, but WhatsApp didn't allow the confirmation message (the customer hasn't messaged the workshop in the last 24 hours). Please let the customer know yourself."
         session.commit()
         return jsonify({
+            "notice": notice,
             "booking_confirmation_id": record.id,
             "booking_id": booking_id,
             "decision": record.decision,

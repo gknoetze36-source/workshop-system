@@ -467,7 +467,8 @@ window.PHANTA_GHOST_DATA = {
       if (!confirm('Record the customer booking decision as ' + label + '?')) return;
       button.disabled = true;
       try {
-        await postJson('/bookings/' + button.dataset.bookingId + '/confirm', {customer_id:Number(button.dataset.customerId), raw_message:decision});
+        const result = await postJson('/bookings/' + button.dataset.bookingId + '/confirm', {customer_id:Number(button.dataset.customerId), raw_message:decision});
+        if (result && result.notice) alert(result.notice);
         const row = button.closest('.pending-booking');
         row?.remove();
       } catch (error) {

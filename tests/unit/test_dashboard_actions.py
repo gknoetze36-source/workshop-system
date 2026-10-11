@@ -156,3 +156,28 @@ def test_mark_as_missed_sends_recovery_message_and_is_idempotent():
         client.post(f"/bookings/{booking_id}/status", json={"status": "confirmed"}, headers={"X-CSRFToken": token})
         client.post(f"/bookings/{booking_id}/status", json={"status": "no_show"}, headers={"X-CSRFToken": token})
         assert mock_send.call_count == call_count_before, "must not send a second missed-booking message for the same booking"
+
+
+def test_confirm_keeps_booking_when_whatsapp_window_is_closed():
+    """Web bookings: the customer never messaged, so WhatsApp refuses a free-form
+    confirmation. That used to 500 and roll back the confirm; now the booking is
+    confirmed and staff are told to contact the customer themselves."""
+    from unittest.mock import MagicMock, patch
+    from integrations.meta.messaging.messaging_service import MetaSessionWindowClosedError
+    import phanta_app
+    phanta_app.app.config["TESTING"] = True
+    client = phanta_app.app.test_client()
+    location_id, csrf_from = _register_and_onboard(client, "confirmwindow")
+    booking_id = _seed_booking(location_id, status="pending")
+    customer_id = query_db("SELECT customer_id FROM bookings WHERE id=%s", (booking_id,), one=True)["customer_id"]
+
+    lifecycle = MagicMock()
+    lifecycle.return_value.booking_confirmed.side_effect = MetaSessionWindowClosedError("customer_service_window_closed")
+    with patch("routes.bookings.LifecycleCommunicationService", lifecycle), \
+         patch("routes.bookings.WhatsAppMetaConfig"), patch("routes.bookings.GraphApiClient"), \
+         patch("routes.bookings.MetaMessagingService"):
+        response = client.post(f"/bookings/{booking_id}/confirm", json={"customer_id": customer_id, "raw_message": "yes"},
+                               headers={"X-CSRFToken": csrf_from("/dashboard")})
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert "let the customer know yourself" in response.get_json()["notice"]
+    assert query_db("SELECT status FROM bookings WHERE id=%s", (booking_id,), one=True)["status"] == "confirmed"
