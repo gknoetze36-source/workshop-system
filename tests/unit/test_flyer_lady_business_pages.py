@@ -9,6 +9,7 @@ class FakeClient:
     def get_with_token(self, token, path, params=None):
         if path == "/me/accounts":
             return {"data": self.accounts}
+        assert "tasks" not in params["fields"], "Meta: (#100) Tried accessing nonexisting field (tasks)"
         return {"id": path.strip("/"), "name": f"Page {path.strip('/')}", "access_token": "page-token"}
 
     def debug_customer_token(self, token):
@@ -28,3 +29,4 @@ def test_falls_back_to_granted_business_pages():
     pages = MetaSocialGraphClient(FakeClient([])).list_pages("t")["data"]
     assert [p["id"] for p in pages] == ["111", "222"]
     assert all(p["access_token"] for p in pages)
+    assert [p["tasks"] for p in pages] == [["CREATE_CONTENT"], []]  # only 111 has pages_manage_posts
