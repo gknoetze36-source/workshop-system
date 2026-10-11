@@ -1,4 +1,5 @@
-"""Facebook and Instagram connectors.
+"""Facebook Page connector. (Instagram has its own app and connection now --
+see instagram_platform.py; the notes below describe the shared base.)
 
 Both wrap the SAME existing Meta Flyer Lady implementation -- one
 Facebook Login grant connects a Page and (if linked) an Instagram
@@ -184,38 +185,3 @@ class FacebookConnector(_MetaSocialConnectorBase):
 
     def capabilities(self) -> dict[str, Any]:
         return {"platform": "facebook", "post_types": ["facebook_feed", "facebook_story"]}
-
-
-class InstagramConnector(_MetaSocialConnectorBase):
-    """Instagram feed and Story publishing, via the SAME Facebook Page
-    connection -- there is no separate Instagram OAuth in this
-    codebase; Instagram is only usable when the connected Page has a
-    linked Instagram Business Account."""
-    platform_key = "instagram"
-
-    def capabilities(self) -> dict[str, Any]:
-        return {"platform": "instagram", "post_types": ["instagram_feed", "instagram_story"]}
-
-    def discover_accounts(self, *, token: str) -> list[dict[str, Any]]:
-        """Same underlying call as the base class -- list_pages() --
-        filtered to Pages that actually have a linked Instagram
-        Business Account, since an Instagram connector listing Pages
-        with no Instagram account to publish to would be misleading."""
-        pages = super().discover_accounts(token=token)
-        return [p for p in pages if p.get("instagram_business_account")]
-
-    def health(self, session, location_id: int) -> dict[str, Any]:
-        """Adds one key beyond the base class: capability_ready. A
-        MetaSocialConnection can genuinely be connection_status=
-        "connected" (the Facebook Page OAuth succeeded) while still
-        having no Instagram Business Account linked to that Page --
-        publish_service.py's own instagram branch already checks
-        connection.instagram_business_account_id and raises
-        "Instagram Business Account is not connected" if it's missing.
-        Surfacing that here is what lets the UI show Connect instead of
-        a falsely-green Connected that would fail on the very next
-        publish attempt."""
-        result = super().health(session, location_id)
-        connection = MetaSocialConnectionRepository().get_for_location(session, location_id)
-        result["capability_ready"] = bool(connection and connection.instagram_business_account_id)
-        return result

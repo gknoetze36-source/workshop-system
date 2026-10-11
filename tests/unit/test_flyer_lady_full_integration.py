@@ -37,6 +37,8 @@ def env(monkeypatch):
     monkeypatch.setenv("META_TOKEN_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
     monkeypatch.setenv("META_FLYER_LADY_APP_ID", "123456789012345")
     monkeypatch.setenv("META_FLYER_LADY_APP_SECRET", "a" * 32)
+    monkeypatch.setenv("META_INSTAGRAM_APP_ID", "555444333")
+    monkeypatch.setenv("META_INSTAGRAM_APP_SECRET", "b" * 32)
 
 
 def test_four_posts_in_four_states_all_resolve_correctly_in_one_queue_run(env):
@@ -108,6 +110,12 @@ def test_four_posts_in_four_states_all_resolve_correctly_in_one_queue_run(env):
         db.add(connection)
         db.flush()
         MetaTokenStore().save_social_token(db, connection, "fake-page-access-token")
+        # Instagram is its own Meta app with its own connection.
+        from models.integration_models import InstagramConnection
+        from integrations.instagram.tokens import save_token
+        ig_connection = InstagramConnection(location_id=location_id, instagram_user_id="ig-account-1", encrypted_access_token="")
+        save_token(ig_connection, {"access_token": "fake-ig-token", "expires_in": 5184000})
+        db.add(ig_connection)
         db.commit()
 
         ids = {
@@ -171,18 +179,23 @@ def test_four_posts_in_four_states_all_resolve_correctly_in_one_queue_run(env):
     finally:
         db.close()
 
-    # Post D: permanent auth failure -- failed_permanently, and the
-    # SHARED connection (all four posts use the same one) is marked
-    # reconnect_required as a result of D specifically.
+    # Post D: permanent auth failure -- failed_permanently, and only the
+    # Instagram connection (its own Meta app) is marked reconnect_required;
+    # the Facebook Page connection that B and C use stays connected.
     row_d = _row(ids["d"])
     assert row_d["status"] == STATUS_FAILED_PERMANENTLY
     assert row_d["next_attempt_at"] is None
 
-    connection_row = query_db(
+    ig_row = query_db(
+        "SELECT connection_status FROM instagram_connections WHERE location_id=%s",
+        (location_id,), one=True,
+    )
+    assert ig_row["connection_status"] == RECONNECT_REQUIRED
+    fb_row = query_db(
         "SELECT connection_status FROM meta_social_connections WHERE location_id=%s",
         (location_id,), one=True,
     )
-    assert connection_row["connection_status"] == RECONNECT_REQUIRED
+    assert fb_row["connection_status"] == "connected"
 
     assert first_run_result["attempted"] == 3  # B, C, D -- A never reaches the claim/publish phase at all
     assert first_run_result["published"] == 1

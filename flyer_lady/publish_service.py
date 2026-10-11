@@ -161,14 +161,24 @@ class FlyerLadyPublishService:
                 # publicly-viewable post id, that replaces it now.
                 post.external_post_id = external_id
                 return post
+            if post.platform in {"instagram_feed", "instagram_story"}:
+                # Instagram API with Instagram Login -- its own Meta app and
+                # connection, independent of the Facebook Page connection below.
+                from models.integration_models import InstagramConnection
+                from integrations.instagram.api_client import InstagramLoginClient
+                from integrations.instagram.config import InstagramAuthConfig
+                from integrations.instagram.tokens import get_token
+                connection = session.scalar(select(InstagramConnection).where(InstagramConnection.location_id == location_id))
+                if not connection or connection.connection_status != "connected": raise ValueError("Instagram is not connected")
+                external_id = InstagramPublisher(InstagramLoginClient(InstagramAuthConfig.from_env())).publish(
+                    special, connection.instagram_user_id, get_token(connection), stories=post.platform == "instagram_story")
+                post.external_post_id = external_id; post.status = "published"; post.published_at = datetime.now(timezone.utc); post.error_message = None
+                return post
             connection = self.connection_repo.get_for_location(session, location_id)
-            if not connection or connection.connection_status != "connected": raise ValueError("Facebook/Instagram social connection is not connected")
+            if not connection or connection.connection_status != "connected": raise ValueError("Facebook social connection is not connected")
             token = self._meta_token_store().get_social_token(connection)
             if post.platform == "facebook_story": external_id = FacebookStoryPublisher(self._meta_graph()).publish(special, connection.page_id, token)
             elif post.platform == "facebook_feed": external_id = FacebookFeedPublisher(self._meta_graph()).publish(special, connection.page_id, token)
-            elif post.platform in {"instagram_feed", "instagram_story"}:
-                if not connection.instagram_business_account_id: raise ValueError("Instagram Business Account is not connected")
-                external_id = InstagramPublisher(self._meta_graph()).publish(special, connection.instagram_business_account_id, token, stories=post.platform == "instagram_story")
             else: raise ValueError(f"unsupported platform: {post.platform}")
             post.external_post_id = external_id; post.status = "published"; post.published_at = datetime.now(timezone.utc); post.error_message = None
         except Exception as exc:
