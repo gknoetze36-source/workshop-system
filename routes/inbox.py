@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 
 from ai.service_advisor.runtime import AI_LABEL
 from database import get_session
+from extensions import limiter
 from helpers.location import current_location_id
 from helpers.permission import OPERATIONAL_ROLES, require_role
 from models.core import Conversation, Customer, Message, Task
@@ -47,6 +48,7 @@ def _conversation(session, location_id: int, conversation_id: int) -> Conversati
 
 
 @inbox_bp.get("")
+@limiter.exempt  # the page polls itself every 10s; the default 300/hour would lock staff out
 @login_required
 @require_role(*OPERATIONAL_ROLES)
 def inbox():
