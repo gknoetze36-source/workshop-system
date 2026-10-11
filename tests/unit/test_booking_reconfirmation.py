@@ -98,7 +98,7 @@ def test_sends_the_approved_template_with_the_booking_date():
     assert len(graph.sent) == 1
     template = graph.sent[0]["template"]
     assert template["name"] == "booking_confirmation_request"
-    assert template["components"][0]["parameters"][0]["text"] == "2026-09-20"
+    assert template["components"][0]["parameters"][0]["text"] == "20 September 2026"
     # The booking itself is untouched by sending the request -- it is the
     # customer's reply, not this outbound message, that changes status.
     assert session.get(Booking, booking.id).status == BookingStatus.PENDING

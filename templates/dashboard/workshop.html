@@ -102,8 +102,11 @@
               </div>
 
               <div class="booking-actions-stack">
-                {% if booking.status == 'ready_for_collection' %}
+                {% if booking.status in ('collected', 'completed') %}
+                <span class="status-chip collected">Vehicle collected</span>
+                {% elif booking.status == 'ready_for_collection' %}
                 <button type="button" class="button primary lifecycle-ready-btn" data-booking-id="{{ booking.id }}">Notify customer: ready</button>
+                <button type="button" class="button secondary mark-collected-btn" data-booking-id="{{ booking.id }}">Vehicle collected</button>
                 {% else %}
                 <button type="button" class="button secondary mark-ready-btn" data-booking-id="{{ booking.id }}">Mark ready for pickup</button>
                 {% endif %}
@@ -411,6 +414,20 @@ window.PHANTA_GHOST_DATA = {
         // kept as two separate steps so staff can mark a vehicle ready
         // without necessarily messaging the customer that same second.
         await postJson('/bookings/' + button.dataset.bookingId + '/status', {status: 'ready_for_collection'});
+        window.location.reload();
+      } catch (error) {
+        button.disabled = false;
+        alert(error.message);
+      }
+    });
+  });
+
+  document.querySelectorAll('.mark-collected-btn').forEach(button => {
+    button.addEventListener('click', async () => {
+      if (!confirm('Mark this vehicle as collected? This closes the job.')) return;
+      button.disabled = true;
+      try {
+        await postJson('/bookings/' + button.dataset.bookingId + '/status', {status: 'collected'});
         window.location.reload();
       } catch (error) {
         button.disabled = false;

@@ -181,3 +181,28 @@ def test_confirm_keeps_booking_when_whatsapp_window_is_closed():
     assert response.status_code == 200, response.get_data(as_text=True)
     assert "let the customer know yourself" in response.get_json()["notice"]
     assert query_db("SELECT status FROM bookings WHERE id=%s", (booking_id,), one=True)["status"] == "confirmed"
+
+
+def test_ready_vehicle_can_be_marked_collected_and_stops_counting_as_open():
+    from datetime import datetime, timedelta, timezone
+    from ai.dashboard.queries import WorkshopDashboardQueries
+    from database import get_session
+    import phanta_app
+    phanta_app.app.config["TESTING"] = True
+    client = phanta_app.app.test_client()
+    location_id, csrf_from = _register_and_onboard(client, "collected")
+    booking_id = _seed_booking(location_id, status="ready_for_collection")
+
+    page = client.get("/dashboard").get_data(as_text=True)
+    assert "mark-collected-btn" in page
+    response = client.post(f"/bookings/{booking_id}/status", json={"status": "collected"}, headers={"X-CSRFToken": csrf_from("/dashboard")})
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert query_db("SELECT status FROM bookings WHERE id=%s", (booking_id,), one=True)["status"] == "collected"
+
+    session = get_session()
+    try:
+        q = WorkshopDashboardQueries(session, location_id, now=datetime.now(timezone.utc) + timedelta(days=2))
+        assert booking_id not in [b.id for b in q.vehicles_waiting() + q.overdue_vehicles()]
+    finally:
+        session.close()
+    assert "Vehicle collected" in client.get("/dashboard").get_data(as_text=True)

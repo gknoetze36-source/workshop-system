@@ -200,7 +200,7 @@ class LifecycleCommunicationService:
         caller decides what a customer with no reachable WhatsApp means for
         the booking it already saved.
         """
-        date_str = booking.start_time.date().isoformat()
+        date_str = wt.human_date(booking.start_time)
         text = self.BOOKING_CONFIRMATION_REQUEST_TEXT.format(date=date_str)
         message = self._send(
             booking.location_id, booking.customer_id, text,
