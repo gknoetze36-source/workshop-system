@@ -206,3 +206,22 @@ def test_ready_vehicle_can_be_marked_collected_and_stops_counting_as_open():
     finally:
         session.close()
     assert "Vehicle collected" in client.get("/dashboard").get_data(as_text=True)
+
+
+def test_logout_button_works_with_csrf_enabled():
+    """The logout form had no CSRF token, so every real logout got a 400."""
+    import phanta_app
+    app = phanta_app.app
+    app.config["TESTING"] = True
+    client = app.test_client()
+    _register_and_onboard(client, "logout")
+    html = client.get("/dashboard").get_data(as_text=True)
+    form = re.search(r'<form method="POST" action="/logout".*?</form>', html, re.DOTALL).group(0)
+    token = re.search(r'name="csrf_token" value="([^"]+)"', form).group(1)
+    old = app.config.get("WTF_CSRF_ENABLED", True)
+    app.config["WTF_CSRF_ENABLED"] = True
+    try:
+        response = client.post("/logout", data={"csrf_token": token})
+    finally:
+        app.config["WTF_CSRF_ENABLED"] = old
+    assert response.status_code == 302 and "/login" in response.headers["Location"]
