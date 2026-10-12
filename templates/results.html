@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Results - PHANTA{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="heading"><h1>Results</h1><p>What PHANTA brought in for your workshop in the last {{ days }} days.</p></div>
+  <div class="actions">
+    {% for p in periods %}<a class="button {{ '' if p == days else 'alt' }}" href="{{ url_for('results.results', days=p) }}">{{ p }} days</a>{% endfor %}
+  </div>
+</div>
+
+<div class="grid two" style="margin-bottom:24px;">
+  <section class="card">
+    <h2>{{ r.brought_in }} booking{{ '' if r.brought_in == 1 else 's' }} brought in</h2>
+    <p class="muted">From Flyer Lady posts, your booking page and the WhatsApp AI assistant. Cancelled bookings aren't counted.</p>
+    <table>
+      <tbody>
+        {% for s in r.sources %}<tr><td>{{ s.label }}</td><td style="text-align:right;"><strong>{{ s.count }}</strong></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </section>
+  <section class="card">
+    <h2>Activity</h2>
+    <table>
+      <tbody>
+        <tr><td>New WhatsApp chats</td><td style="text-align:right;"><strong>{{ r.chats }}</strong></td></tr>
+        <tr><td>Posts published by Flyer Lady</td><td style="text-align:right;"><strong>{{ r.posts_published }}</strong></td></tr>
+        <tr><td>Clicks on booking links</td><td style="text-align:right;"><strong>{{ r.clicks }}</strong></td></tr>
+        <tr><td>Paid boosts (budget)</td><td style="text-align:right;"><strong>R{{ r.boost_budget }}</strong></td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Per Flyer Lady special</h2>
+  {% if r.posts %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Special</th><th>Created</th><th style="text-align:right;">Clicks</th><th style="text-align:right;">Bookings</th><th style="text-align:right;">Boost budget</th></tr></thead>
+    <tbody>
+      {% for p in r.posts %}
+      <tr><td>{{ p.text[:80] }}{% if p.text|length > 80 %}…{% endif %}</td><td>{{ p.created_at.strftime('%d %b') }}</td>
+        <td style="text-align:right;">{{ p.clicks }}</td><td style="text-align:right;"><strong>{{ p.bookings }}</strong></td>
+        <td style="text-align:right;">{{ 'R%d'|format(p.boost_budget) if p.boost_budget else '-' }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">No Flyer Lady specials in this period yet.</p>{% endif %}
+</section>
+{% endblock %}

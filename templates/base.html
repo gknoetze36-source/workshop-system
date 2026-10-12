@@ -514,6 +514,7 @@
                 <a class="nav-link {% if request.endpoint in ['customer.customers', 'customer.customer_profile', 'customer.customer_edit', 'vehicles.vehicle_profile', 'vehicles.vehicle_edit'] %}active{% endif %}" href="{{ url_for('customer.customers') }}">Customers & Vehicles</a>
                 <a class="nav-link {% if request.endpoint and request.endpoint.startswith('inbox.') %}active{% endif %}" href="{{ url_for('inbox.inbox') }}">Inbox</a>
                 <a class="nav-link {% if request.endpoint and request.endpoint.startswith('flyer_lady.') %}active{% endif %}" href="{{ url_for('flyer_lady.ui') }}">Flyer Lady</a>
+                {% if current_user.get('role') in ['owner', 'admin', 'manager'] %}<a class="nav-link {% if request.endpoint and request.endpoint.startswith('results.') %}active{% endif %}" href="{{ url_for('results.results') }}">Results</a>{% endif %}
 
                 <div class="nav-label">Manage</div>
                 <a class="nav-link {% if request.endpoint == 'billing_statement.billing_statement' %}active{% endif %}" href="{{ url_for('billing_statement.billing_statement') }}">Billing</a>

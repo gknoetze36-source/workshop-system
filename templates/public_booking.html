@@ -16,6 +16,7 @@
 
     <form method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="ref" value="{{ ref if ref is defined and ref else (form.ref if form and form.ref else '') }}">
 
       <label>Your name
         <input type="text" name="full_name" value="{{ form.full_name if form else '' }}" required>
