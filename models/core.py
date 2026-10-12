@@ -178,6 +178,9 @@ class Booking(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(40), default="pending", nullable=False)
     service_type: Mapped[str] = mapped_column(String(100), nullable=False)
     source: Mapped[str] = mapped_column(String(30), default="whatsapp", nullable=False)
+    # The Flyer Lady special whose link the customer followed (plain integer, no FK:
+    # flyer_lady.models isn't always loaded when this metadata is created).
+    flyer_special_id: Mapped[Optional[int]] = mapped_column(Integer)
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
     location: Mapped["Location"] = relationship(back_populates="bookings")

@@ -442,7 +442,11 @@ def redirect_special(special_id):
         # the visitor booking a service matters more than the analytics row.
         pass
 
-    return redirect(target, code=302)
+    # Attribution: the booking page reads ?ref= (and the cookie, if they browse away and back).
+    response = redirect(target + ("&" if "?" in target else "?") + f"ref={special.id}", code=302)
+    response.set_cookie("phanta_ref", str(special.id), max_age=30 * 24 * 3600, path="/book",
+                        secure=request.is_secure, httponly=True, samesite="Lax")
+    return response
 
 # --- Instagram (Instagram API with Instagram Login; its own Meta app) ------
 

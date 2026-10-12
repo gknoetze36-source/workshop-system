@@ -55,7 +55,8 @@ def show(slug):
     location = location_for_public_booking(slug)
     if not location:
         abort(404)
-    return render_template("public_booking.html", location=location, days=_upcoming_days(location["id"]))
+    ref = request.args.get("ref") or request.cookies.get("phanta_ref") or ""
+    return render_template("public_booking.html", location=location, days=_upcoming_days(location["id"]), ref=ref)
 
 
 @public_booking_bp.post("/book/<slug>")
@@ -164,6 +165,14 @@ def submit(slug):
             session.rollback()
             flash(str(exc), "error")
             return render_template("public_booking.html", location=location, days=_upcoming_days(location_id), form=request.form), 400
+
+        # Attribution: which Flyer Lady post sent this customer (only this workshop's own specials count).
+        ref = (request.form.get("ref") or request.cookies.get("phanta_ref") or "").strip()
+        if ref.isdigit():
+            from flyer_lady.models import Special
+            if session.scalar(select(Special.id).where(Special.id == int(ref), Special.location_id == location_id)):
+                booking.source, booking.flyer_special_id = "flyer_lady", int(ref)
+                session.flush()
 
         # A number typed into a web form is unproven -- unlike a
         # WhatsApp-originated booking, nobody has replied from it yet. The
