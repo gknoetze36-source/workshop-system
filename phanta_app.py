@@ -337,7 +337,7 @@ def health():
 
 @app.get("/favicon.ico")
 def favicon():
-    return send_file(os.path.join(app.static_folder, "images", "phanta-logo.svg"), mimetype="image/svg+xml")
+    return send_file(os.path.join(app.static_folder, "images", "phanta-ghost-icon.jpg"), mimetype="image/jpeg")
 
 
 @app.get("/")
