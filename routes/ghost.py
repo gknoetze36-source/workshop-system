@@ -14,6 +14,7 @@ from flask import Blueprint, abort, jsonify, render_template, request, session
 from helpers.location import current_location_id
 from database import get_session
 from ai.dashboard.queries import WorkshopDashboardQueries, PlatformAdminDashboardQueries
+from routes.ghost_help import match
 
 
 ghost_bp = Blueprint("ghost", __name__, url_prefix="/api/ghost")
@@ -69,56 +70,20 @@ def _answer_workshop(question: str, q: WorkshopDashboardQueries) -> dict:
         "billing_state": q.billing_state(),
     }
 
-    # Reception "how do I use this" help -- deliberately placed before the
-    # broader single-word categories below (today/booking/appointment
-    # etc.), since a phrase like "find a previous booking" would otherwise
-    # get caught by the generic "booking" keyword and return today's
-    # booking count instead of the search guidance actually being asked
-    # for. Every answer here describes only the real, existing features
-    # (the dashboard search bar, the Customers & Vehicles page, a
-    # customer's own booking history) in plain terms -- no mention of how
-    # any of it is actually built, no internal names, nothing beyond what
-    # a receptionist doing their job would need.
-    if any(k in text for k in ("find a customer", "search for a customer", "look up a customer", "find a client", "look up a client")):
-        return {"answer": "Use the search box at the top of the dashboard, or open Customers & Vehicles from the sidebar -- both search by name, WhatsApp number, or vehicle details.", "data": live}
+    return render_topic(match(text), live)
 
-    if any(k in text for k in ("find a booking", "previous booking", "past booking", "old booking", "booking history")):
-        return {"answer": "Open Customers & Vehicles, find the customer, and open their profile -- their full booking history is listed there, including past and completed jobs.", "data": live}
 
-    if any(k in text for k in ("privacy", "private", "who can see", "is my data safe", "data safe", "confidential")):
-        return {"answer": "Your workshop's customer and booking information is kept separate from every other workshop using PHANTA. Only your own team can see it.", "data": live}
-
-    if any(k in text for k in ("how do i use", "how does this work", "getting started", "new here", "not sure how")):
-        return {"answer": "The sidebar covers the day-to-day: Dashboard for today's bookings, Customers & Vehicles to search or review history, Flyer Lady for promotions, and Settings for the workshop's own configuration.", "data": live}
-
-    if any(k in text for k in ("whatsapp", "meta", "message")):
-        status = live["connection_health"].get("status")
-        if status:
-            return {"answer": f"The backend currently reports WhatsApp as: {status.replace('_', ' ')}.", "data": live}
-        return {"answer": "No WhatsApp connection status is available to this request.", "data": live}
-
-    if any(k in text for k in ("today", "booking", "appointment")):
-        return {"answer": f"The live dashboard currently has {live['todays_bookings']} booking(s) today, {live['vehicles_waiting']} vehicle(s) waiting/in progress, and {live['overdue_vehicles']} overdue booking(s).", "data": live}
-
-    if any(k in text for k in ("message", "unanswered")):
-        return {"answer": f"The current dashboard query returned {live['unanswered_messages']} unanswered customer message(s).", "data": live}
-
-    if any(k in text for k in ("billing", "subscription", "payment")):
-        status = live["billing_state"].get("subscription_status")
-        if status and status != "not_configured":
-            return {"answer": f"The backend reports the subscription state as {status.replace('_', ' ')}.", "data": live}
-        return {"answer": "No active subscription status is available to this request.", "data": live}
-
-    if any(k in text for k in ("flyer lady", "flyer", "promotion", "publishing")):
-        return {"answer": "Flyer Lady is PHANTA's public-promotion and publishing capability. It remains separate from WhatsApp Messages and Service Advisor.", "data": live}
-
-    if any(k in text for k in ("service advisor", "maintenance")):
-        return {"answer": "Service Advisor is PHANTA's vehicle/service intelligence capability. It remains separate from customer messaging, pricing and repair authorisation.", "data": live}
-
-    return {
-        "answer": "I can explain PHANTA workflows and the live workshop information available to this request. I will not claim access to data the backend has not supplied.",
-        "data": live,
-    }
+def render_topic(topic, live: dict) -> dict:
+    """Ghost reply: plain-language answer, numbered steps, page/guide buttons and follow-up suggestions."""
+    from flask import has_request_context, url_for
+    answer = topic.answer(live) if callable(topic.answer) else topic.answer
+    links = []
+    if has_request_context():
+        for label, endpoint, kwargs, anchor in topic.links:
+            links.append({"label": label, "url": url_for(endpoint, **kwargs) + (f"#{anchor}" if anchor else "")})
+    text = answer + "".join(f"\n{i}. {step}" for i, step in enumerate(topic.steps, 1))
+    return {"answer": text, "intro": answer, "steps": list(topic.steps), "links": links,
+            "suggestions": list(topic.next), "topic": topic.key, "data": live}
 
 
 def _answer_platform(question: str, q: PlatformAdminDashboardQueries) -> dict:
@@ -183,5 +148,5 @@ def guide(name):
     if name not in GUIDES:
         abort(404)
     title, filename = GUIDES[name]
-    html = markdown_lib.markdown((_GUIDE_DIR / filename).read_text(encoding="utf-8"), extensions=["tables", "sane_lists"])
+    html = markdown_lib.markdown((_GUIDE_DIR / filename).read_text(encoding="utf-8"), extensions=["tables", "sane_lists", "toc"])
     return render_template("help_guide.html", title=title, guide_html=html)

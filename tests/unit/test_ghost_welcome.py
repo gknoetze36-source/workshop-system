@@ -35,8 +35,8 @@ def test_onboarding_complete_turns_on_the_ghost_welcome_until_clicked():
 def test_setup_guides_render_for_logged_in_users_only():
     client, _ = _client()
     meta = client.get("/help/meta").get_data(as_text=True)
-    assert "<h1>Setting up Meta" in meta and "Add payment method" in meta and "<table>" in meta
-    assert "<h1>Setting up Google Ads" in client.get("/help/google").get_data(as_text=True)
+    assert ">Setting up Meta (" in meta and "Add payment method" in meta and "<table>" in meta
+    assert ">Setting up Google Ads (" in client.get("/help/google").get_data(as_text=True)
     assert client.get("/help/nope").status_code == 404
     import phanta_app
     assert phanta_app.app.test_client().get("/help/meta").status_code in (302, 401)
