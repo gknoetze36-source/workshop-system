@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}PHANTA Workshop Platform{% endblock %}</title>
-    <link rel="icon" type="image/jpeg" href="{{ url_for('static', filename='images/phanta-ghost-icon.jpg') }}">
+    <link rel="icon" type="image/jpeg" href="{{ url_for('static', filename='images/phanta-ghost-icon.jpg', v=2) }}">
     <style>
         :root {
             color-scheme: dark;
@@ -475,7 +475,7 @@
         @keyframes pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
     </style>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/phanta-workshop.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/phanta-workshop.css', v=2) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/phanta-admin.css') }}">
 </head>
 <body>
@@ -485,7 +485,7 @@
             {% if g.is_phanta_admin %}
             <div>
                 <div class="brand-lockup">
-                    <img class="brand-mark" src="{{ url_for('static', filename='images/phanta-ghost-icon.jpg') }}" alt="" aria-hidden="true">
+                    <img class="brand-mark" src="{{ url_for('static', filename='images/phanta-ghost-icon.jpg', v=2) }}" alt="" aria-hidden="true">
                     <div>
                         <div class="brand-title">PHANTA</div>
                         <div class="brand-copy">Platform Operations</div>
@@ -501,7 +501,7 @@
             {% else %}
             <div>
                 <div class="brand-lockup">
-                    <img class="brand-mark" src="{{ url_for('static', filename='images/phanta-ghost-icon.jpg') }}" alt="" aria-hidden="true">
+                    <img class="brand-mark" src="{{ url_for('static', filename='images/phanta-ghost-icon.jpg', v=2) }}" alt="" aria-hidden="true">
                     <div>
                         <div class="brand-title">PHANTA</div>
                         <div class="brand-copy">Workshop Management</div>

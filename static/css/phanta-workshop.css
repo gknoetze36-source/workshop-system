@@ -321,7 +321,7 @@
 .phanta-ghost-launcher:hover { transform:translateY(-2px); box-shadow:0 20px 48px rgba(0,0,0,.46),0 0 0 6px rgba(224,255,79,.07); }
 .ghost-shape {
   position:relative; width:34px; height:32px; margin:auto;
-  background-image:url('/static/images/phanta-ghost-icon.jpg');
+  background-image:url('/static/images/phanta-ghost-icon.jpg?v=2');
   background-size:cover; background-position:center;
   border-radius:17px 17px 11px 11px;
 }
