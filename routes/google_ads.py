@@ -102,8 +102,6 @@ def connect_callback():
         db.close()
 
     client = GoogleAdsApiClient(GoogleAuthConfig.from_env())
-    if not client.developer_token:
-        return _back("Google Ads is connected. Ads can be created once GOOGLE_ADS_DEVELOPER_TOKEN is set.", "success")
     try:
         accounts = client.list_accessible_customers(tokens.get("access_token") or client.refresh_access_token(refresh_token))
     except Exception as exc:

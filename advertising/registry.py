@@ -190,7 +190,9 @@ PLATFORM_REGISTRY: dict[str, PlatformRecord] = {
             "__all__": "PLANNED -- architecture designed and grounded against the current "
                        "v25 Google Ads API this session; zero implementation exists.",
         }),
-        blockers=("OAuth connect route exists (routes/google_ads.py); no developer token or API calls yet",
+        blockers=("OAuth connect (routes/google_ads.py) and Flyer Lady Search ads exist; this adapter itself "
+                  "is not wired up. API access needs the Google Cloud project approved for Explorer/Basic "
+                  "(developer tokens were sunset 9 Sep 2026)",
                   "Passkey authentication requirement (announced 27 Jul 2026) needs designing "
                   "into the auth flow before implementation starts",
                   "no concrete workshop requirement driving implementation yet"),

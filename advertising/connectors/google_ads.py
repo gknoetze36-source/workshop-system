@@ -16,8 +16,11 @@ equivalent) enforced as a hard validation rule as of 1 April 2026 --
 a budget spec below that is rejected outright, not silently clamped.
 
 The OAuth connect flow itself (adwords scope, encrypted refresh token
-per location) lives in routes/google_ads.py. Campaign calls will also
-need a Google Ads developer token, which this adapter does not have.
+per location) lives in routes/google_ads.py, and Flyer Lady's Search ads
+use integrations/google/ads/api_client.py. No developer token: Google
+sunset them on 9 September 2026; API access now belongs to the Google
+Cloud project that owns the OAuth client (apply for Explorer/Basic on its
+Google Ads API Overview page).
 
 Why nothing is implemented yet: same reasoning as Meta Ads --
 PLANNED means no concrete VANTA workshop requirement has driven this
@@ -41,9 +44,9 @@ class GoogleAdsConnector:
 
     def authorize_url(self, *, redirect_uri: str, state: str) -> str:
         raise NotImplementedError(
-            "Google Ads is PLANNED, not IMPLEMENTING -- requires its own "
-            "developer token. The web OAuth connect flow lives in "
-            "routes/google_ads.py."
+            "Google Ads is PLANNED in this adapter. The web OAuth connect flow "
+            "lives in routes/google_ads.py; API access comes from the Google "
+            "Cloud project (developer tokens were sunset on 9 Sep 2026)."
         )
 
     def exchange_code(self, *, code: str, redirect_uri: str) -> dict[str, Any]:
