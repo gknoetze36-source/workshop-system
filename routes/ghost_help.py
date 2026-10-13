@@ -169,12 +169,13 @@ TOPICS: tuple[Topic, ...] = (
           links=(("Open Inbox", "inbox.inbox", {}, ""),),
           next=("How does the Inbox work?", "How do I connect WhatsApp?")),
 
-    Topic("whatsapp", ("whatsapp", "connect whatsapp", "whatsapp number", "reconnect", "meta", "phone number", "embedded signup"),
+    Topic("whatsapp", ("whatsapp", "connect whatsapp", "whatsapp number", "reconnect", "business app", "coexistence", "keep my number", "meta", "phone number", "embedded signup"),
           _whatsapp,
           steps=("Go to Settings → WhatsApp and press Connect WhatsApp (allow pop-ups if nothing opens).",
                  "Sign in with the Facebook account that owns your business, and pick or create your business account.",
-                 "Add the number customers will message and enter the code Meta sends you.",
-                 "Important: that number then works in PHANTA's Inbox, not in the normal WhatsApp app on your phone.",
+                 "Already use the WhatsApp Business app? Choose \"Connect your existing WhatsApp Business app\" and scan the QR code. "
+                 "You keep using the app on your phone, and the same chats show in PHANTA's Inbox.",
+                 "Otherwise add a new number and enter the code Meta sends you. A new number works in PHANTA's Inbox only, not in a WhatsApp app.",
                  "Add a card in Meta's Billing & payments for the few messages Meta charges for."),
           links=(("Settings → WhatsApp", "settings.settings_whatsapp", {}, ""), ("WhatsApp setup guide", *META, "part-1-connect-whatsapp")),
           next=("Why didn't my customer get a message?", "How does the Inbox work?")),

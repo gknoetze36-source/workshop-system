@@ -27,6 +27,7 @@ scrubbed before it is stored.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -36,6 +37,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from models.integration_models import MetaBusinessConnection
+
+logger = logging.getLogger(__name__)
 
 from ..auth.capability_config import WhatsAppMetaConfig
 from ..auth.token_store import MetaTokenStore
@@ -668,7 +671,8 @@ class TechProviderOnboardingService:
     def _phone_already_registered(phone: dict[str, Any]) -> bool:
         platform = str(phone.get("platform_type") or "").upper()
         status = str(phone.get("status") or "").upper()
-        return platform == "CLOUD_API" or status == "CONNECTED"
+        # Coexistence: a WhatsApp Business app number is never registered with a PIN.
+        return platform == "CLOUD_API" or status == "CONNECTED" or phone.get("is_on_biz_app") is True
 
     @staticmethod
     def _apply_phone_fields(connection: MetaBusinessConnection, phone: dict[str, Any]) -> None:
@@ -1084,7 +1088,31 @@ class TechProviderOnboardingService:
         connection.last_onboarding_error = None
         self._advance(connection, step)
         session.flush()
-        return StepOutcome(step, "performed", {"connected_at": connection.connected_at.isoformat()})
+        return StepOutcome(step, "performed", {
+            "connected_at": connection.connected_at.isoformat(),
+            "coexistence_sync": self._sync_business_app(connection, step),
+        })
+
+    def _sync_business_app(self, connection: MetaBusinessConnection, step: str) -> list[str]:
+        """Coexistence: ask Meta to send the app's contacts and last 6 months of chats.
+
+        Meta allows this once per type, within 24 hours of signup, and only after
+        the webhook subscription (done earlier in the plan). Best effort: a failed
+        sync never undoes a working connection.
+        """
+        try:
+            token = self._customer_token(connection, step)
+            phone_id = str(connection.phone_number_id)
+            if self.operations.get_phone_number(token, phone_id, fields="is_on_biz_app").get("is_on_biz_app") is not True:
+                return []
+            done = []
+            for sync_type in ("smb_app_state_sync", "history"):
+                self.operations.sync_smb_app_data(token, phone_id, sync_type)
+                done.append(sync_type)
+            return done
+        except Exception:
+            logger.exception("coexistence_sync_failed location_id=%s", connection.location_id)
+            return ["failed"]
 
     # =====================================================================
     # Orchestration

@@ -105,6 +105,22 @@ class MetaWebhookRouter:
         if field == "account_update":
             yield "account_update", value
             return
+        # Coexistence: the workshop's WhatsApp Business app.
+        if field == "smb_message_echoes":
+            for item in value.get("message_echoes") or []:
+                yield "message_echo", item
+            return
+        if field == "history":
+            for chunk in value.get("history") or []:
+                for thread in chunk.get("threads") or []:
+                    for item in thread.get("messages") or []:
+                        yield "history_message", dict(item, _thread=thread.get("id"))
+            return
+        if field == "smb_app_state_sync":
+            for item in value.get("state_sync") or []:
+                if item.get("type") == "contact":
+                    yield "contact_sync", item
+            return
         if field == "message_template_status_update":
             yield "message_template_status_update", value
             return
@@ -122,6 +138,12 @@ class MetaWebhookRouter:
     def _handle(self, field: str, event_type: str, location_id: int | None, phone_number_id: str | None, value: dict, item: dict) -> dict:
         if event_type == "inbound_message":
             return self.message_handlers.inbound(location_id=location_id, phone_number_id=phone_number_id or "", message=item)
+        if event_type == "message_echo":
+            return self.message_handlers.echo(location_id=location_id, message=item)
+        if event_type == "history_message":
+            return self.message_handlers.history(location_id=location_id, message=item)
+        if event_type == "contact_sync":
+            return self.message_handlers.contact(location_id=location_id, item=item)
         if event_type == "message_status":
             return self.message_handlers.status(location_id=location_id, status=item)
         if event_type == "message_template_status_update":

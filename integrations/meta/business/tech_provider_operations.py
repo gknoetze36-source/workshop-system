@@ -198,7 +198,7 @@ class TechProviderOperations:
     #: documented signals that registration has already happened.
     PHONE_FIELDS = (
         "id,display_phone_number,verified_name,quality_rating,"
-        "code_verification_status,platform_type,status"
+        "code_verification_status,platform_type,status,is_on_biz_app"
     )
 
     def get_waba(self, customer_token: str, waba_id: str, *, fields: str | None = None) -> dict[str, Any]:
@@ -247,6 +247,14 @@ class TechProviderOperations:
             customer_token,
             f"/{phone_number_id}",
             params={"fields": fields or self.PHONE_FIELDS},
+        )
+
+    def sync_smb_app_data(self, customer_token: str, phone_number_id: str, sync_type: str) -> dict[str, Any]:
+        """POST /<PHONE_NUMBER_ID>/smb_app_data -- coexistence contacts/history sync. Once per type."""
+        return self.client.post_with_token(
+            customer_token,
+            f"/{phone_number_id}/smb_app_data",
+            json_data={"messaging_product": "whatsapp", "sync_type": sync_type},
         )
 
     def iter_message_templates(

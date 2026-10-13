@@ -23,6 +23,12 @@ class MetaAccountHandlers:
                 connection.business_id = str(business_id)
             if phone_number_id:
                 connection.phone_number_id = str(phone_number_id)
+            # Coexistence: the workshop disconnected PHANTA in the WhatsApp Business app
+            # (or didn't open the app for 14 days). Messages can't be sent until reconnected.
+            event = str(value.get("event") or "").upper()
+            if event == "ACCOUNT_OFFBOARDED":
+                connection.connection_status = "reconnect_required"
+                connection.last_onboarding_error = "WhatsApp Business app disconnected from PHANTA. Reconnect WhatsApp."
             # An account_update webhook reports a change to the WABA. It is
             # not evidence that Tech Provider onboarding finished, so it must
             # not promote the connection. Doing so previously meant Meta's

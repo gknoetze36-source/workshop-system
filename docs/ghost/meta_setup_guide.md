@@ -19,9 +19,10 @@ You can do the parts in any order. Each part takes about 5–15 minutes.
 - A **bank card**, only needed for WhatsApp message charges and paid boosts.
 - Your PHANTA login with **Owner** or **Manager** access.
 
-> **Important: your WhatsApp number**
-> Once a number is connected to PHANTA, it can **no longer be used in the normal WhatsApp or WhatsApp Business app** on a phone. In South Africa, Meta doesn't allow the same number in both. You read and answer all chats in PHANTA's **Inbox** instead, on any phone or computer.
-> If you want to keep your current number on your phone, use a **separate number** for PHANTA (a new SIM or a landline that can receive a call works).
+> **Your WhatsApp number: two ways to connect**
+> - **You already use the WhatsApp Business app** on your phone: keep it. Choose **"Connect your existing WhatsApp Business app"** in Meta's window. You keep chatting in the app, and the same chats show in PHANTA's **Inbox**. Your app needs to be up to date (version 2.24.17 or newer), and your contacts and last 6 months of chats are copied into PHANTA.
+> - **A new number** (a new SIM or a landline that can receive a call): it works in PHANTA's **Inbox** only, not in a WhatsApp app on a phone.
+> - A number on the normal (personal) WhatsApp app must first be moved to the **WhatsApp Business app** to keep using it on your phone.
 
 ---
 
@@ -31,14 +32,18 @@ You can do the parts in any order. Each part takes about 5–15 minutes.
 2. Press **Connect WhatsApp**. Meta's window opens. If nothing happens, **allow pop-ups** for app.vantaautomations.co.za and press it again.
 3. **Sign in** with the Facebook account that owns the workshop's business.
 4. **Choose or create** your Business portfolio and WhatsApp Business account. Use your real business name.
-5. **Add the phone number** customers will message, then enter the code Meta sends by SMS or call.
+5. Choose your number:
+   - **Existing WhatsApp Business app:** choose **Connect your existing WhatsApp Business app**, enter the number, then open the WhatsApp Business app on your phone and **scan the QR code** Meta shows (or accept the message WhatsApp sends you). Keep the app open until Meta says it's done.
+   - **New number:** add it, then enter the code Meta sends by SMS or call.
 6. **Approve** the permissions PHANTA asks for and return to PHANTA.
-7. If PHANTA asks for a **6-digit PIN**:
+7. If PHANTA asks for a **6-digit PIN** (new numbers only):
    - **New number:** make up any 6 digits and keep them somewhere safe.
    - **Number used with the WhatsApp API before:** use the PIN set back then.
 8. The page should now say **Current connection: Connected** with your number.
 
 **Test it:** send "Hi" to your WhatsApp number from another phone. It appears in **Inbox**, and the AI assistant replies. Its replies always start with "🤖 AI assistant:" so customers know it's not a person.
+
+**Using the WhatsApp Business app too?** When you reply to a customer from the app on your phone, the reply shows in PHANTA's Inbox and the AI stops answering that customer, just like replying from the Inbox. Press **Hand back to AI** in the Inbox to let it continue. Open the WhatsApp Business app at least once every 14 days, or Meta disconnects it from PHANTA.
 
 ### Add a card for WhatsApp messages
 Meta charges **your** WhatsApp account directly for some messages, mainly booking confirmations and reminders sent when the customer hasn't messaged you in the last 24 hours. Replies within 24 hours of a customer's message are free.
@@ -137,7 +142,8 @@ Every post ends with a **"Book here"** link. Bookings made through it are counte
 |---|---|
 | Nothing happens when pressing **Connect WhatsApp** | Allow pop-ups for app.vantaautomations.co.za, then try again. |
 | "WhatsApp setup is not finished yet" | Enter your 6-digit PIN and press **Finish setup**, or leave the PIN empty and press it to retry. |
-| My number no longer works in the WhatsApp app | Expected: the number now lives in PHANTA. Use **Inbox**. |
+| My number no longer works in the WhatsApp app | It was connected as a new number. To keep using the app, it must be connected with **Connect your existing WhatsApp Business app**. Contact VANTA support. |
+| "Your number isn't eligible" for the WhatsApp Business app option | Update the WhatsApp Business app, make sure the number is a Business app number (not personal WhatsApp), then try again. |
 | "Meta didn't return any Facebook Pages" | Connect again and **tick your Page** in Meta's window. You must be an admin of the Page. |
 | Instagram connection fails | Switch Instagram to a **Business or Creator** account, then connect again. |
 | "Meta didn't return an active ad account" | Create the ad account (Part 4, Step 1) and add a card, then connect again. |
