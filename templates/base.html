@@ -475,7 +475,7 @@
         @keyframes pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
     </style>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/phanta-workshop.css', v=4) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/phanta-workshop.css', v=5) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/phanta-admin.css') }}">
 </head>
 <body>
@@ -574,7 +574,7 @@
     {% if session.get('ghost_welcome') %}
     <script>window.PHANTA_GHOST_WELCOME = {meta: "{{ url_for('help.guide', name='meta') }}", google: "{{ url_for('help.guide', name='google') }}"};</script>
     {% endif %}
-    <script src="{{ url_for('static', filename='js/phanta-ghost.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/phanta-ghost.js', v=2) }}"></script>
     {% endif %}
 </body>
 </html>
