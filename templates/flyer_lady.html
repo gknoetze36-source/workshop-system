@@ -85,9 +85,9 @@ function renderGoogleAds(g){
   const action=g.connected?'<span class="muted">Connected</span>':g.configured?`<a class="button secondary" href="{{ url_for("google_ads.connect_start") }}">Connect Google Ads</a>`:'<span class="muted">Not set up</span>';
   document.getElementById('connections-list').insertAdjacentHTML('beforeend',`<div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;"><strong>Google Ads</strong>${action}</div>`);
 }
-let adsConnected=false;
+let adsConnected=false, googleAdsReady=false;
 function boostHtml(s){
-  const done=s.boosts.map(b=>`<p class="muted" style="margin:4px 0;">Boosted: R${b.budget} over ${b.days} day(s) around ${esc(b.area)} (${b.radius_km} km) · <a href="#" onclick="boostResults(${b.id},this);return false;">Results</a></p>`).join('');
+  const done=s.boosts.map(b=>`<p class="muted" style="margin:4px 0;">${b.platform==='google'?'Google ad':'Boosted'}: R${b.budget} over ${b.days} day(s) around ${esc(b.area)} (${b.radius_km} km) · <a href="#" onclick="boostResults(${b.id},this);return false;">Results</a></p>`).join('');
   if(!s.facebook_published) return done;
   if(!adsConnected) return done+'<p class="muted" style="margin:4px 0;">Connect your ad account above to boost this post.</p>';
   return done+`<form class="boost-form" onsubmit="boost(event,${s.id})" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:8px 0;">
@@ -107,7 +107,13 @@ async function boostResults(id,el){try{const r=await api(`{{ url_for("flyer_lady
 function renderSpecials(specials){
   document.getElementById('specials').innerHTML=specials.length?specials.map(s=>{
     const checkboxes=availablePostTypes.map(pt=>`<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" class="platform-check" data-special="${s.id}" value="${pt}" checked> ${esc(pt.replaceAll('_',' '))}</label>`).join('')
-      + `<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" class="platform-check" data-special="${s.id}" value="whatsapp_status_prepared" checked> whatsapp status</label>`;
+      + `<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" class="platform-check" data-special="${s.id}" value="whatsapp_status_prepared" checked> whatsapp status</label>`
+      + (googleAdsReady&&!s.boosts.some(b=>b.platform==='google')?`<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" id="google-${s.id}" onchange="document.getElementById('gfields-${s.id}').style.display=this.checked?'flex':'none'"> google search ad</label>
+        <div id="gfields-${s.id}" style="display:none;gap:8px;flex-wrap:wrap;align-items:end;margin:8px 0;">
+          <label style="font-weight:normal;">Budget (R)<input id="gbudget-${s.id}" type="number" min="50" max="20000" value="200" style="width:100px;"></label>
+          <label style="font-weight:normal;">Days<input id="gdays-${s.id}" type="number" min="1" max="30" value="5" style="width:70px;"></label>
+          <label style="font-weight:normal;">Town / city<input id="garea-${s.id}" placeholder="Pretoria" style="width:140px;"></label>
+          <label style="font-weight:normal;">Radius (km)<input id="gradius-${s.id}" type="number" min="17" max="80" value="25" style="width:80px;"></label></div>`:'');
     return `<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p>${s.status==='approved'?`<div class="muted" style="margin:6px 0;">${checkboxes}</div>`:''}<div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue selected</button>`:''}${s.status==='queued'?`<button class="secondary" onclick="cancelQueue(${s.id})">Cancel</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div>${boostHtml(s)}</div>`;
   }).join(''):'<p class="muted">No specials yet.</p>';
 }
@@ -118,6 +124,7 @@ async function load(){
   adsConnected=!!(d.ads_connection&&d.ads_connection.connected);
   if(d.ads_connection) renderAds(d.ads_connection);
   if(d.google_ads_connection) renderGoogleAds(d.google_ads_connection);
+  googleAdsReady=!!(d.google_ads_connection&&d.google_ads_connection.ready);
   // The publishing platform selector's actual gate: only a platform
   // that is both connected AND capability-ready (e.g. Instagram with a
   // linked Business Account, TikTok with a confirmed privacy level)
@@ -179,8 +186,21 @@ async function queue(id){
   // queue_special()'s own server-side behavior at all, only what the
   // client asks it to queue.
   const platforms=[...document.querySelectorAll(`.platform-check[data-special="${id}"]:checked`)].map(cb=>cb.value);
-  if(!platforms.length){alert('Select at least one platform to queue.');return;}
-  try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms})});const queued=d.posts.map(p=>p.platform.replaceAll('_',' ')).join(', ');alert(`Queued: ${queued}. Publishing will be processed by the Flyer Lady queue.`);await load();}catch(e){alert(e.message)}
+  const google=document.getElementById(`google-${id}`)?.checked;
+  if(!platforms.length&&!google){alert('Select at least one platform to queue.');return;}
+  const msgs=[];
+  if(google){
+    const g={budget:document.getElementById(`gbudget-${id}`).value,days:document.getElementById(`gdays-${id}`).value,area:document.getElementById(`garea-${id}`).value,radius_km:document.getElementById(`gradius-${id}`).value};
+    if(!g.area){alert('Enter the town or city the Google ad should reach.');return;}
+    if(!confirm(`Spend up to about R${g.budget} from your Google Ads account over ${g.days} day(s) on a Google Search ad around ${g.area}?`))return;
+    try{await api(`/dashboard/flyer-lady/specials/${id}/google-ad`,{method:'POST',body:JSON.stringify(g)});msgs.push('Google Search ad created. Google reviews new ads, usually within a day.');}
+    catch(e){alert('Google ad: '+e.message);if(!platforms.length)return;}
+  }
+  if(platforms.length){
+    try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms})});msgs.push(`Queued: ${d.posts.map(p=>p.platform.replaceAll('_',' ')).join(', ')}. Publishing will be processed by the Flyer Lady queue.`);}catch(e){alert(e.message)}
+  }
+  if(msgs.length)alert(msgs.join('\n'));
+  await load();
 }
 async function cancelQueue(id){
   if(!confirm('Cancel posts that have not been published yet?')) return;

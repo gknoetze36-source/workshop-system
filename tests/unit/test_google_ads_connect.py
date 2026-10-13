@@ -49,6 +49,7 @@ def test_callback_saves_an_encrypted_refresh_token(monkeypatch):
     client, location_id = _client(monkeypatch, "save")
     state = _start(client)["state"][0]
     with patch("routes.google_ads.GoogleAdsApiClient") as mock_cls:
+        mock_cls.return_value.developer_token = ""
         mock_cls.return_value.exchange_code_for_tokens.return_value = {"access_token": "a", "refresh_token": "real-refresh"}
         response = client.get(f"/dashboard/google-ads/connect/callback?code=c&state={state}")
     assert response.status_code == 302
@@ -81,3 +82,32 @@ def test_callback_without_a_refresh_token_saves_nothing(monkeypatch):
 def test_old_google_business_routes_are_gone(monkeypatch):
     client, _ = _client(monkeypatch, "gone")
     assert client.get("/dashboard/google-business/connect/start").status_code == 404
+
+
+def test_callback_picks_the_only_ads_account(monkeypatch):
+    monkeypatch.setenv("GOOGLE_ADS_DEVELOPER_TOKEN", "dev-token")
+    client, location_id = _client(monkeypatch, "oneacct")
+    state = _start(client)["state"][0]
+    with patch("routes.google_ads.GoogleAdsApiClient") as mock_cls:
+        inst = mock_cls.return_value
+        inst.developer_token = "dev-token"
+        inst.exchange_code_for_tokens.return_value = {"access_token": "a", "refresh_token": "r"}
+        inst.list_accessible_customers.return_value = ["1234567890"]
+        client.get(f"/dashboard/google-ads/connect/callback?code=c&state={state}")
+    assert query_db("SELECT customer_id FROM google_ads_connections WHERE location_id=%s", (location_id,), one=True)["customer_id"] == "1234567890"
+
+
+def test_callback_with_several_accounts_only_accepts_one_google_returned(monkeypatch):
+    monkeypatch.setenv("GOOGLE_ADS_DEVELOPER_TOKEN", "dev-token")
+    client, location_id = _client(monkeypatch, "manyacct")
+    state = _start(client)["state"][0]
+    with patch("routes.google_ads.GoogleAdsApiClient") as mock_cls:
+        inst = mock_cls.return_value
+        inst.developer_token = "dev-token"
+        inst.exchange_code_for_tokens.return_value = {"access_token": "a", "refresh_token": "r"}
+        inst.list_accessible_customers.return_value = ["1111111111", "2222222222"]
+        page = client.get(f"/dashboard/google-ads/connect/callback?code=c&state={state}").get_data(as_text=True)
+    assert "222-222-2222" in page
+    token = re.search(r'name="csrf_token" value="([^"]+)"', page).group(1)
+    client.post("/dashboard/google-ads/connect/account", data={"customer_id": "9999999999", "csrf_token": token})
+    assert query_db("SELECT customer_id FROM google_ads_connections WHERE location_id=%s", (location_id,), one=True)["customer_id"] is None

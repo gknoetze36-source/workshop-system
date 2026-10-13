@@ -11,7 +11,7 @@ import logging
 import secrets
 from urllib.parse import urlencode
 
-from flask import Blueprint, jsonify, redirect, request, session as flask_session, url_for
+from flask import Blueprint, jsonify, redirect, render_template, request, session as flask_session, url_for
 from sqlalchemy import select
 
 from database import get_session
@@ -92,6 +92,7 @@ def connect_callback():
         if connection is None:
             connection = GoogleAdsConnection(location_id=location_id, encrypted_refresh_token="")
             db.add(connection)
+        connection.customer_id = None
         GoogleTokenStore().save_refresh_token(db, connection, refresh_token)
         db.commit()
     except Exception:
@@ -99,4 +100,48 @@ def connect_callback():
         raise
     finally:
         db.close()
-    return _back("Google Ads is connected.", "success")
+
+    client = GoogleAdsApiClient(GoogleAuthConfig.from_env())
+    if not client.developer_token:
+        return _back("Google Ads is connected. Ads can be created once GOOGLE_ADS_DEVELOPER_TOKEN is set.", "success")
+    try:
+        accounts = client.list_accessible_customers(tokens.get("access_token") or client.refresh_access_token(refresh_token))
+    except Exception as exc:
+        logger.warning("google_ads_list_accounts_failed location_id=%s error=%s", location_id, exc)
+        return _back("Google Ads is connected, but its ad accounts couldn't be loaded. Try connecting again.", "error")
+    if not accounts:
+        return _back("Google Ads is connected, but this login has no Google Ads account. Create one at ads.google.com, then connect again.", "error")
+    if len(accounts) == 1:
+        return _save_account(location_id, accounts[0])
+    flask_session["google_ads_accounts"] = accounts
+    return render_template("google_ads_select_account.html", accounts=accounts)
+
+
+@google_ads_bp.post("/connect/account")
+@require_role(*MANAGER_ROLES)
+def connect_account():
+    try:
+        location_id = current_location_id()
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 401
+    chosen = request.form.get("customer_id", "")
+    if chosen not in (flask_session.pop("google_ads_accounts", None) or []):
+        return _back("That Google Ads account wasn't one Google returned. Please connect again.", "error")
+    return _save_account(location_id, chosen)
+
+
+def _save_account(location_id: int, customer_id: str):
+    db = get_session()
+    try:
+        connection = db.scalar(select(GoogleAdsConnection).where(GoogleAdsConnection.location_id == location_id))
+        connection.customer_id = customer_id
+        db.commit()
+    finally:
+        db.close()
+    return _back(f"Google Ads is connected (account {format_customer_id(customer_id)}).", "success")
+
+
+def format_customer_id(customer_id: str) -> str:
+    """123-456-7890, the way the Google Ads UI shows it."""
+    c = str(customer_id)
+    return f"{c[:3]}-{c[3:6]}-{c[6:]}" if len(c) == 10 else c

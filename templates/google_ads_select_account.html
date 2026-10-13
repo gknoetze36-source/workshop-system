@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Choose Google Ads account{% endblock %}
+{% block content %}
+<div class="topbar"><div class="heading"><h1>Choose your Google Ads account</h1><p>Google ads for your specials are paid from this account's payment method.</p></div></div>
+<form method="post" action="{{ url_for('google_ads.connect_account') }}" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% for a in accounts %}
+  <label style="display:block;margin:8px 0;font-weight:normal;"><input type="radio" name="customer_id" value="{{ a }}" required {% if loop.first %}checked{% endif %}> {{ a[:3] }}-{{ a[3:6] }}-{{ a[6:] }}</label>
+  {% endfor %}
+  <div class="actions"><button type="submit" class="primary">Use this account</button><a class="button secondary" href="{{ url_for('flyer_lady.ui') }}">Cancel</a></div>
+</form>
+{% endblock %}

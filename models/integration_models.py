@@ -387,12 +387,13 @@ class MetaSocialConnection(Base):
 class GoogleAdsConnection(Base):
     """A workshop location's Google Ads OAuth grant. Only the encrypted
     refresh token is kept; which Ads customer account to use is chosen
-    when campaign support is built (advertising/connectors/google_ads.py)."""
+    right after connecting (or on the first Google ad when there is only one)."""
     __tablename__ = "google_ads_connections"
     __table_args__ = (UniqueConstraint("location_id", name="uq_google_ads_connection_location"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
     encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    customer_id: Mapped[Optional[str]] = mapped_column(String(20))  # Google Ads account, digits only
     token_key_version: Mapped[str] = mapped_column(String(20), default="v1", nullable=False)
     connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)

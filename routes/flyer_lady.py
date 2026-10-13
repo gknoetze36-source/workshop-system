@@ -27,6 +27,8 @@ from integrations.meta.auth.token_store import MetaTokenStore
 from integrations.meta.services.graph_api_client import GraphApiClient
 from integrations.meta.social.graph_api_client import MetaSocialGraphClient
 from integrations.meta.social.repositories.connection_repo import MetaSocialConnectionRepository
+from flyer_lady.google_ad_service import GoogleAdService
+from flyer_lady.link_service import tracking_url
 
 logger = logging.getLogger(__name__)
 PAGE_PERMISSIONS = ("pages_show_list", "pages_read_engagement", "pages_manage_posts")
@@ -72,13 +74,14 @@ def index():
         fb_live = set(db.scalars(select(SpecialPost.special_id).where(SpecialPost.location_id == location_id, SpecialPost.special_id.in_(ids), SpecialPost.platform == "facebook_feed", SpecialPost.status == "published")).all()) if ids else set()
         boosts = {}
         for b in (db.scalars(select(FlyerBoost).where(FlyerBoost.location_id == location_id, FlyerBoost.special_id.in_(ids)).order_by(FlyerBoost.created_at)).all() if ids else []):
-            boosts.setdefault(b.special_id, []).append({"id": b.id, "budget": b.budget_minor // 100, "days": b.days, "area": b.area, "radius_km": b.radius_km, "ends_at": b.ends_at.isoformat() if b.ends_at else None})
+            boosts.setdefault(b.special_id, []).append({"id": b.id, "platform": b.platform, "budget": b.budget_minor // 100, "days": b.days, "area": b.area, "radius_km": b.radius_km, "ends_at": b.ends_at.isoformat() if b.ends_at else None})
         ads = _ad_connection(db, location_id)
         from models.integration_models import GoogleAdsConnection
         from services.integration_status import integration_status
         google_ads = db.scalar(select(GoogleAdsConnection).where(GoogleAdsConnection.location_id == location_id))
         return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": click_count(db, location_id, s.id), "facebook_published": s.id in fb_live, "boosts": boosts.get(s.id, [])} for s in specials],
-                        "google_ads_connection": {"connected": bool(google_ads and google_ads.connection_status == "connected"), "configured": integration_status("google_ads")["configured"]}, "ads_connection": {"connected": bool(ads), "name": ads.ad_account_name if ads else None, "configured": bool(os.getenv("META_FLYER_LADY_ADS_CONFIG_ID", "").strip())}, "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "connectors": connectors})
+                        "google_ads_connection": {"connected": bool(google_ads and google_ads.connection_status == "connected"), "configured": integration_status("google_ads")["configured"],
+                                                  "ready": bool(google_ads and google_ads.connection_status == "connected" and os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN", "").strip())}, "ads_connection": {"connected": bool(ads), "name": ads.ad_account_name if ads else None, "configured": bool(os.getenv("META_FLYER_LADY_ADS_CONFIG_ID", "").strip())}, "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "connectors": connectors})
     finally: db.close()
 
 @flyer_lady_bp.post("/specials")
@@ -696,6 +699,66 @@ def boost_special(special_id):
         db.close()
 
 
+def _google_ads(db, location_id):
+    """(client, access token, connection) for this location's Google Ads, or BoostError."""
+    from flyer_lady.boost_service import BoostError
+    from integrations.google.ads.api_client import GoogleAdsApiClient
+    from integrations.google.auth.config import GoogleAuthConfig
+    from integrations.google.auth.token_store import GoogleTokenStore
+    from models.integration_models import GoogleAdsConnection
+    conn = db.scalar(select(GoogleAdsConnection).where(GoogleAdsConnection.location_id == location_id))
+    if not conn or conn.connection_status != "connected":
+        raise BoostError("Connect Google Ads first (Connections → Google Ads).")
+    client = GoogleAdsApiClient(GoogleAuthConfig.from_env())
+    if not client.developer_token:
+        raise BoostError("Google ads aren't set up yet: GOOGLE_ADS_DEVELOPER_TOKEN is missing.")
+    try:
+        token = client.refresh_access_token(GoogleTokenStore().get_refresh_token(conn))
+    except Exception:
+        raise BoostError("Google Ads needs reconnecting (Connections → Google Ads).")
+    return client, token, conn
+
+
+@flyer_lady_bp.post("/specials/<int:special_id>/google-ad")
+@require_role(*MANAGER_ROLES)
+def google_ad_special(special_id):
+    from flyer_lady.boost_service import BoostError, validate
+    from flyer_lady.models import FlyerBoost
+    from helpers.dates import sast_now
+    try: location_id = _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    payload = request.get_json(silent=True) or {}
+    db = get_session()
+    try:
+        budget, days, area, radius_km = validate(payload.get("budget"), payload.get("days"), payload.get("area"), payload.get("radius_km"))
+        special = SpecialService().get(db, location_id, special_id)
+        if not special: return jsonify({"error": "special not found"}), 404
+        if not SpecialApprovalService().is_approved(db, location_id, special_id):
+            raise BoostError("Approve the special first.")
+        if db.scalar(select(FlyerBoost.id).where(FlyerBoost.special_id == special_id, FlyerBoost.location_id == location_id, FlyerBoost.platform == "google")):
+            raise BoostError("This special already has a Google ad.")
+        client, token, conn = _google_ads(db, location_id)
+        service = GoogleAdService(client)
+        if not conn.customer_id:
+            conn.customer_id = service.resolve_customer(token)
+        location = get_location_by_id(location_id) or {}
+        result = service.create(token, conn.customer_id, workshop_name=location.get("name") or "Our workshop",
+                                special_text=special.text, final_url=tracking_url(special.id),
+                                budget=budget, days=days, area=area, radius_km=radius_km, today=sast_now())
+        boost = FlyerBoost(location_id=location_id, special_id=special_id, platform="google", ad_account_id=conn.customer_id,
+                           campaign_id=result["campaign_id"], adset_id=result["ad_group_id"], ad_id=result["ad_id"],
+                           budget_minor=budget * 100, currency="ZAR", days=days, area=area, radius_km=radius_km,
+                           status="active", created_by=_actor(), ends_at=result["ends_at"])
+        db.add(boost); db.flush()
+        db.add(AuditLog(location_id=location_id, actor=_actor(), action="flyer_special_google_ad", entity_type="FlyerBoost", entity_id=str(boost.id), after={"special_id": special_id, "budget_rand": budget, "days": days, "area": area, "customer_id": conn.customer_id}))
+        db.commit()
+        return jsonify({"id": boost.id, "status": boost.status, "campaign_id": boost.campaign_id}), 201
+    except BoostError as exc:
+        db.rollback(); return jsonify({"error": str(exc)}), 400
+    finally:
+        db.close()
+
+
 @flyer_lady_bp.get("/boosts/<int:boost_id>/results")
 @require_role(*MANAGER_ROLES)
 def boost_results(boost_id):
@@ -707,6 +770,13 @@ def boost_results(boost_id):
     db = get_session()
     try:
         boost = db.scalar(select(FlyerBoost).where(FlyerBoost.id == boost_id, FlyerBoost.location_id == location_id))
+        if boost and boost.platform == "google":
+            from flyer_lady.boost_service import BoostError
+            try:
+                client, token, _ = _google_ads(db, location_id)
+                return jsonify(GoogleAdService(client).results(token, boost.ad_account_id, boost.campaign_id))
+            except BoostError as exc:
+                return jsonify({"error": str(exc)}), 502
         ads = _ad_connection(db, location_id)
         if not boost or not ads: return jsonify({"error": "boost not found"}), 404
         try:

@@ -72,12 +72,15 @@ class FlyerPublicLink(Base):
 
 
 class FlyerBoost(Base):
-    """A paid boost of a published Flyer Lady Facebook post."""
+    """A paid ad for a Flyer Lady special: a Facebook post boost, or a Google
+    Search ad (platform="google": ad_account_id is the Google Ads customer
+    id, adset_id the ad group)."""
     __tablename__ = "flyer_lady_boosts"
     __table_args__ = (Index("ix_flyer_boosts_location_special", "location_id", "special_id"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
     special_id: Mapped[int] = mapped_column(ForeignKey("flyer_lady_specials.id", ondelete="CASCADE"), nullable=False)
+    platform: Mapped[str] = mapped_column(String(20), default="facebook", nullable=False)
     ad_account_id: Mapped[str] = mapped_column(String(64), nullable=False)
     campaign_id: Mapped[Optional[str]] = mapped_column(String(64))
     adset_id: Mapped[Optional[str]] = mapped_column(String(64))
