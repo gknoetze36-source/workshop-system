@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - PHANTA{% endblock %}
+{% block content %}
+<style>
+  .guide { max-width: 860px; line-height: 1.6; }
+  .guide table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  .guide th, .guide td { border: 1px solid var(--border); padding: 8px; text-align: left; vertical-align: top; }
+  .guide blockquote { margin: 12px 0; padding: 10px 14px; border-left: 3px solid var(--primary); background: var(--surface-elevated); }
+  .guide h2 { margin-top: 28px; }
+</style>
+<div class="topbar"><div class="heading"><p><a href="{{ url_for('workshop_dashboard.workshop_dashboard') }}">&larr; Dashboard</a></p></div></div>
+<article class="card guide">{{ guide_html|safe }}</article>
+{% endblock %}

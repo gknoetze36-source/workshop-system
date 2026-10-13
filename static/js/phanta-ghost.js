@@ -122,9 +122,29 @@
     panel.innerHTML=`<header class="phanta-ghost-header"><div class="ghost-title"><span class="ghost-shape mini-ghost" aria-hidden="true"></span><div><strong>PHANTA Ghost</strong><span>${mode}</span></div></div><button type="button" class="button ghost-close" aria-label="Close assistant">×</button></header><div class="phanta-ghost-messages" aria-live="polite"></div><div><div class="phanta-ghost-suggestions">${suggestions.map((s)=>`<button type="button" class="button ghost-suggestion" data-ghost-prompt="${s}">${s}</button>`).join('')}</div><form class="phanta-ghost-input"><input type="text" autocomplete="off" placeholder="Ask PHANTA Ghost..." aria-label="Ask PHANTA Ghost"><button type="submit" class="button primary">Ask</button></form></div>`;
     document.body.appendChild(panel); document.body.appendChild(launcher);
     const messages=panel.querySelector('.phanta-ghost-messages'),input=panel.querySelector('input');
-    addMessage(messages,'bot',DATA.admin?'Hi 👻 I’m PHANTA Ghost. I can explain PHANTA and the live information explicitly supplied to this platform page.':'Hi 👻 I’m PHANTA Ghost. I can explain PHANTA, guide you through the workshop workflow, and use only information explicitly supplied to this page.');
+    if(!window.PHANTA_GHOST_WELCOME) addMessage(messages,'bot',DATA.admin?'Hi 👻 I’m PHANTA Ghost. I can explain PHANTA and the live information explicitly supplied to this platform page.':'Hi 👻 I’m PHANTA Ghost. I can explain PHANTA, guide you through the workshop workflow, and use only information explicitly supplied to this page.');
+    // After onboarding: keep asking to be clicked until the user opens the Ghost once.
+    const welcome=window.PHANTA_GHOST_WELCOME;
+    if(welcome){
+      launcher.classList.add('ghost-welcome');
+      launcher.querySelector('.ghost-bubble').textContent='👋 Please click me!';
+    }
+    function showWelcome(){
+      const el=document.createElement('div');el.className='ghost-message bot';
+      el.append('Hi 👋 Welcome to PHANTA! I’m the Ghost, your workshop guide. Before you start, please read these two guides. They show exactly what to set up on your side:');
+      const list=document.createElement('ol');
+      [['Meta setup: WhatsApp, Facebook, Instagram and paid boosts',welcome.meta],['Google Ads setup: Search ads for your specials',welcome.google]].forEach(([label,href])=>{
+        const li=document.createElement('li');const a=document.createElement('a');a.href=href;a.textContent=label;li.appendChild(a);list.appendChild(li);});
+      el.appendChild(list);el.append('When you’re done, ask me anything.');
+      messages.appendChild(el);messages.scrollTop=messages.scrollHeight;
+      launcher.classList.remove('ghost-welcome');
+      launcher.querySelector('.ghost-bubble').textContent='Need help? Ask PHANTA Ghost.';
+      const csrfToken=document.querySelector('meta[name="csrf-token"]')?.content||'';
+      fetch('/api/ghost/welcome-seen',{method:'POST',headers:{'X-CSRFToken':csrfToken},credentials:'same-origin'}).catch(()=>{});
+    }
+    let welcomePending=!!welcome;
     async function ask(text){const query=String(text||'').trim();if(!query)return;addMessage(messages,'user',query);input.value='';const typing=addTyping(messages);const answer=await findAnswer(query);typing.remove();addMessage(messages,'bot',answer);}
-    launcher.addEventListener('click',()=>{const open=panel.classList.toggle('is-open');launcher.setAttribute('aria-expanded',open?'true':'false');if(open)window.setTimeout(()=>input.focus(),50);});
+    launcher.addEventListener('click',()=>{if(welcomePending){welcomePending=false;showWelcome();}const open=panel.classList.toggle('is-open');launcher.setAttribute('aria-expanded',open?'true':'false');if(open)window.setTimeout(()=>input.focus(),50);});
     panel.querySelector('.ghost-close').addEventListener('click',()=>panel.classList.remove('is-open'));
     panel.querySelector('form').addEventListener('submit',e=>{e.preventDefault();ask(input.value);});
     panel.querySelectorAll('[data-ghost-prompt]').forEach(btn=>btn.addEventListener('click',()=>ask(btn.dataset.ghostPrompt)));
