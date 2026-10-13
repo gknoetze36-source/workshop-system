@@ -15,13 +15,9 @@ campaigns carry a minimum daily budget floor (USD 5 or local
 equivalent) enforced as a hard validation rule as of 1 April 2026 --
 a budget spec below that is rejected outright, not silently clamped.
 
-Deliberately separate from Google Business Profile's connector
-(flyer_lady/connectors/google_business.py) and its OAuth config
-(FlyerLadyGoogleConfig or equivalent) -- same reasoning as
-meta_ads.py's own docstring: a shared vendor is not a shared
-credential or permission boundary. Google Ads needs its own OAuth
-client and its own developer token, entirely separate from whatever
-scope Google Business Profile already has.
+The OAuth connect flow itself (adwords scope, encrypted refresh token
+per location) lives in routes/google_ads.py. Campaign calls will also
+need a Google Ads developer token, which this adapter does not have.
 
 Why nothing is implemented yet: same reasoning as Meta Ads --
 PLANNED means no concrete VANTA workshop requirement has driven this
@@ -46,8 +42,8 @@ class GoogleAdsConnector:
     def authorize_url(self, *, redirect_uri: str, state: str) -> str:
         raise NotImplementedError(
             "Google Ads is PLANNED, not IMPLEMENTING -- requires its own "
-            "OAuth client and developer token, separate from Google Business "
-            "Profile's existing OAuth config. Not registered yet."
+            "developer token. The web OAuth connect flow lives in "
+            "routes/google_ads.py."
         )
 
     def exchange_code(self, *, code: str, redirect_uri: str) -> dict[str, Any]:

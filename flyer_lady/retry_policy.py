@@ -8,7 +8,7 @@ FlyerLadyPublishService.publish_post() is to have its except block call
 straight into this.
 
 Classification is based on the signals MetaGraphAPIError and
-GoogleBusinessAPIError already carry (status_code, error) -- both
+GoogleAdsAPIError already carry (status_code, error) -- both
 follow the identical shape, and the retryable/permanent split by status
 code below matches the one already established in
 integrations/meta/services/tech_provider_onboarding_service.py's own

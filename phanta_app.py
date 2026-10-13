@@ -49,7 +49,7 @@ from routes.service_advisor import service_advisor_bp
 from routes.webhooks import webhooks_bp
 from routes.paystack import paystack_bp
 from routes.flyer_lady import flyer_lady_bp
-from routes.google_business import google_business_bp
+from routes.google_ads import google_ads_bp
 from routes.public_booking import public_booking_bp
 from routes.billing_wall import billing_wall_bp
 from routes.billing_statement import billing_statement_bp
@@ -178,7 +178,7 @@ app.register_blueprint(paystack_bp)
 csrf.exempt(webhooks_bp)
 csrf.exempt(paystack_bp)
 app.register_blueprint(flyer_lady_bp)
-app.register_blueprint(google_business_bp)
+app.register_blueprint(google_ads_bp)
 app.register_blueprint(public_booking_bp)
 app.register_blueprint(billing_wall_bp)
 app.register_blueprint(billing_statement_bp)

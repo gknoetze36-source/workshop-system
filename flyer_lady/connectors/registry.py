@@ -15,7 +15,6 @@ tiktok_platform.py).
 from __future__ import annotations
 
 from .base import FlyerLadyConnector
-from .google_business import GoogleBusinessConnector
 from .meta_social import FacebookConnector
 from .instagram_platform import InstagramConnector
 from .x_platform import XConnector
@@ -25,7 +24,6 @@ from .tiktok_platform import TikTokConnector
 _REGISTRY: dict[str, FlyerLadyConnector] = {
     "facebook": FacebookConnector(),
     "instagram": InstagramConnector(),
-    "google_business": GoogleBusinessConnector(),
     "x": XConnector(),
     "threads": ThreadsConnector(),
     "tiktok": TikTokConnector(),

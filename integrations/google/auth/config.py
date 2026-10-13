@@ -1,4 +1,4 @@
-"""Google OAuth 2.0 configuration for Google Business Profile posting.
+"""Google OAuth 2.0 configuration for connecting a workshop's Google Ads account.
 
 Mirrors integrations/meta/auth/config.py's from_env() pattern -- fail
 loudly and specifically at construction time if required credentials are

@@ -4,9 +4,9 @@ Google Calendar models are intentionally absent: PHANTA v1 does not use
 Google Calendar. Customer review URLs are stored on Location in models/core.py;
 they require no Google/HelloPeter API integration.
 
-GoogleBusinessConnection (below) is a different Google product --
-Google Business Profile posting (Local Posts), not Calendar -- and is
-not affected by the Calendar decision above.
+GoogleAdsConnection (below) is a different Google product -- Google Ads
+-- and is not affected by the Calendar decision above. The old
+google_business_* tables still exist in the database but have no models.
 """
 
 from __future__ import annotations
@@ -384,55 +384,18 @@ class MetaSocialConnection(Base):
     last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
-class GoogleBusinessOAuthSession(Base):
-    """Short-lived server-side state for the Google Business Profile
-    connect flow, holding the refresh token between the OAuth callback
-    and the account/location picker being submitted.
-
-    Mirrors MetaSocialOAuthSession exactly, for the identical reason: the
-    refresh token must never sit in the browser-held Flask session
-    (signed, not encrypted -- readable by anyone with the cookie) for
-    however long the user takes to pick a listing. Only this row's
-    opaque integer id travels through the browser, as a hidden form
-    field on the picker page, the same way Flyer Lady's oauth_session_id
-    already does."""
-    __tablename__ = "google_business_oauth_sessions"
-    __table_args__ = (UniqueConstraint("state_nonce", name="uq_google_business_oauth_state_nonce"), Index("ix_google_business_oauth_location_status", "location_id", "status"))
+class GoogleAdsConnection(Base):
+    """A workshop location's Google Ads OAuth grant. Only the encrypted
+    refresh token is kept; which Ads customer account to use is chosen
+    when campaign support is built (advertising/connectors/google_ads.py)."""
+    __tablename__ = "google_ads_connections"
+    __table_args__ = (UniqueConstraint("location_id", name="uq_google_ads_connection_location"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
-    state_nonce: Mapped[str] = mapped_column(String(128), nullable=False)
-    encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
-    # The exact account/location options Google returned to THIS OAuth
-    # grant during the callback -- not a permission list, an allow-list.
-    # /connect/complete must validate the submitted account_id +
-    # google_location_id against this before trusting them; without it,
-    # those two fields arrive from the browser with no proof they were
-    # ever actually returned by Google for this authenticated flow.
-    options_json: Mapped[Optional[list]] = mapped_column(JSON)
-    redirect_uri: Mapped[str] = mapped_column(String(2000), nullable=False)
-    status: Mapped[str] = mapped_column(String(30), default="started", nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-
-
-class GoogleBusinessConnection(Base):
-    """Location-scoped Google Business Profile connection, for posting
-    Local Posts (see flyer_lady/platforms/google_business_publisher.py).
-    Mirrors MetaSocialConnection's shape -- same one-connection-per-
-    location pattern, same encrypted-token-at-rest approach."""
-    __tablename__ = "google_business_connections"
-    __table_args__ = (UniqueConstraint("location_id", name="uq_google_business_connection_location"),)
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), nullable=False)
-    google_account_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    google_location_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    business_name: Mapped[Optional[str]] = mapped_column(String(255))
     encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
     token_key_version: Mapped[str] = mapped_column(String(20), default="v1", nullable=False)
     connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-    last_health_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class XOAuthSession(Base):

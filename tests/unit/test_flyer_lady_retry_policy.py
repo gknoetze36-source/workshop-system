@@ -26,7 +26,7 @@ from flyer_lady.retry_policy import (
     classify_error,
 )
 from integrations.meta.services.graph_api_client import MetaGraphAPIError
-from integrations.google.business.api_client import GoogleBusinessAPIError
+from integrations.google.ads.api_client import GoogleAdsAPIError
 
 
 class _FakePost:
@@ -61,11 +61,11 @@ def test_http_500_and_503_are_retryable():
 
 
 def test_google_network_and_5xx_errors_are_also_retryable():
-    """Google's own client (GoogleBusinessAPIError) carries the identical
+    """Google's own client (GoogleAdsAPIError) carries the identical
     status_code/error shape as Meta's -- classification must not be
     Meta-specific."""
-    assert classify_error(GoogleBusinessAPIError("timeout")).retryable is True
-    assert classify_error(GoogleBusinessAPIError("server error", status_code=502)).retryable is True
+    assert classify_error(GoogleAdsAPIError("timeout")).retryable is True
+    assert classify_error(GoogleAdsAPIError("server error", status_code=502)).retryable is True
 
 
 def test_unrecognized_error_shape_defaults_to_retryable():
@@ -107,7 +107,7 @@ def test_invalid_configuration_is_permanent():
     for message in (
         "Facebook/Instagram social connection is not connected",
         "Instagram Business Account is not connected",
-        "Google Business Profile is not connected",
+        "Instagram is not connected",
     ):
         result = classify_error(ValueError(message))
         assert result.retryable is False

@@ -386,7 +386,7 @@ def test_get_all_connector_ui_states_returns_all_six_platforms(client):
         db.close()
 
     platforms = {r["platform"] for r in results}
-    assert platforms == {"facebook", "instagram", "google_business", "x", "threads", "tiktok"}
+    assert platforms == {"facebook", "instagram", "x", "threads", "tiktok"}
     for r in results:
         assert set(r.keys()) == {"platform", "ui_status", "capabilities", "selectable_for_publish"}
         assert r["ui_status"] in UI_STATES

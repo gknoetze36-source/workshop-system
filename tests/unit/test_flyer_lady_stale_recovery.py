@@ -104,27 +104,6 @@ def test_a_stale_facebook_post_moves_to_needs_check_not_republished(monkeypatch)
     assert row["next_attempt_at"] is None
 
 
-def test_a_stale_google_business_post_moves_to_needs_check():
-    """Same rule, explicitly for the other synchronous, no-container
-    platform named in the requirement."""
-    from database import get_session, query_db
-
-    stale_start = datetime.now(timezone.utc) - STALE_AFTER - timedelta(minutes=1)
-    location_id, post_id = _make_location_and_post(
-        "googlestale", platform="google_business_post", publishing_started_at=stale_start,
-    )
-
-    db = get_session()
-    try:
-        reconcile_stale_publishing_posts(db, location_id)
-        db.commit()
-    finally:
-        db.close()
-
-    row = query_db("SELECT status FROM flyer_lady_special_posts WHERE id=%s", (post_id,), one=True)
-    assert row["status"] == NEEDS_CHECK
-
-
 def test_instagram_attempts_a_platform_status_check_first(monkeypatch):
     """The distinguishing required behavior: for a container-based
     platform, _check_platform_status() must actually be called before

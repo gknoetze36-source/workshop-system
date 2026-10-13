@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 from services.location_service import public_booking_url
 from .models import Special, SpecialPost, FlyerPublicLink
 
-ALLOWED_PLATFORMS = {"facebook_story", "facebook_feed", "whatsapp_status_prepared", "instagram_feed", "instagram_story", "google_business_post"}
+ALLOWED_PLATFORMS = {"facebook_story", "facebook_feed", "whatsapp_status_prepared", "instagram_feed", "instagram_story"}
 
 class SpecialService:
     def create(self, session: Session, location_id: int, created_by: str, text: str, *, location: dict, media_url: str | None = None):

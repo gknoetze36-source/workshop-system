@@ -34,7 +34,7 @@
     <ol>
       <li>Submit the workshop's text and optional image.</li>
       <li>Approve the special.</li>
-      <li>Queue Facebook Feed, Facebook Story, Instagram Feed, Instagram Story, Google Business and WhatsApp Status handoff.</li>
+      <li>Queue Facebook Feed, Facebook Story, Instagram Feed, Instagram Story and WhatsApp Status handoff.</li>
       <li>PHANTA publishes approved content through the publishing queue and prepares the WhatsApp Status asset for manual sharing.</li>
     </ol>
     <p class="muted">WhatsApp Status remains a prepare-and-share action because Meta does not expose an official Status publishing endpoint.</p>
@@ -48,7 +48,7 @@
 async function api(url, options={}) { const csrfToken=document.querySelector('meta[name=csrf-token]')?.content || ''; const headers={'Content-Type':'application/json','X-CSRFToken':csrfToken,...(options.headers||{})}; const r=await fetch(url,{...options,headers}); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Request failed'); return d; }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
 // Platform display names and where "Connect"/"Reconnect" actually go --
-// facebook, instagram (its own Instagram login) and google_business
+// facebook and instagram (its own Instagram login)
 // have a real connect route today; x, threads and tiktok are connector-
 // layer only so far (no web OAuth route yet), so their Connect/Reconnect
 // labels show as plain text rather than a dead link.
@@ -58,11 +58,10 @@ const PLATFORM_META = {
   threads: {label: 'Threads', connectUrl: null},
   x: {label: 'X', connectUrl: null},
   tiktok: {label: 'TikTok', connectUrl: null},
-  google_business: {label: 'Google Business Profile', connectUrl: '{{ url_for("google_business.connect_start") }}'},
 };
 // Fixed display order, independent of whatever order the connector
 // registry happens to return.
-const PLATFORM_ORDER = ['facebook','instagram','threads','x','tiktok','google_business'];
+const PLATFORM_ORDER = ['facebook','instagram','threads','x','tiktok'];
 
 let availablePostTypes=[]; // populated by load(), read by renderSpecials()
 
@@ -81,6 +80,10 @@ function renderConnections(connectors){
 function renderAds(ads){
   const action=ads.connected?`<span class="muted">Connected: ${esc(ads.name)}</span>`:ads.configured?`<a class="button secondary" href="{{ url_for("flyer_lady.ads_connect_start") }}">Connect ad account</a>`:'<span class="muted">Not set up</span>';
   document.getElementById('connections-list').insertAdjacentHTML('beforeend',`<div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;"><strong>Facebook ads (paid boosts)</strong>${action}</div>`);
+}
+function renderGoogleAds(g){
+  const action=g.connected?'<span class="muted">Connected</span>':g.configured?`<a class="button secondary" href="{{ url_for("google_ads.connect_start") }}">Connect Google Ads</a>`:'<span class="muted">Not set up</span>';
+  document.getElementById('connections-list').insertAdjacentHTML('beforeend',`<div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;"><strong>Google Ads</strong>${action}</div>`);
 }
 let adsConnected=false;
 function boostHtml(s){
@@ -114,6 +117,7 @@ async function load(){
   renderConnections(d.connectors||[]);
   adsConnected=!!(d.ads_connection&&d.ads_connection.connected);
   if(d.ads_connection) renderAds(d.ads_connection);
+  if(d.google_ads_connection) renderGoogleAds(d.google_ads_connection);
   // The publishing platform selector's actual gate: only a platform
   // that is both connected AND capability-ready (e.g. Instagram with a
   // linked Business Account, TikTok with a confirmed privacy level)

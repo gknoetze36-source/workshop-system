@@ -167,20 +167,6 @@ PLATFORM_REGISTRY: dict[str, PlatformRecord] = {
         connector=None,
     ),
 
-    "google_business": PlatformRecord(
-        platform_key="google_business", family="google", product="organic",
-        activation_state=ActivationState.VERIFIED,
-        capabilities=ORGANIC_CAPABILITIES,
-        gate_evidence=GateEvidence(
-            connection_works=True, permissions_correct=True, account_resolution_works=True,
-            capability_works=True, errors_handled=True,
-            tenant_isolation_proven=False, tests_pass=True, production_verification_passes=False,
-            notes={"tenant_isolation_proven": _RLS_NOTE, "production_verification_passes": _NO_PROD_API_NOTE},
-        ),
-        blockers=("Postgres RLS enforcement unverified", "no live Google API call ever made"),
-        connector=None,  # flyer_lady.connectors.registry.get_connector("google_business")
-    ),
-
     "meta_ads": PlatformRecord(
         platform_key="meta_ads", family="meta", product="ads",
         activation_state=ActivationState.PLANNED,
@@ -204,7 +190,7 @@ PLATFORM_REGISTRY: dict[str, PlatformRecord] = {
             "__all__": "PLANNED -- architecture designed and grounded against the current "
                        "v25 Google Ads API this session; zero implementation exists.",
         }),
-        blockers=("no OAuth client/developer token registered",
+        blockers=("OAuth connect route exists (routes/google_ads.py); no developer token or API calls yet",
                   "Passkey authentication requirement (announced 27 Jul 2026) needs designing "
                   "into the auth flow before implementation starts",
                   "no concrete workshop requirement driving implementation yet"),

@@ -251,7 +251,7 @@ def test_get_all_connector_statuses_returns_all_six_registered_platforms(client,
         db.close()
 
     platforms = {r["platform"] for r in results}
-    assert platforms == {"facebook", "instagram", "google_business", "x", "threads", "tiktok"}
+    assert platforms == {"facebook", "instagram", "x", "threads", "tiktok"}
     for r in results:
         assert set(r.keys()) == {"platform", "status", "capabilities"}
         assert r["status"] in VALID_STATUSES

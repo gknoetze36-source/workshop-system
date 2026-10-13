@@ -85,7 +85,7 @@ def test_four_posts_in_four_states_all_resolve_correctly_in_one_queue_run(env):
         db.add(SpecialApproval(location_id=location_id, special_id=special.id, decision="approved", decided_by="tester"))
 
         post_a_stale = SpecialPost(
-            special_id=special.id, location_id=location_id, platform="google_business_post",
+            special_id=special.id, location_id=location_id, platform="x_post",
             status="publishing", attempts=1, publishing_started_at=stale_start,
         )
         post_b_success = SpecialPost(
@@ -147,7 +147,7 @@ def test_four_posts_in_four_states_all_resolve_correctly_in_one_queue_run(env):
         )
 
     # Post A: stale recovery ran, never touched a publisher, landed at
-    # needs_check -- google_business_post has no container check, so it
+    # needs_check -- x_post has no container check, so it
     # goes straight there.
     row_a = _row(ids["a"])
     assert row_a["status"] == NEEDS_CHECK

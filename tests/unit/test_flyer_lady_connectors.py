@@ -16,19 +16,17 @@ import pytest
 from flyer_lady.connectors import FlyerLadyConnector, get_connector, registered_platforms
 from flyer_lady.connectors.meta_social import FacebookConnector
 from flyer_lady.connectors.instagram_platform import InstagramConnector
-from flyer_lady.connectors.google_business import GoogleBusinessConnector
 
 
-def test_exactly_six_platforms_are_registered():
-    """facebook, instagram, google_business, x, threads, and
-    (added deliberately, private/beta) tiktok."""
-    assert registered_platforms() == ["facebook", "google_business", "instagram", "threads", "tiktok", "x"]
+def test_exactly_five_platforms_are_registered():
+    """facebook, instagram, x, threads, and (added deliberately,
+    private/beta) tiktok."""
+    assert registered_platforms() == ["facebook", "instagram", "threads", "tiktok", "x"]
 
 
 def test_get_connector_returns_the_right_type_for_each_platform():
     assert isinstance(get_connector("facebook"), FacebookConnector)
     assert isinstance(get_connector("instagram"), InstagramConnector)
-    assert isinstance(get_connector("google_business"), GoogleBusinessConnector)
 
 
 def test_unregistered_platform_raises_a_clear_error():
@@ -36,7 +34,7 @@ def test_unregistered_platform_raises_a_clear_error():
         get_connector("not-a-real-platform")
 
 
-@pytest.mark.parametrize("platform", ["facebook", "instagram", "google_business"])
+@pytest.mark.parametrize("platform", ["facebook", "instagram"])
 def test_every_connector_conforms_to_the_protocol(platform):
     connector = get_connector(platform)
     assert isinstance(connector, FlyerLadyConnector)
@@ -244,151 +242,10 @@ def test_instagram_capabilities_match_the_real_platform_strings():
 
 
 # --------------------------------------------------------------------
-# Google Business
-# --------------------------------------------------------------------
-
-def test_google_authorize_url_matches_the_real_route(monkeypatch):
-    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id.apps.googleusercontent.com")
-    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-secret")
-
-    from integrations.google.auth.config import GoogleAuthConfig
-    from integrations.google.business.api_client import GoogleBusinessApiClient
-    from urllib.parse import urlencode
-
-    config = GoogleAuthConfig.from_env()
-    expected_params = urlencode({
-        "client_id": config.client_id, "redirect_uri": "https://app.example.test/cb",
-        "response_type": "code", "access_type": "offline", "prompt": "consent",
-        "scope": GoogleBusinessApiClient.SCOPE, "state": "s1",
-    })
-    expected_url = f"https://accounts.google.com/o/oauth2/v2/auth?{expected_params}"
-
-    actual_url = GoogleBusinessConnector().authorize_url(redirect_uri="https://app.example.test/cb", state="s1")
-    assert actual_url == expected_url
-
-
-def test_google_exchange_code_calls_the_existing_client_method(monkeypatch):
-    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id")
-    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-secret")
-
-    with patch(
-        "flyer_lady.connectors.google_business.GoogleBusinessApiClient.exchange_code_for_tokens",
-        return_value={"access_token": "at", "refresh_token": "rt"},
-    ) as mock_exchange:
-        result = GoogleBusinessConnector().exchange_code(code="auth-code", redirect_uri="https://x.test/cb")
-
-    mock_exchange.assert_called_once_with("auth-code", "https://x.test/cb")
-    assert result == {"access_token": "at", "refresh_token": "rt"}
-
-
-def test_google_refresh_calls_the_existing_client_method(monkeypatch):
-    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id")
-    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-secret")
-
-    with patch(
-        "flyer_lady.connectors.google_business.GoogleBusinessApiClient.refresh_access_token",
-        return_value="new-access-token",
-    ) as mock_refresh:
-        result = GoogleBusinessConnector().refresh(refresh_token="stored-refresh-token")
-
-    mock_refresh.assert_called_once_with("stored-refresh-token")
-    assert result == "new-access-token"
-
-
-def test_google_discover_accounts_calls_list_accounts_and_list_locations(monkeypatch):
-    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id")
-    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-secret")
-
-    with patch(
-        "flyer_lady.connectors.google_business.GoogleBusinessApiClient.list_accounts",
-        return_value=[{"name": "accounts/1"}],
-    ) as mock_accounts, patch(
-        "flyer_lady.connectors.google_business.GoogleBusinessApiClient.list_locations",
-        return_value=[{"name": "accounts/1/locations/2", "title": "Test Location"}],
-    ) as mock_locations:
-        result = GoogleBusinessConnector().discover_accounts(token="google-token")
-
-    mock_accounts.assert_called_once_with("google-token")
-    mock_locations.assert_called_once_with("google-token", "accounts/1")
-    assert result == [{"account_id": "accounts/1", "name": "accounts/1/locations/2", "title": "Test Location"}]
-
-
-def test_google_capabilities_matches_the_real_platform_string():
-    import inspect
-    from flyer_lady import publish_service
-    source = inspect.getsource(publish_service)
-    caps = GoogleBusinessConnector().capabilities()
-    assert caps["post_types"] == ["google_business_post"]
-    assert '"google_business_post"' in source
-
-
-def test_google_revoke_marks_the_real_connection_revoked():
-    """The one method with genuinely new (if minimal) logic -- proves
-    it actually mutates the real GoogleBusinessConnection row, scoped
-    to the given location, and nothing else."""
-    from database import get_session
-    from models.integration_models import GoogleBusinessConnection
-    import re, phanta_app
-
-    phanta_app.app.config["TESTING"] = True
-    client = phanta_app.app.test_client()
-
-    def csrf_from(path):
-        html = client.get(path).get_data(as_text=True)
-        m = re.search(r'name="csrf_token" value="([^"]+)"', html)
-        return m.group(1) if m else None
-
-    email = "connectorrevoke@test.example"
-    token = csrf_from("/register")
-    client.post("/register", data={
-        "full_name": "Test", "email": email, "password": "SuperSecret123",
-        "confirm_password": "SuperSecret123", "csrf_token": token,
-    })
-    token2 = csrf_from("/onboarding/location")
-    client.post("/onboarding/location", data={
-        "location_name": "Connector Revoke Check", "industry": "workshop", "csrf_token": token2,
-    })
-
-    from database import query_db
-    location_id = query_db(
-        "SELECT l.id FROM locations l JOIN users u ON u.location_id=l.id WHERE u.email=%s",
-        (email,), one=True,
-    )["id"]
-
-    db = get_session()
-    try:
-        connection = GoogleBusinessConnection(
-            location_id=location_id, google_account_id="accounts/1", google_location_id="accounts/1/locations/2",
-            business_name="Test", connection_status="connected", encrypted_refresh_token="ignored",
-        )
-        db.add(connection)
-        db.commit()
-
-        result = GoogleBusinessConnector().revoke(db, location_id=location_id)
-        db.commit()
-    finally:
-        db.close()
-
-    assert result == {"connection_found": True, "connection_status": "revoked"}
-    row = query_db("SELECT connection_status FROM google_business_connections WHERE location_id=%s", (location_id,), one=True)
-    assert row["connection_status"] == "revoked"
-
-
-def test_google_fetch_metrics_is_honestly_not_implemented():
-    with pytest.raises(NotImplementedError):
-        GoogleBusinessConnector().fetch_metrics(session=None, location_id=1)
-
-
-def test_facebook_fetch_metrics_is_honestly_not_implemented():
-    with pytest.raises(NotImplementedError):
-        FacebookConnector().fetch_metrics(session=None, location_id=1)
-
-
-# --------------------------------------------------------------------
 # publish_step -- must call the real, unchanged publish service
 # --------------------------------------------------------------------
 
-@pytest.mark.parametrize("connector_cls", [FacebookConnector, InstagramConnector, GoogleBusinessConnector])
+@pytest.mark.parametrize("connector_cls", [FacebookConnector, InstagramConnector])
 def test_publish_step_calls_the_real_publish_service(connector_cls):
     """The core "do not duplicate publishers" proof: every connector's
     publish_step must call the exact same, unchanged

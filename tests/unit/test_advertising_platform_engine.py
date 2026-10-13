@@ -106,11 +106,11 @@ def test_empty_evidence_fails_every_criterion():
 
 def test_all_eight_platforms_are_registered():
     assert registered_platforms() == [
-        "facebook", "google_ads", "google_business", "instagram",
+        "facebook", "google_ads", "instagram",
         "threads", "tiktok", "x",
     ] or registered_platforms() == sorted([
         "facebook", "instagram", "threads", "x", "tiktok",
-        "google_business", "meta_ads", "google_ads",
+        "meta_ads", "google_ads",
     ])
 
 
@@ -153,7 +153,7 @@ def test_ads_platforms_report_zero_capabilities_not_aspirational_ones():
 
 
 def test_organic_platforms_report_the_shared_organic_capability_set():
-    for key in ("facebook", "instagram", "threads", "x", "tiktok", "google_business"):
+    for key in ("facebook", "instagram", "threads", "x", "tiktok"):
         assert get_platform(key).capabilities == ORGANIC_CAPABILITIES
 
 

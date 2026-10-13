@@ -121,7 +121,7 @@ def begin_offboarding(location_id: int, actor: str, reason: str | None = None) -
 def _disconnect_integrations(location_id: int) -> dict:
     """Mark external connections revoked. Returns what was touched."""
     results = {}
-    for table in ("meta_business_connections", "meta_social_connections", "google_business_connections"):
+    for table in ("meta_business_connections", "meta_social_connections", "google_ads_connections"):
         try:
             execute_db(
                 f"UPDATE {table} SET connection_status=%s WHERE location_id=%s",

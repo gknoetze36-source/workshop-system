@@ -80,7 +80,7 @@ def integration_status(name: str) -> dict:
         # META_APP_ID/META_APP_SECRET, so Flyer Lady reported as
         # unconfigured whenever the WhatsApp App's credentials were absent.
         "flyer_lady": META_FLYER_LADY_APP_REQUIRED + META_FLYER_LADY_SOCIAL_REQUIRED,
-        "google_business": GOOGLE_REQUIRED,
+        "google_ads": GOOGLE_REQUIRED,
         "x": X_REQUIRED,
         "threads": THREADS_REQUIRED,
         "instagram": INSTAGRAM_REQUIRED,
@@ -117,7 +117,7 @@ def all_integration_status() -> dict:
         name: integration_status(name)
         for name in (
             "meta_app", "meta_system_user", "meta_webhook", "whatsapp",
-            "embedded_signup", "flyer_lady", "instagram", "google_business", "x", "threads", "tiktok", "paystack",
+            "embedded_signup", "flyer_lady", "instagram", "google_ads", "x", "threads", "tiktok", "paystack",
             "flyer_lady_uploads",
         )
     }
