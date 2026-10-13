@@ -66,7 +66,8 @@
     if (!payload || payload.type !== "WA_EMBEDDED_SIGNUP") return;
     const eventName = payload.event || (payload.data && payload.data.event);
     const data = (payload.data && payload.data.data) || payload.data || {};
-    if (eventName === "FINISH" || eventName === "FINISH_ONLY_WABA") {
+    // FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING: coexistence, the number stays in the WhatsApp Business app.
+    if (eventName === "FINISH" || eventName === "FINISH_ONLY_WABA" || eventName === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") {
       embeddedSignupAssets = {
         business_id: data.business_id || data.businessId || payload.business_id || payload.businessId,
         waba_id: data.waba_id || data.wabaId || payload.waba_id || payload.wabaId,
@@ -209,7 +210,8 @@
         config_id: config.config_id,
         response_type: "code",
         override_default_response_type: true,
-        extras: { sessionInfoVersion: "3" }
+        // Offers "connect your existing WhatsApp Business app" (coexistence) next to a new number.
+        extras: { setup: {}, featureType: "whatsapp_business_app_onboarding", sessionInfoVersion: "3" }
       });
     });
   }
