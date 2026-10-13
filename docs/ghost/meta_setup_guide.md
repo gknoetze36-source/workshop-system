@@ -12,12 +12,12 @@ You can do the parts in any order. Each part takes about 5–15 minutes.
 
 ## Before you start: checklist
 
-- [ ] A **Facebook account** that is an **admin** of the workshop's Facebook Page.
-- [ ] A **Facebook Page** for the workshop (not a personal profile).
-- [ ] A **Meta Business portfolio** (formerly Business Manager) at business.facebook.com. If you don't have one, Meta creates one during the WhatsApp setup.
-- [ ] A **phone number for WhatsApp** that can receive an SMS or a call (see the warning below).
-- [ ] A **bank card**, only needed for WhatsApp message charges and paid boosts.
-- [ ] Your PHANTA login with **Owner** or **Manager** access.
+- A **Facebook account** that is an **admin** of the workshop's Facebook Page.
+- A **Facebook Page** for the workshop (not a personal profile).
+- A **Meta Business portfolio** (formerly Business Manager) at business.facebook.com. If you don't have one, Meta creates one during the WhatsApp setup.
+- A **phone number for WhatsApp** that can receive an SMS or a call (see the warning below).
+- A **bank card**, only needed for WhatsApp message charges and paid boosts.
+- Your PHANTA login with **Owner** or **Manager** access.
 
 > **Important: your WhatsApp number**
 > Once a number is connected to PHANTA, it can **no longer be used in the normal WhatsApp or WhatsApp Business app** on a phone. In South Africa, Meta doesn't allow the same number in both. You read and answer all chats in PHANTA's **Inbox** instead, on any phone or computer.

@@ -895,4 +895,6 @@ def onboarding_complete():
     )
 
     flash("Onboarding complete. Welcome to PHANTA.", "success")
+    from routes.ghost import WELCOME_FLAG
+    session[WELCOME_FLAG] = True  # the Ghost now asks to be clicked and points to the setup guides
     return redirect(url_for("workshop_dashboard.workshop_dashboard"))

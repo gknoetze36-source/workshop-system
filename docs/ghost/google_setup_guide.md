@@ -10,10 +10,10 @@ Time needed: about 15–20 minutes, once.
 
 ## Before you start: checklist
 
-- [ ] A **Google account**, either Gmail or your business email on Google.
-- [ ] A **bank card** for Google Ads.
-- [ ] Your PHANTA login with **Owner** or **Manager** access.
-- [ ] Recommended (free): a **Google Business Profile** for the workshop (see Tips).
+- A **Google account**, either Gmail or your business email on Google.
+- A **bank card** for Google Ads.
+- Your PHANTA login with **Owner** or **Manager** access.
+- Recommended (free): a **Google Business Profile** for the workshop (see Tips).
 
 ---
 

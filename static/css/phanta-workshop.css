@@ -408,3 +408,11 @@
   .phanta-ghost-launcher { right:14px; bottom:14px; }
   .phanta-ghost-panel { right:14px; bottom:84px; width:calc(100vw - 28px); }
 }
+
+/* After onboarding: the Ghost asks to be clicked until it is opened once. */
+.phanta-ghost-launcher.ghost-welcome .ghost-bubble { opacity:1; transform:none; width:auto; white-space:nowrap; font-weight:600; }
+.phanta-ghost-launcher.ghost-welcome { animation: ghost-welcome-pulse 1.6s ease-in-out infinite; }
+@keyframes ghost-welcome-pulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .phanta-ghost-launcher.ghost-welcome { animation:none; } }
+.ghost-message a { color: var(--primary); text-decoration: underline; font-weight:600; }
+.ghost-message ol { margin:8px 0 8px 18px; padding:0; }

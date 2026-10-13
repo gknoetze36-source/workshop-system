@@ -6,7 +6,10 @@ PHANTA product boundaries. It never invents missing records or health states.
 """
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request, session
+from pathlib import Path
+
+import markdown as markdown_lib
+from flask import Blueprint, abort, jsonify, render_template, request, session
 
 from helpers.location import current_location_id
 from database import get_session
@@ -14,6 +17,15 @@ from ai.dashboard.queries import WorkshopDashboardQueries, PlatformAdminDashboar
 
 
 ghost_bp = Blueprint("ghost", __name__, url_prefix="/api/ghost")
+help_bp = Blueprint("help", __name__, url_prefix="/help")
+
+# Customer setup guides the Ghost points new workshops to after onboarding.
+GUIDES = {
+    "meta": ("Meta setup guide", "meta_setup_guide.md"),
+    "google": ("Google Ads setup guide", "google_setup_guide.md"),
+}
+_GUIDE_DIR = Path(__file__).resolve().parent.parent / "docs" / "ghost"
+WELCOME_FLAG = "ghost_welcome"  # set when onboarding completes, cleared when the Ghost is first clicked
 
 
 def _is_platform_admin() -> bool:
@@ -155,3 +167,21 @@ def ask():
         return jsonify({"mode": "platform" if _is_platform_admin() else "workshop", **result}), 200
     finally:
         session_db.close()
+
+
+@ghost_bp.post("/welcome-seen")
+def welcome_seen():
+    session.pop(WELCOME_FLAG, None)
+    return jsonify({"ok": True})
+
+
+@help_bp.get("/<name>")
+def guide(name):
+    from services.auth_service import current_user
+    if not current_user():
+        abort(401)
+    if name not in GUIDES:
+        abort(404)
+    title, filename = GUIDES[name]
+    html = markdown_lib.markdown((_GUIDE_DIR / filename).read_text(encoding="utf-8"), extensions=["tables", "sane_lists"])
+    return render_template("help_guide.html", title=title, guide_html=html)

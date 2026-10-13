@@ -571,6 +571,9 @@
         });
     </script>
     {% if current_user %}
+    {% if session.get('ghost_welcome') %}
+    <script>window.PHANTA_GHOST_WELCOME = {meta: "{{ url_for('help.guide', name='meta') }}", google: "{{ url_for('help.guide', name='google') }}"};</script>
+    {% endif %}
     <script src="{{ url_for('static', filename='js/phanta-ghost.js') }}"></script>
     {% endif %}
 </body>
