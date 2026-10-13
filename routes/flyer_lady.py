@@ -178,6 +178,29 @@ def queue_special(special_id):
     except ValueError as exc: db.rollback(); return jsonify({"error": str(exc)}), 400
     finally: db.close()
 
+@flyer_lady_bp.post("/specials/<int:special_id>/cancel")
+@require_role(*MANAGER_ROLES)
+def cancel_queue(special_id):
+    """Removes the special's posts that haven't gone out yet, so it is
+    back to approved and can be queued again. Published posts stay, and
+    a post mid-publish can't be pulled back."""
+    try: location_id = _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    db = get_session()
+    try:
+        special = SpecialService().get(db, location_id, special_id)
+        if not special: return jsonify({"error": "special not found"}), 404
+        posts = db.scalars(select(SpecialPost).where(SpecialPost.special_id == special.id, SpecialPost.location_id == location_id)).all()
+        if any(p.status == "publishing" for p in posts):
+            return jsonify({"error": "A post is being published right now. Try again in a minute."}), 409
+        cancelled = [p.platform for p in posts if p.status != "published"]
+        for p in posts:
+            if p.status != "published": db.delete(p)
+        if not any(p.status == "published" for p in posts): special.status = "approved"
+        db.add(AuditLog(location_id=location_id, actor=_actor(), action="flyer_special_queue_cancelled", entity_type="Special", entity_id=str(special_id), after={"cancelled": cancelled}))
+        db.commit(); return jsonify({"cancelled": cancelled, "status": special.status})
+    finally: db.close()
+
 @flyer_lady_bp.post("/special-posts/<int:post_id>/publish")
 @require_role(*MANAGER_ROLES)
 def publish_now(post_id):

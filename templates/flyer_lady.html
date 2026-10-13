@@ -108,7 +108,7 @@ function renderSpecials(specials){
   document.getElementById('specials').innerHTML=specials.length?specials.map(s=>{
     const checkboxes=availablePostTypes.map(pt=>`<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" class="platform-check" data-special="${s.id}" value="${pt}" checked> ${esc(pt.replaceAll('_',' '))}</label>`).join('')
       + `<label style="margin-right:10px;font-weight:normal;"><input type="checkbox" class="platform-check" data-special="${s.id}" value="whatsapp_status_prepared" checked> whatsapp status</label>`;
-    return `<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p>${s.status==='approved'?`<div class="muted" style="margin:6px 0;">${checkboxes}</div>`:''}<div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue selected</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div>${boostHtml(s)}</div>`;
+    return `<div class="panel"><h3>${esc(s.text.slice(0,120))}</h3><p>Status: <strong>${esc(s.status)}</strong> · Clicks: ${s.clicks}</p>${s.status==='approved'?`<div class="muted" style="margin:6px 0;">${checkboxes}</div>`:''}<div class="actions">${s.status==='draft'?`<button onclick="approve(${s.id})">Approve</button>`:''}${s.status==='approved'?`<button onclick="queue(${s.id})">Queue selected</button>`:''}${s.status==='queued'?`<button class="secondary" onclick="cancelQueue(${s.id})">Cancel</button>`:''}<a class="button secondary" href="${esc(s.booking_link)}" target="_blank">Booking page</a></div>${boostHtml(s)}</div>`;
   }).join(''):'<p class="muted">No specials yet.</p>';
 }
 
@@ -181,6 +181,10 @@ async function queue(id){
   const platforms=[...document.querySelectorAll(`.platform-check[data-special="${id}"]:checked`)].map(cb=>cb.value);
   if(!platforms.length){alert('Select at least one platform to queue.');return;}
   try{const d=await api(`/dashboard/flyer-lady/specials/${id}/queue`,{method:'POST',body:JSON.stringify({platforms})});const queued=d.posts.map(p=>p.platform.replaceAll('_',' ')).join(', ');alert(`Queued: ${queued}. Publishing will be processed by the Flyer Lady queue.`);await load();}catch(e){alert(e.message)}
+}
+async function cancelQueue(id){
+  if(!confirm('Cancel posts that have not been published yet?')) return;
+  try{await api(`/dashboard/flyer-lady/specials/${id}/cancel`,{method:'POST'});await load();}catch(e){alert(e.message)}
 }
 load().catch(e=>document.getElementById('status').textContent=e.message);
 </script>
