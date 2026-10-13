@@ -81,7 +81,7 @@ def index():
         google_ads = db.scalar(select(GoogleAdsConnection).where(GoogleAdsConnection.location_id == location_id))
         return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": click_count(db, location_id, s.id), "facebook_published": s.id in fb_live, "boosts": boosts.get(s.id, [])} for s in specials],
                         "google_ads_connection": {"connected": bool(google_ads and google_ads.connection_status == "connected"), "configured": integration_status("google_ads")["configured"],
-                                                  "ready": bool(google_ads and google_ads.connection_status == "connected" and os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN", "").strip())}, "ads_connection": {"connected": bool(ads), "name": ads.ad_account_name if ads else None, "configured": bool(os.getenv("META_FLYER_LADY_ADS_CONFIG_ID", "").strip())}, "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "connectors": connectors})
+                                                  "ready": bool(google_ads and google_ads.connection_status == "connected")}, "ads_connection": {"connected": bool(ads), "name": ads.ad_account_name if ads else None, "configured": bool(os.getenv("META_FLYER_LADY_ADS_CONFIG_ID", "").strip())}, "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "connectors": connectors})
     finally: db.close()
 
 @flyer_lady_bp.post("/specials")
@@ -710,8 +710,6 @@ def _google_ads(db, location_id):
     if not conn or conn.connection_status != "connected":
         raise BoostError("Connect Google Ads first (Connections → Google Ads).")
     client = GoogleAdsApiClient(GoogleAuthConfig.from_env())
-    if not client.developer_token:
-        raise BoostError("Google ads aren't set up yet: GOOGLE_ADS_DEVELOPER_TOKEN is missing.")
     try:
         token = client.refresh_access_token(GoogleTokenStore().get_refresh_token(conn))
     except Exception:

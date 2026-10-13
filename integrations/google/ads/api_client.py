@@ -1,7 +1,12 @@
 """Google Ads client: OAuth code exchange / token refresh, plus the three
 Google Ads API (REST, v25) calls Flyer Lady uses -- listAccessibleCustomers,
-googleAds:search (GAQL) and googleAds:mutate. Every Ads API call needs
-GOOGLE_ADS_DEVELOPER_TOKEN on top of the OAuth access token.
+googleAds:search (GAQL) and googleAds:mutate.
+
+No developer token: Google sunset them on 9 September 2026 and ignores the
+header. API access (Test / Explorer / Basic / Standard) now belongs to the
+Google Cloud project that owns GOOGLE_CLIENT_ID; apply on that project's
+Google Ads API Overview page in Cloud Console. A legacy
+GOOGLE_ADS_DEVELOPER_TOKEN is still sent if set (harmless) but never required.
 """
 from __future__ import annotations
 
@@ -33,9 +38,10 @@ class GoogleAdsApiClient:
         self.developer_token = developer_token if developer_token is not None else os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN", "").strip()
 
     def _ads_headers(self, access_token: str) -> dict:
-        if not self.developer_token:
-            raise GoogleAdsAPIError("GOOGLE_ADS_DEVELOPER_TOKEN is not set")
-        return {"Authorization": f"Bearer {access_token}", "developer-token": self.developer_token}
+        headers = {"Authorization": f"Bearer {access_token}"}
+        if self.developer_token:  # legacy, ignored by Google since 9 Sep 2026; future API versions will reject it
+            headers["developer-token"] = self.developer_token
+        return headers
 
     def list_accessible_customers(self, access_token: str) -> list[str]:
         """Customer IDs (digits only) this login can reach directly."""
@@ -91,5 +97,9 @@ class GoogleAdsApiClient:
                 for e in d.get("errors") or []:
                     if e.get("message"):
                         detail = e["message"]; break
+            if "CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION" in response.text:
+                detail = ("VANTA's Google Cloud project only has Test access to the Google Ads API, which can't reach "
+                          "real ad accounts. Apply for Explorer access on the project's Google Ads API Overview page "
+                          "in Google Cloud Console.")
             raise GoogleAdsAPIError(f"{message}: {detail}", status_code=response.status_code, error=payload)
         return payload

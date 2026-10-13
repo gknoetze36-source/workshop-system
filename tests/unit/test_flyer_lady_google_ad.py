@@ -53,7 +53,7 @@ def test_route_creates_google_ad_and_records_it(client_with_roles, monkeypatch):
     from database import execute_db, query_db
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "id")
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "secret")
-    monkeypatch.setenv("GOOGLE_ADS_DEVELOPER_TOKEN", "dev-token")
+    monkeypatch.delenv("GOOGLE_ADS_DEVELOPER_TOKEN", raising=False)  # sunset by Google; must not be needed
     ctx = client_with_roles
     ctx["login_as"](ctx["owner_email"])
     headers = _headers(ctx)
@@ -85,7 +85,7 @@ def test_route_creates_google_ad_and_records_it(client_with_roles, monkeypatch):
 
 
 def test_route_refuses_unapproved_special_and_missing_connection(client_with_roles, monkeypatch):
-    monkeypatch.setenv("GOOGLE_ADS_DEVELOPER_TOKEN", "dev-token")
+    monkeypatch.delenv("GOOGLE_ADS_DEVELOPER_TOKEN", raising=False)  # sunset by Google; must not be needed
     ctx = client_with_roles
     ctx["login_as"](ctx["owner_email"])
     headers = _headers(ctx)

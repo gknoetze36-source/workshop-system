@@ -49,8 +49,8 @@ def test_callback_saves_an_encrypted_refresh_token(monkeypatch):
     client, location_id = _client(monkeypatch, "save")
     state = _start(client)["state"][0]
     with patch("routes.google_ads.GoogleAdsApiClient") as mock_cls:
-        mock_cls.return_value.developer_token = ""
         mock_cls.return_value.exchange_code_for_tokens.return_value = {"access_token": "a", "refresh_token": "real-refresh"}
+        mock_cls.return_value.list_accessible_customers.return_value = ["1234567890"]
         response = client.get(f"/dashboard/google-ads/connect/callback?code=c&state={state}")
     assert response.status_code == 302
     mock_cls.return_value.exchange_code_for_tokens.assert_called_once_with("c", CALLBACK)
@@ -111,3 +111,33 @@ def test_callback_with_several_accounts_only_accepts_one_google_returned(monkeyp
     token = re.search(r'name="csrf_token" value="([^"]+)"', page).group(1)
     client.post("/dashboard/google-ads/connect/account", data={"customer_id": "9999999999", "csrf_token": token})
     assert query_db("SELECT customer_id FROM google_ads_connections WHERE location_id=%s", (location_id,), one=True)["customer_id"] is None
+
+
+def test_no_developer_token_needed_since_google_sunset_them(monkeypatch):
+    """Google sunset developer tokens on 9 Sep 2026: calls must work without one,
+    and a Test-access Cloud project gets a plain-English fix."""
+    from integrations.google.ads.api_client import GoogleAdsAPIError, GoogleAdsApiClient
+    from integrations.google.auth.config import GoogleAuthConfig
+    monkeypatch.delenv("GOOGLE_ADS_DEVELOPER_TOKEN", raising=False)
+    sent = {}
+
+    class Resp:
+        def __init__(self, status, payload, text=""):
+            self.status_code, self.ok, self._p, self.text = status, status < 400, payload, text
+        def json(self):
+            return self._p
+
+    class S:
+        def __init__(self, resp):
+            self.resp = resp
+        def get(self, url, headers=None, timeout=None):
+            sent.update(headers); return self.resp
+
+    ok = GoogleAdsApiClient(GoogleAuthConfig("id", "secret", ""), session=S(Resp(200, {"resourceNames": ["customers/1234567890"]})))
+    assert ok.list_accessible_customers("tok") == ["1234567890"]
+    assert "developer-token" not in sent
+
+    denied = GoogleAdsApiClient(GoogleAuthConfig("id", "secret", ""), session=S(Resp(403, {"error": {"message": "denied"}}, text="CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION")))
+    import pytest
+    with pytest.raises(GoogleAdsAPIError, match="Explorer access"):
+        denied.list_accessible_customers("tok")
