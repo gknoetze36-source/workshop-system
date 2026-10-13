@@ -308,23 +308,34 @@
   right:22px;
   bottom:22px;
   z-index:1100;
-  width:58px;
-  height:58px;
-  border:1px solid rgba(224,255,79,.28);
-  border-radius:20px;
-  background:rgba(6,57,47,.94);
+  width:64px;
+  height:72px;
+  padding:0;
+  border:0;
+  border-radius:16px;
+  background:transparent;
   color:var(--primary);
-  box-shadow:0 16px 40px rgba(0,0,0,.38),0 0 0 5px rgba(224,255,79,.04);
+  box-shadow:none;
   cursor:pointer;
-  transition:transform var(--transition),box-shadow var(--transition);
 }
-.phanta-ghost-launcher:hover { transform:translateY(-2px); box-shadow:0 20px 48px rgba(0,0,0,.46),0 0 0 6px rgba(224,255,79,.07); }
+.phanta-ghost-launcher:focus-visible { outline:2px solid var(--primary); outline-offset:4px; }
+/* No box: a transparent pixel ghost that floats, with a shadow that shrinks as he rises. */
 .ghost-shape {
-  position:relative; width:34px; height:32px; margin:auto;
-  background-image:url('/static/images/phanta-ghost-icon.jpg?v=2');
-  background-size:cover; background-position:center;
-  border-radius:17px 17px 11px 11px;
+  position:relative; display:block; width:56px; height:56px; margin:0 auto;
+  background:url('/static/images/phanta-ghost-float.png?v=1') center/contain no-repeat;
+  image-rendering:pixelated;
+  filter:drop-shadow(0 0 6px rgba(224,255,79,.25));
 }
+.phanta-ghost-launcher > .ghost-shape { animation:ghost-float 3s ease-in-out infinite; }
+.phanta-ghost-launcher::after {
+  content:""; position:absolute; left:50%; bottom:2px; width:34px; height:6px; margin-left:-17px;
+  border-radius:50%; background:rgba(0,0,0,.45); filter:blur(2px);
+  animation:ghost-shadow 3s ease-in-out infinite;
+}
+.phanta-ghost-launcher:hover > .ghost-shape { filter:drop-shadow(0 0 10px rgba(224,255,79,.45)); }
+@keyframes ghost-float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-8px); } }
+@keyframes ghost-shadow { 0%,100% { transform:scaleX(1); opacity:.55; } 50% { transform:scaleX(.7); opacity:.3; } }
+@media (prefers-reduced-motion: reduce) { .phanta-ghost-launcher > .ghost-shape, .phanta-ghost-launcher::after { animation:none; } }
 .ghost-bubble {
   position:absolute;
   right:68px;
@@ -416,3 +427,7 @@
 @media (prefers-reduced-motion: reduce) { .phanta-ghost-launcher.ghost-welcome { animation:none; } }
 .ghost-message a { color: var(--primary); text-decoration: underline; font-weight:600; }
 .ghost-message ol { margin:8px 0 8px 18px; padding:0; }
+/* Keep the Ghost box-free in every button state (the site-wide button styles add a background). */
+button.phanta-ghost-launcher, button.phanta-ghost-launcher:hover, button.phanta-ghost-launcher:focus, button.phanta-ghost-launcher:active {
+  background:transparent; border:0; box-shadow:none; transform:none;
+}
