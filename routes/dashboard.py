@@ -212,7 +212,9 @@ def client_audit_detail(location_id: int):
         data = ClientAuditQueries(db).client(location_id)
         if data is None:
             return jsonify({"error": "client not found"}), 404
-        return render_template("dashboard/client_audit_detail.html", audit=data)
+        from database import fetch_one
+        price = (fetch_one("SELECT monthly_base_price FROM locations WHERE id=%s", (location_id,)) or {}).get("monthly_base_price")
+        return render_template("dashboard/client_audit_detail.html", audit=data, monthly_price=float(price or 0))
     finally:
         db.close()
 
@@ -233,7 +235,22 @@ def client_billing_control(location_id: int):
     from services.access_lock_service import lock_location, unlock_location
 
     action = request.form.get("action")
-    if action in {"exempt", "unexempt"}:
+    if action == "set_price":
+        from decimal import Decimal, InvalidOperation
+        from helpers.dates import utc_today
+        try:
+            price = Decimal((request.form.get("monthly_price") or "").replace(",", ".").replace("R", "").strip()).quantize(Decimal("0.01"))
+        except InvalidOperation:
+            price = None
+        if price is None or not (0 <= price <= 100000):
+            flash("Enter a monthly amount in rand, e.g. 1499 or 1499.50.", "error")
+            return redirect(url_for("platform_dashboard.client_audit_detail", location_id=location_id))
+        execute_db("UPDATE locations SET monthly_base_price=%s, updated_at=%s WHERE id=%s", (float(price), utc_now(), location_id))
+        # This month's usage row froze the old price when it was created; bill the new one this month too.
+        execute_db("UPDATE chatbot_usage_monthly SET base_price=%s, updated_at=%s WHERE location_id=%s AND usage_month=%s",
+                   (float(price), utc_now(), location_id, utc_today()[:7]))
+        flash(f"Monthly amount set to R{price:,.2f}. It is billed from this month.", "success")
+    elif action in {"exempt", "unexempt"}:
         exempt = action == "exempt"
         execute_db("UPDATE locations SET billing_exempt=%s, updated_at=%s WHERE id=%s", (exempt, utc_now(), location_id))
         if exempt:
