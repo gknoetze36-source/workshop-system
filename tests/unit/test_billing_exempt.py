@@ -63,3 +63,29 @@ def test_platform_admin_billing_controls(client_with_roles):
     assert row["billing_exempt"] and not row["access_locked"]  # exempting also lifts the wall
     client.post(url, data={"action": "unexempt", "csrf_token": token})
     assert not _location(loc)["billing_exempt"]
+
+
+def test_platform_admin_sets_monthly_amount(client_with_roles):
+    import os
+    from helpers.dates import utc_today
+    loc = client_with_roles["location_id"]
+    month = utc_today()[:7]
+    execute_db("INSERT INTO chatbot_usage_monthly (location_id, usage_month, message_count, base_price, overage_price, extra_messages, overage_cost, total_due, created_at, updated_at) "
+               "VALUES (%s, %s, 0, 0, 0.5, 0, 0, 0, %s, %s)", (loc, month, "2026-01-01", "2026-01-01"))
+    client = phanta_app.app.test_client()
+    login = client.get("/login").get_data(as_text=True)
+    client.post("/login", data={"email": os.environ.get("SUPERADMIN_USERNAME", "admin@phanta.local"),
+                                "password": os.environ["SUPERADMIN_PASSWORD"],
+                                "csrf_token": re.search(r'name="csrf_token" value="([^"]+)"', login).group(1)})
+    page = client.get(f"/platform/dashboard/client-audit/{loc}").get_data(as_text=True)
+    assert 'name="monthly_price"' in page
+    token = re.search(r'name="csrf-token" content="([^"]+)"', page).group(1)
+    url = f"/platform/dashboard/client-audit/{loc}/billing"
+
+    client.post(url, data={"action": "set_price", "monthly_price": "1499.50", "csrf_token": token})
+    assert query_db("SELECT monthly_base_price FROM locations WHERE id=%s", (loc,), one=True)["monthly_base_price"] == 1499.5
+    assert query_db("SELECT base_price FROM chatbot_usage_monthly WHERE location_id=%s AND usage_month=%s", (loc, month), one=True)["base_price"] == 1499.5
+    assert 'value="1499.50"' in client.get(f"/platform/dashboard/client-audit/{loc}").get_data(as_text=True)
+
+    client.post(url, data={"action": "set_price", "monthly_price": "-5", "csrf_token": token})  # refused
+    assert query_db("SELECT monthly_base_price FROM locations WHERE id=%s", (loc,), one=True)["monthly_base_price"] == 1499.5

@@ -8,6 +8,13 @@
 <div class="grid two">
   <section class="card"><h2>Client</h2><p><strong>Location ID:</strong> {{ audit.location.id }}</p>{% if audit.location.legal_name %}<p><strong>Legal name:</strong> {{ audit.location.legal_name }}</p>{% endif %}{% if audit.location.owner_email %}<p><strong>Owner email:</strong> <a href="mailto:{{ audit.location.owner_email }}">{{ audit.location.owner_email }}</a></p>{% endif %}{% if audit.location.support_email %}<p><strong>Support email:</strong> <a href="mailto:{{ audit.location.support_email }}">{{ audit.location.support_email }}</a></p>{% endif %}{% if audit.location.active is not none %}<p><strong>Active:</strong> {{ 'Yes' if audit.location.active else 'No' }}</p>{% endif %}</section>
   <section class="card"><h2>Billing</h2>
+    <form method="post" action="{{ url_for('platform_dashboard.client_billing_control', location_id=audit.location.id) }}" style="margin-bottom:12px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="set_price">
+      <label for="monthly_price"><strong>Monthly amount (R)</strong></label>
+      <input id="monthly_price" name="monthly_price" class="input" type="number" min="0" max="100000" step="0.01" value="{{ '%.2f'|format(monthly_price) }}" required style="max-width:160px">
+      <button class="button primary" type="submit">Save amount</button>
+      <p><small>What this workshop pays each month, billed automatically to their card{% if audit.location.billing_exempt %} (not billed while billing exempt){% endif %}.</small></p>
+    </form>
     <p><strong>Billing exempt:</strong> {{ 'Yes - never billed, no payment wall' if audit.location.billing_exempt else 'No' }}</p>
     <p><strong>Payment wall:</strong> {{ 'Locked' if audit.location.access_locked else 'Not locked' }}</p>
     {% for action, label in [('unexempt' if audit.location.billing_exempt else 'exempt', 'Remove billing exemption' if audit.location.billing_exempt else 'Make billing exempt'), ('unlock' if audit.location.access_locked else 'lock', 'Unlock' if audit.location.access_locked else 'Lock (test payment wall)')] %}
