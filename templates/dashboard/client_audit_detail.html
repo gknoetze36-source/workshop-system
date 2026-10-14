@@ -6,7 +6,7 @@
   <a class="button secondary" href="{{ url_for('platform_dashboard.client_audit') }}">Back to Client Audit Centre</a>
 </div>
 <div class="grid two">
-  <section class="card"><h2>Client</h2><p><strong>Location ID:</strong> {{ audit.location.id }}</p>{% if audit.location.legal_name %}<p><strong>Legal name:</strong> {{ audit.location.legal_name }}</p>{% endif %}{% if audit.location.support_email %}<p><strong>Support email:</strong> {{ audit.location.support_email }}</p>{% endif %}{% if audit.location.active is not none %}<p><strong>Active:</strong> {{ 'Yes' if audit.location.active else 'No' }}</p>{% endif %}</section>
+  <section class="card"><h2>Client</h2><p><strong>Location ID:</strong> {{ audit.location.id }}</p>{% if audit.location.legal_name %}<p><strong>Legal name:</strong> {{ audit.location.legal_name }}</p>{% endif %}{% if audit.location.owner_email %}<p><strong>Owner email:</strong> <a href="mailto:{{ audit.location.owner_email }}">{{ audit.location.owner_email }}</a></p>{% endif %}{% if audit.location.support_email %}<p><strong>Support email:</strong> <a href="mailto:{{ audit.location.support_email }}">{{ audit.location.support_email }}</a></p>{% endif %}{% if audit.location.active is not none %}<p><strong>Active:</strong> {{ 'Yes' if audit.location.active else 'No' }}</p>{% endif %}</section>
   <section class="card"><h2>Billing</h2>
     <p><strong>Billing exempt:</strong> {{ 'Yes - never billed, no payment wall' if audit.location.billing_exempt else 'No' }}</p>
     <p><strong>Payment wall:</strong> {{ 'Locked' if audit.location.access_locked else 'Not locked' }}</p>
