@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select, and_, exists
 from sqlalchemy.orm import Session
 
-from models.core import Booking, BookingConfirmation, Conversation, Message, Location, Customer, Vehicle, AuditLog
+from models.core import Booking, BookingConfirmation, Conversation, Message, Location, Customer, Vehicle, AuditLog, Owner
 from sqlalchemy import text, bindparam
 from models.integration_models import (
     AIUsageLog, Invoice, MetaAuditLog, MetaBusinessConnection,
@@ -223,13 +223,14 @@ class ClientAuditQueries:
         ids = [t.id for t in locations]
         connections = {r.location_id: r for r in self.session.scalars(select(MetaBusinessConnection).where(MetaBusinessConnection.location_id.in_(ids))).all()}
         social = {r.location_id: r for r in self.session.scalars(select(MetaSocialConnection).where(MetaSocialConnection.location_id.in_(ids))).all()}
+        owner_emails = dict(self.session.execute(select(Owner.id, Owner.email).where(Owner.id.in_([t.owner_id for t in locations if t.owner_id]))).all())
         subs = list(self.session.scalars(select(Subscription).where(Subscription.location_id.in_(ids)).order_by(Subscription.id.desc())).all())
         latest_sub = {}
         for row in subs:
             latest_sub.setdefault(row.location_id, row)
         return [{
             "location_id": t.id, "name": t.name, "legal_name": t.legal_name, "support_email": t.support_email,
-            "active": t.active,
+            "owner_email": owner_emails.get(t.owner_id), "active": t.active,
             "whatsapp": {"status": c.connection_status, "waba_id": c.waba_id, "phone_number_id": c.phone_number_id} if (c := connections.get(t.id)) else None,
             "flyer_lady": {"status": s.connection_status, "page_id": s.page_id, "page_name": s.page_name} if (s := social.get(t.id)) else None,
             "billing": {"status": latest_sub[t.id].status} if t.id in latest_sub else None,
@@ -249,7 +250,7 @@ class ClientAuditQueries:
         pay_failed = self.session.scalar(select(func.count(PaystackWebhookEvent.id)).where(PaystackWebhookEvent.location_id == location_id, PaystackWebhookEvent.processing_status.in_(["failed", "error"]))) or 0
         audit_rows = list(self.session.scalars(select(AuditLog).where(AuditLog.location_id == location_id).order_by(AuditLog.created_at.desc()).limit(50)).all())
         return {
-            "location": {"id": location.id, "name": location.name, "legal_name": location.legal_name, "support_email": location.support_email, "active": location.active, "created_at": location.created_at, "billing_exempt": location.billing_exempt, "access_locked": location.access_locked},
+            "location": {"id": location.id, "name": location.name, "legal_name": location.legal_name, "support_email": location.support_email, "owner_email": location.owner.email if location.owner else None, "active": location.active, "created_at": location.created_at, "billing_exempt": location.billing_exempt, "access_locked": location.access_locked},
             "whatsapp": ({"connection_status": whatsapp.connection_status, "business_id": whatsapp.business_id, "waba_id": whatsapp.waba_id, "phone_number_id": whatsapp.phone_number_id, "display_phone_number": whatsapp.display_phone_number, "verified_name": whatsapp.verified_name, "quality_rating": whatsapp.quality_rating, "messaging_tier": whatsapp.messaging_tier, "token_stored": bool(whatsapp.encrypted_access_token), "token_expires_at": whatsapp.token_expires_at, "last_health_check_at": whatsapp.last_health_check_at} if whatsapp else None),
             "verification": ({"business_verification_status": verification.business_verification_status, "display_name_status": verification.display_name_status, "phone_verification_status": verification.phone_verification_status, "last_checked_at": verification.last_checked_at} if verification else None),
             "permissions": [{"permission": p.permission, "access_level": p.access_level, "granted": p.granted, "granted_at": p.granted_at} for p in permissions],
