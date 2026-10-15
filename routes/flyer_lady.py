@@ -779,3 +779,28 @@ def boost_results(boost_id):
             return jsonify({"error": meta_message(exc)}), 502
     finally:
         db.close()
+
+
+@flyer_lady_bp.post("/disconnect/<kind>")
+@require_role(*MANAGER_ROLES)
+def disconnect(kind):
+    """Workshop-side disconnect of Facebook posting, Facebook ads or Google Ads, so it can be
+    reconnected (or a different Page/account chosen). Meta/Google grants are left as they are:
+    the workshop removes PHANTA there if it also wants that (Facebook → Settings → Business integrations)."""
+    from models.integration_models import GoogleAdsConnection, MetaAdAccountConnection, MetaSocialConnection
+    models = {"facebook": MetaSocialConnection, "ads": MetaAdAccountConnection, "google": GoogleAdsConnection}
+    if kind not in models:
+        return jsonify({"error": "unknown connection"}), 404
+    try: location_id = _location()
+    except PermissionError as exc: return jsonify({"error": str(exc)}), 401
+    db = get_session()
+    try:
+        model = models[kind]
+        rows = db.scalars(select(model).where(model.location_id == location_id)).all()
+        for row in rows:
+            row.connection_status = "revoked"
+        db.add(AuditLog(location_id=location_id, actor=_actor(), action=f"flyer_{kind}_disconnected", entity_type=model.__name__, entity_id=str(location_id), after={"rows": len(rows)}))
+        db.commit()
+        return jsonify({"disconnected": kind, "rows": len(rows)})
+    finally:
+        db.close()

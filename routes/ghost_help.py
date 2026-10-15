@@ -211,6 +211,16 @@ TOPICS: tuple[Topic, ...] = (
           links=(("Open Flyer Lady", "flyer_lady.ui", {}, ""), ("Facebook setup guide", *META, "part-2-connect-your-facebook-page-posting")),
           next=("How do I create a special?", "How do I boost a post?", "How do I connect Instagram?")),
 
+    Topic("disconnect", ("disconnect", "reconnect", "unlink", "remove facebook", "remove google", "change page", "different page",
+                         "change ad account", "switch account", "log out of facebook"),
+          "You can disconnect Facebook posting, Facebook ads or Google Ads at any time, for example to pick a different Page or ad account. "
+          "Ads that are already running keep running until they end.",
+          steps=("Open Flyer Lady → Connections and press Disconnect next to Facebook, Facebook ads or Google Ads.",
+                 "Press Connect on the same row to connect again and choose the Page or account you want.",
+                 "To also remove PHANTA on Facebook's side: Facebook → Settings & privacy → Settings → Business integrations → remove VANTA Automations FL."),
+          links=(("Open Flyer Lady", "flyer_lady.ui", {}, ""),),
+          next=("How do I connect Facebook?", "How do I run a Google ad?")),
+
     Topic("instagram", ("instagram", "insta", "ig"),
           "Instagram connects separately from Facebook. Your Instagram must be a professional account (Business or Creator). "
           "Note that links in Instagram captions can't be tapped, so Instagram brings awareness more than booking clicks.",

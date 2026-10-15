@@ -73,19 +73,23 @@ function renderConnections(connectors){
     const c=byPlatform[key];
     if(!c) return '';
     const needsAction=c.ui_status==='Connect'||c.ui_status==='Reconnect';
-    const action=needsAction && meta.connectUrl ? `<a class="button secondary" href="${meta.connectUrl}">${esc(c.ui_status)}</a>` : `<span class="muted">${esc(c.ui_status)}</span>`;
+    const action=needsAction && meta.connectUrl ? `<a class="button secondary" href="${meta.connectUrl}">${esc(c.ui_status)}</a>` : `<span class="muted">${esc(c.ui_status)}</span>${key==='facebook'&&c.ui_status==='Connected'?disconnectBtn('facebook','Facebook posting'):''}`;
     return `<div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;"><strong>${esc(meta.label)}</strong>${action}</div>`;
   }).join('');
   document.getElementById('connections-list').innerHTML=rows||'<p class="muted">No platforms configured.</p>';
 }
 function renderAds(ads){
-  const action=ads.connected?`<span class="muted">Connected: ${esc(ads.name)}</span>`:ads.configured?`<a class="button secondary" href="{{ url_for("flyer_lady.ads_connect_start") }}">Connect ad account</a>`:'<span class="muted">Not set up</span>';
+  const action=ads.connected?`<span class="muted">Connected: ${esc(ads.name)}</span>${disconnectBtn('ads','Facebook ads')}`:ads.configured?`<a class="button secondary" href="{{ url_for("flyer_lady.ads_connect_start") }}">Connect ad account</a>`:'<span class="muted">Not set up</span>';
   document.getElementById('connections-list').insertAdjacentHTML('beforeend',`<div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;"><strong>Facebook ads (paid promotion)</strong>${action}</div>`);
 }
 function renderGoogleAds(g){
-  const action=g.connected?'<span class="muted">Connected</span>':g.configured?`<a class="button secondary" href="{{ url_for("google_ads.connect_start") }}">Connect Google Ads</a>`:'<span class="muted">Not set up</span>';
+  const action=g.connected?`<span class="muted">Connected</span>${disconnectBtn('google','Google Ads')}`:g.configured?`<a class="button secondary" href="{{ url_for("google_ads.connect_start") }}">Connect Google Ads</a>`:'<span class="muted">Not set up</span>';
   document.getElementById('connections-list').insertAdjacentHTML('beforeend',`<div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;"><strong>Google Ads</strong>${action}</div>`);
 }
+function disconnectBtn(kind,label){return ` <button class="secondary" style="margin-left:8px;" onclick="disconnectConn('${kind}','${label}')">Disconnect</button>`;}
+async function disconnectConn(kind,label){
+  if(!confirm(`Disconnect ${label} from PHANTA? Running ads keep running until they end. You can connect again at any time.`))return;
+  try{await api(`{{ url_for("flyer_lady.index") }}/disconnect/${kind}`,{method:'POST'});await load();}catch(e){alert(e.message);}}
 let adsConnected=false, googleAdsReady=false;
 const PERIOD_DAYS={week:7,month:30};
 function boostHtml(s){
