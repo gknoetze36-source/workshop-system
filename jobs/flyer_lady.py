@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from sqlalchemy import select
 from database import SessionLocal, set_location_id
@@ -5,6 +6,8 @@ from models.core import Location
 from flyer_lady.models import SpecialPost
 from flyer_lady.publish_service import FlyerLadyPublishService
 from flyer_lady.stale_recovery import reconcile_stale_publishing_posts
+
+logger = logging.getLogger(__name__)
 
 def _claim_due_posts(db, location_id: int, limit: int, now) -> list[int]:
     """Phase 1: find eligible posts, lock them, claim them, commit the
@@ -137,3 +140,44 @@ def run_flyer_lady_publish_queue(limit: int = 20):
                 db.close()
 
     return {"attempted": attempted, "published": published, "failed": failed}
+
+
+def run_google_ad_spend_guard() -> dict:
+    """Pause Flyer Lady Google ads once they've spent the workshop's total budget."""
+    from datetime import timedelta
+    from flyer_lady.boost_service import BoostError
+    from flyer_lady.google_ad_service import GoogleAdService, connect
+    from flyer_lady.models import FlyerBoost
+
+    admin_session = SessionLocal()
+    try:
+        location_ids = list(admin_session.scalars(select(Location.id).where(Location.active.is_(True))))
+    finally:
+        admin_session.close()
+    since = datetime.now(timezone.utc) - timedelta(days=1)  # Google's last-day overspend still counts
+    checked = paused = 0
+    for location_id in location_ids:
+        db = SessionLocal()
+        try:
+            set_location_id(db, location_id)
+            ads = list(db.scalars(select(FlyerBoost).where(
+                FlyerBoost.location_id == location_id, FlyerBoost.platform == "google",
+                FlyerBoost.status == "active", FlyerBoost.ends_at >= since)))
+            if not ads:
+                continue
+            try:
+                client, token, _ = connect(db, location_id)
+            except BoostError:
+                continue  # disconnected; the workshop sees "reconnect" in Flyer Lady
+            service = GoogleAdService(client)
+            for ad in ads:
+                checked += 1
+                try:
+                    if service.pause_if_spent(token, ad.ad_account_id, ad.campaign_id, ad.budget_minor // 100):
+                        ad.status, paused = "budget_reached", paused + 1
+                except Exception:
+                    logger.exception("google_ad_spend_guard failed boost_id=%s", ad.id)
+            db.commit()
+        finally:
+            db.close()
+    return {"checked": checked, "paused": paused}
