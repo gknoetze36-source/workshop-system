@@ -104,24 +104,25 @@ Boosts are paid from **your own Meta ad account and your own card**. You pay Met
 Make sure the **Facebook Page** and the **ad account** are in the **same Business portfolio** (Business settings → Accounts → Pages / Ad accounts).
 
 ### Step 4: Connect the ad account to PHANTA
-1. In PHANTA, open **Flyer Lady → Connections → Facebook ads (paid boosts)** → **Connect ad account**.
+1. In PHANTA, open **Flyer Lady → Connections → Facebook ads (paid promotion)** → **Connect ad account**.
 2. Sign in and allow the **ads** permissions.
 3. If you have more than one ad account, **choose the workshop's one**. PHANTA shows "**Ad account … is connected**".
 
 > If it says **"Not set up"** instead of a Connect button, boosting isn't switched on for your workshop yet. Ask VANTA.
 
-### Step 5: Boost a special
-1. **Create** a special in Flyer Lady, **Approve** it, and **Queue** it to the **Facebook feed**. Within about 5 minutes it's published.
-2. Under the published special, fill in:
-   - **Budget (R):** the most you'll spend in total, R50 to R20,000.
-   - **Days:** 1 to 30.
+### Step 5: Run a paid promotion
+1. **Create** a special in Flyer Lady, **Approve** it, and under **Post for free** post it to the **Facebook feed**. Within about 5 minutes it's published.
+2. Under the special's **Paid promotion**, tick **Facebook ad** (and **Google search ad** if you want both). Fill in:
+   - **Total amount (R):** the most you'll spend in total. You choose it.
+   - **For:** **1 week** or **1 month**.
    - **Town / city:** e.g. Pretoria.
-   - **Radius (km):** 17 to 80 km around that town.
-3. Press **Boost on Facebook** and confirm the amount.
+   - **Radius (km):** how far around that town (17 to 80 km).
+   - **Split:** if you ticked both, slide it to choose how much goes to Facebook and how much to Google.
+3. Press **Start paid promotion** and confirm the amounts.
 4. **Meta reviews the ad**, usually within 24 hours, and then it starts running.
-5. Press **Results** on the boost to see what has been spent, how many people saw it, and how many clicked.
+5. Press **Results** on the ad to see what has been spent, how many people saw it, and how many clicked.
 
-The ad shows your published post to people aged 18 and over around the town you chose. Meta **never spends more than your budget**, and the ad stops after the number of days you set.
+The ad shows your published post to people aged 18 and over around the town you chose. Meta **never spends more than your amount**, and the ad stops at the end of the week or month you chose.
 
 ---
 
