@@ -72,8 +72,10 @@ function renderConnections(connectors){
     const meta=PLATFORM_META[key];
     const c=byPlatform[key];
     if(!c) return '';
-    const needsAction=c.ui_status==='Connect'||c.ui_status==='Reconnect';
-    const action=needsAction && meta.connectUrl ? `<a class="button secondary" href="${meta.connectUrl}">${esc(c.ui_status)}</a>` : `<span class="muted">${esc(c.ui_status)}</span>${key==='facebook'&&c.ui_status==='Connected'?disconnectBtn('facebook','Facebook posting'):''}`;
+    // "Disconnected" (workshop pressed Disconnect, or Meta revoked) must offer Connect again.
+    const needsAction=['Connect','Reconnect','Disconnected'].includes(c.ui_status);
+    const label=c.ui_status==='Reconnect'?'Reconnect':'Connect';
+    const action=needsAction && meta.connectUrl ? `<a class="button secondary" href="${meta.connectUrl}">${label}</a>` : `<span class="muted">${esc(c.ui_status)}</span>${key==='facebook'&&c.ui_status==='Connected'?disconnectBtn('facebook','Facebook posting'):''}`;
     return `<div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;"><strong>${esc(meta.label)}</strong>${action}</div>`;
   }).join('');
   document.getElementById('connections-list').innerHTML=rows||'<p class="muted">No platforms configured.</p>';
