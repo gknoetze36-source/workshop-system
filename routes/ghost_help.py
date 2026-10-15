@@ -197,8 +197,8 @@ TOPICS: tuple[Topic, ...] = (
           "Every post ends with a \"Book here\" link, and bookings from that link are counted on your Results page.",
           steps=("Open Flyer Lady, write your special (keep the first line short and punchy) and add a picture.",
                  "Press Create special, then Approve.",
-                 "Tick where it should go and press Queue selected. It's posted within about 5 minutes.",
-                 "Optional: once it's on your Facebook feed, boost it, or tick \"google search ad\" to run it on Google."),
+                 "Under Post for free, tick where it should go and press Post selected. It's posted within about 5 minutes.",
+                 "Optional: under Paid promotion, run it as a Facebook ad and/or a Google search ad with your own budget."),
           links=(("Open Flyer Lady", "flyer_lady.ui", {}, ""),),
           next=("How do I connect Facebook?", "How do I boost a post?", "What are my results?")),
 
@@ -221,14 +221,15 @@ TOPICS: tuple[Topic, ...] = (
           next=("How do I create a special?", "How do I connect Facebook?")),
 
     Topic("boost", ("boost", "boosted", "paid ad", "paid ads", "advertise", "advertising", "facebook ads", "facebook ad", "meta ads",
-                    "ad account", "promote my post", "sponsored"),
-          "A boost shows one of your published Facebook posts to more people around your workshop. It's paid from your own Meta ad account and card, "
-          "and Meta never spends more than the budget you set.",
-          steps=("One-time setup: create a Meta ad account in ZAR, add your card, and connect it in Flyer Lady → Facebook ads (paid boosts).",
-                 "Publish a special to your Facebook feed first.",
-                 "Under the published special, fill in budget (R50–R20,000), days (1–30), your town and radius (17–80 km).",
-                 "Press Boost on Facebook and confirm. Meta reviews the ad, usually within 24 hours.",
-                 "Press Results on the boost to see what's been spent, how many people saw it, and the clicks."),
+                    "ad account", "promote my post", "sponsored", "paid promotion", "promotion", "split", "budget"),
+          "Paid promotion shows a special to more people around your workshop as a Facebook ad, a Google search ad, or both. "
+          "You choose the total amount, 1 week or 1 month, and how to split it. Meta and Google charge your own cards, never more than your amount.",
+          steps=("One-time setup: connect a ZAR Meta ad account (Flyer Lady → Facebook ads) and/or Google Ads, each with your card.",
+                 "For a Facebook ad, post the special to your Facebook feed first (Post for free).",
+                 "Under the special's Paid promotion, tick Facebook ad and/or Google search ad.",
+                 "Enter your total amount, choose 1 week or 1 month, your town and radius, and if you ticked both, slide the split.",
+                 "Press Start paid promotion and confirm. Meta and Google review new ads, usually within a day.",
+                 "Press Results on each ad to see what's been spent, how many people saw it, and the clicks. PHANTA pauses the Google ad once it has spent its share."),
           links=(("Open Flyer Lady", "flyer_lady.ui", {}, ""), ("Paid boosts guide", *META, "part-4-paid-boosts-adding-your-card")),
           next=("Where do I add my card?", "How do I run a Google ad?", "What are my results?")),
 
@@ -248,7 +249,7 @@ TOPICS: tuple[Topic, ...] = (
           "\"car service Pretoria\" or \"brake repairs\". It's paid from your own Google Ads account, and Google charges per click.",
           steps=("One-time setup: create a Google Ads account in ZAR (Johannesburg time zone) and add your card.",
                  "Connect it: Flyer Lady → Connections → Google Ads → Connect Google Ads, and pick your account.",
-                 "Approve a special, tick \"google search ad\", set budget, days, town and radius, then press Queue selected.",
+                 "Approve a special, then under Paid promotion tick Google search ad, enter your amount, 1 week or 1 month, town and radius, and press Start paid promotion.",
                  "Google reviews the ad, usually within a working day. Clicks and spend show under Results."),
           links=(("Open Flyer Lady", "flyer_lady.ui", {}, ""), ("Google Ads setup guide", *GOOGLE, "")),
           next=("Where do I add my card?", "What are my results?", "How do I boost a post?")),

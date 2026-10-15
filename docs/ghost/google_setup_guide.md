@@ -48,13 +48,14 @@ Time needed: about 15–20 minutes, once.
 ## Step 4: Run a special as a Google Search ad
 
 1. In **Flyer Lady**, **create** a special and **Approve** it.
-2. In the list of places to publish, tick **google search ad**. Four boxes appear:
-   - **Budget (R):** the most you'll spend in total, R50 to R20,000.
-   - **Days:** 1 to 30. Google spreads the budget evenly over these days.
+2. Under **Paid promotion**, tick **Google search ad** (tick **Facebook ad** too if you want both). Fill in:
+   - **Total amount (R):** the most you'll spend in total. You choose it.
+   - **For:** **1 week** or **1 month**. Google spreads the amount evenly over that time.
    - **Town / city:** e.g. Pretoria.
-   - **Radius (km):** 17 to 80 km around that town.
-3. Press **Queue selected**.
-4. **Google reviews the ad**, usually within one working day. Then it starts showing.
+   - **Radius (km):** how far around that town (17 to 80 km).
+   - **Split:** if you ticked both Facebook and Google, slide it to choose how much goes to each. PHANTA shows the Rand amounts.
+3. Press **Start paid promotion** and confirm.
+4. **Google reviews the ad**, usually within one working day. Then it starts showing. Google can spend a little more on a busy day, so PHANTA checks the spend and **pauses the ad once it reaches your amount**.
 
 ### What PHANTA sets up for you
 - **Where it shows:** **Google Search** only. No banners on other websites and no YouTube.
