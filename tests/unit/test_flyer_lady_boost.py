@@ -150,3 +150,26 @@ def test_boost_connect_reuses_the_single_registered_redirect_uri(client_with_rol
     assert back.status_code == 302  # _ads_back redirect, not the Page-picker error page
     with ctx["client"].session_transaction() as s:
         assert "flyer_ads_oauth_state" not in s
+
+
+def test_disconnect_lets_the_workshop_reconnect(client_with_roles, monkeypatch):
+    monkeypatch.setenv("META_TOKEN_ENCRYPTION_KEY", KEY)
+    from database import SessionLocal
+    from integrations.meta.auth.token_store import MetaTokenStore
+    from integrations.meta.social.repositories.connection_repo import MetaSocialConnectionRepository
+    from models.integration_models import MetaAdAccountConnection, MetaSocialConnection
+    ctx = client_with_roles
+    loc = ctx["location_id"]
+    ctx["login_as"](ctx["owner_email"])
+    db = SessionLocal()
+    MetaSocialConnectionRepository().upsert(db, loc, meta_user_id="1", page_id="111", page_name="Demo", instagram_business_account_id=None, permissions_json={}, connection_status="connected")
+    db.add(MetaAdAccountConnection(location_id=loc, ad_account_id="999", ad_account_name="Demo ads", currency="ZAR", encrypted_access_token=MetaTokenStore().encrypt("t")))
+    db.commit(); db.close()
+    for kind in ("facebook", "ads"):
+        resp = ctx["client"].post(f"/dashboard/flyer-lady/disconnect/{kind}", headers={"X-CSRFToken": _token(ctx)})
+        assert resp.status_code == 200 and resp.get_json()["rows"] == 1
+    assert ctx["client"].post("/dashboard/flyer-lady/disconnect/nope", headers={"X-CSRFToken": _token(ctx)}).status_code == 404
+    listing = ctx["client"].get("/dashboard/flyer-lady").get_json()
+    assert not listing["ads_connection"]["connected"] and not listing["social_connection"]["connected"]
+    fb = next(c for c in listing["connectors"] if c["platform"] == "facebook")
+    assert fb["ui_status"] in ("Connect", "Reconnect")
