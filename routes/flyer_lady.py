@@ -310,6 +310,9 @@ def social_connect_callback():
     can actually pick one and finish (see /connect/complete below, which
     the page's own form submits to).
     """
+    ads_state = flask_session.get("flyer_ads_oauth_state")
+    if ads_state and secrets.compare_digest(ads_state, request.args.get("state") or ""):
+        return ads_connect_callback()
     try: location_id = _location()
     except PermissionError as exc: return jsonify({"error": str(exc)}), 401
     onboarding = bool(flask_session.get("flyer_lady_oauth_onboarding"))
@@ -598,7 +601,13 @@ def ads_connect_start():
     if not config_id:
         return _ads_back("Boosting isn't set up yet: META_FLYER_LADY_ADS_CONFIG_ID is missing.", "error")
     config = FlyerLadyMetaConfig.from_env()
-    redirect_uri = url_for("flyer_lady.ads_connect_callback", _external=True)
+    # Meta allows one Valid OAuth Redirect URI on this app, so boosts reuse the
+    # Page-connect callback; social_connect_callback hands off by state.
+    redirect_uri = (
+        config.oauth_redirect_uri
+        or os.getenv("META_SOCIAL_REDIRECT_URI", "").strip()
+        or url_for("flyer_lady.social_connect_callback", _external=True)
+    )
     state = secrets.token_urlsafe(32)
     flask_session["flyer_ads_oauth_state"], flask_session["flyer_ads_oauth_redirect_uri"] = state, redirect_uri
     params = urlencode({"client_id": config.app_id, "config_id": config_id, "redirect_uri": redirect_uri, "state": state, "scope": ADS_SCOPES, "response_type": "code"})

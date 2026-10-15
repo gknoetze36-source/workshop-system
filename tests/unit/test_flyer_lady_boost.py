@@ -125,3 +125,24 @@ def test_boost_route_end_to_end(client_with_roles, monkeypatch):
     mine = next(s for s in listing["specials"] if s["id"] == sid)
     assert mine["facebook_published"] and mine["boosts"][0]["budget"] == 200
     assert listing["ads_connection"]["connected"]
+
+
+def test_boost_connect_reuses_the_single_registered_redirect_uri(client_with_roles, monkeypatch):
+    """Meta allows one Valid OAuth Redirect URI, so boosts must come back to /connect/callback."""
+    from urllib.parse import parse_qs, urlparse
+    callback = "https://app.vantaautomations.co.za/dashboard/flyer-lady/connect/callback"
+    monkeypatch.setenv("META_FLYER_LADY_APP_ID", "123456789012345")
+    monkeypatch.setenv("META_FLYER_LADY_APP_SECRET", "a" * 32)
+    monkeypatch.setenv("META_FLYER_LADY_OAUTH_REDIRECT_URI", callback)
+    monkeypatch.setenv("META_FLYER_LADY_ADS_CONFIG_ID", "1467635788029005")
+    ctx = client_with_roles
+    ctx["login_as"](ctx["owner_email"])
+    resp = ctx["client"].get("/dashboard/flyer-lady/ads/connect")
+    assert resp.status_code == 302
+    q = parse_qs(urlparse(resp.headers["Location"]).query)
+    assert q["redirect_uri"] == [callback] and q["config_id"] == ["1467635788029005"]
+    # Meta returns to the shared callback with the ads state -> handled as the ads flow.
+    back = ctx["client"].get(f"/dashboard/flyer-lady/connect/callback?state={q['state'][0]}")
+    assert back.status_code == 302  # _ads_back redirect, not the Page-picker error page
+    with ctx["client"].session_transaction() as s:
+        assert "flyer_ads_oauth_state" not in s
