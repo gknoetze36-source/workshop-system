@@ -62,10 +62,14 @@ def test_meta_refusal_is_shown_and_half_built_campaign_removed():
     assert ("DELETE", "/campaigns-id", None) in graph.calls
 
 
-@pytest.mark.parametrize("args,msg", [((10, 5, "Pretoria", 25), "Budget"), ((200, 0, "Pretoria", 25), "Days"), ((200, 5, " ", 25), "town")])
+@pytest.mark.parametrize("args,msg", [((0, 5, "Pretoria", 25), "amount"), ((200, 0, "Pretoria", 25), "Days"), ((200, 5, " ", 25), "town")])
 def test_validate_rejects_bad_input(args, msg):
     with pytest.raises(BoostError, match=msg):
         validate(*args)
+
+
+def test_amount_is_the_workshops_choice():
+    assert validate(1, 7, "Pretoria", 25)[0] == 1 and validate(250000, 30, "Pretoria", 25)[0] == 250000
 
 
 def test_radius_is_clamped_to_meta_city_limits():

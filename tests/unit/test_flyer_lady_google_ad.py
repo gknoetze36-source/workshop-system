@@ -96,3 +96,48 @@ def test_route_refuses_unapproved_special_and_missing_connection(client_with_rol
     ctx["client"].post(f"/dashboard/flyer-lady/specials/{special_id}/approval", json={"decision": "approved"}, headers=headers)
     resp = ctx["client"].post(f"/dashboard/flyer-lady/specials/{special_id}/google-ad", json=body, headers=headers)
     assert resp.status_code == 400 and "Connect Google Ads" in resp.get_json()["error"]
+
+
+class _SpendClient:
+    def __init__(self, cost_micros):
+        self.cost_micros, self.mutations = cost_micros, []
+
+    def search(self, token, customer_id, query):
+        return [{"metrics": {"costMicros": str(self.cost_micros), "impressions": "10", "clicks": "2"}}]
+
+    def mutate(self, token, customer_id, operations):
+        self.mutations.append(operations)
+        return []
+
+
+def test_google_ad_is_paused_once_the_workshops_amount_is_spent():
+    from flyer_lady.google_ad_service import GoogleAdService
+    under = _SpendClient(399_990_000)
+    assert GoogleAdService(under).pause_if_spent("t", "123", "77", 400) is False and not under.mutations
+    over = _SpendClient(412_000_000)  # Google overspent on a busy day
+    assert GoogleAdService(over).pause_if_spent("t", "123", "77", 400) is True
+    op = over.mutations[0][0]["campaignOperation"]
+    assert op == {"update": {"resourceName": "customers/123/campaigns/77", "status": "PAUSED"}, "updateMask": "status"}
+
+
+def test_spend_guard_job_marks_paused_ads(client_with_roles):
+    from datetime import timedelta, timezone
+    from database import SessionLocal
+    from flyer_lady.models import FlyerBoost, Special
+    from jobs.flyer_lady import run_google_ad_spend_guard
+    loc = client_with_roles["location_id"]
+    db = SessionLocal()
+    special = Special(location_id=loc, created_by="t", text="R999 service", booking_link="https://x/book", status="approved")
+    db.add(special); db.flush()
+    db.add(FlyerBoost(location_id=loc, special_id=special.id, platform="google", ad_account_id="123", campaign_id="77",
+                      budget_minor=40000, currency="ZAR", days=7, area="Pretoria", radius_km=25, status="active",
+                      ends_at=datetime.now(timezone.utc) + timedelta(days=3)))
+    db.commit(); db.close()
+    with patch("flyer_lady.google_ad_service.connect", return_value=(_SpendClient(412_000_000), "t", None)):
+        result = run_google_ad_spend_guard()
+    assert result["paused"] >= 1
+    db = SessionLocal()
+    try:
+        assert db.query(FlyerBoost).filter_by(location_id=loc, campaign_id="77").one().status == "budget_reached"
+    finally:
+        db.close()

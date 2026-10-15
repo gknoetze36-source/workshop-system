@@ -128,3 +128,32 @@ class GoogleAdService:
         cost = sum(int((r.get("metrics") or {}).get("costMicros") or 0) for r in rows)
         total = lambda key: str(sum(int((r.get("metrics") or {}).get(key) or 0) for r in rows))
         return {"spend": f"{cost / 1_000_000:.2f}", "reach": total("impressions"), "impressions": total("impressions"), "clicks": total("clicks")}
+
+    def pause_if_spent(self, access_token: str, customer_id: str, campaign_id: str, budget_rand: int) -> bool:
+        """Google only takes a daily budget and may overspend on a busy day; pause once
+        the workshop's total for this promotion is reached. True if it was paused."""
+        spent = float(self.results(access_token, customer_id, campaign_id)["spend"])
+        if spent < budget_rand:
+            return False
+        self.client.mutate(access_token, customer_id, [{"campaignOperation": {
+            "update": {"resourceName": f"customers/{customer_id}/campaigns/{int(campaign_id)}", "status": "PAUSED"},
+            "updateMask": "status"}}])
+        return True
+
+
+def connect(db, location_id):
+    """(client, access token, connection) for this location's Google Ads, or BoostError."""
+    from sqlalchemy import select
+    from integrations.google.ads.api_client import GoogleAdsApiClient
+    from integrations.google.auth.config import GoogleAuthConfig
+    from integrations.google.auth.token_store import GoogleTokenStore
+    from models.integration_models import GoogleAdsConnection
+    conn = db.scalar(select(GoogleAdsConnection).where(GoogleAdsConnection.location_id == location_id))
+    if not conn or conn.connection_status != "connected":
+        raise BoostError("Connect Google Ads first (Connections → Google Ads).")
+    client = GoogleAdsApiClient(GoogleAuthConfig.from_env())
+    try:
+        token = client.refresh_access_token(GoogleTokenStore().get_refresh_token(conn))
+    except Exception:
+        raise BoostError("Google Ads needs reconnecting (Connections → Google Ads).")
+    return client, token, conn

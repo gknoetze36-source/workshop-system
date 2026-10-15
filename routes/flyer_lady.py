@@ -709,21 +709,8 @@ def boost_special(special_id):
 
 
 def _google_ads(db, location_id):
-    """(client, access token, connection) for this location's Google Ads, or BoostError."""
-    from flyer_lady.boost_service import BoostError
-    from integrations.google.ads.api_client import GoogleAdsApiClient
-    from integrations.google.auth.config import GoogleAuthConfig
-    from integrations.google.auth.token_store import GoogleTokenStore
-    from models.integration_models import GoogleAdsConnection
-    conn = db.scalar(select(GoogleAdsConnection).where(GoogleAdsConnection.location_id == location_id))
-    if not conn or conn.connection_status != "connected":
-        raise BoostError("Connect Google Ads first (Connections → Google Ads).")
-    client = GoogleAdsApiClient(GoogleAuthConfig.from_env())
-    try:
-        token = client.refresh_access_token(GoogleTokenStore().get_refresh_token(conn))
-    except Exception:
-        raise BoostError("Google Ads needs reconnecting (Connections → Google Ads).")
-    return client, token, conn
+    from flyer_lady.google_ad_service import connect
+    return connect(db, location_id)
 
 
 @flyer_lady_bp.post("/specials/<int:special_id>/google-ad")

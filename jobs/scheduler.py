@@ -19,7 +19,7 @@ from .meta_preflight import run_meta_preflight
 from .instagram_token_refresh import run_instagram_token_refresh
 from .lifecycle_communication import run_lifecycle_communication
 from .follow_up import run_follow_up_worker
-from .flyer_lady import run_flyer_lady_publish_queue
+from .flyer_lady import run_flyer_lady_publish_queue, run_google_ad_spend_guard
 from .booking_expiry import run_booking_expiry
 from .paystack_reconciliation import run_paystack_reconciliation
 from services.automation_engine import process_due_automation_jobs
@@ -49,6 +49,7 @@ def run_scheduled_jobs() -> dict:
         "lifecycle_communication": _run("lifecycle_communication", run_lifecycle_communication),
         "follow_up": _run("follow_up", run_follow_up_worker),
         "flyer_lady": _run("flyer_lady", run_flyer_lady_publish_queue),
+        "google_ad_spend_guard": _run("google_ad_spend_guard", run_google_ad_spend_guard),
         "booking_expiry": _run("booking_expiry", run_booking_expiry),
         "paystack_reconciliation": _run("paystack_reconciliation", run_paystack_reconciliation),
         "automation_engine": _run("automation_engine", process_due_automation_jobs),

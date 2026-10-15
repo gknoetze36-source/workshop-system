@@ -13,8 +13,7 @@ from integrations.meta.services.graph_api_client import MetaGraphAPIError
 
 logger = logging.getLogger(__name__)
 
-MIN_BUDGET, MAX_BUDGET = 50, 20000  # Rand, whole boost
-MAX_DAYS = 30
+MAX_DAYS = 30  # a "month" promotion
 MIN_RADIUS_KM, MAX_RADIUS_KM = 17, 80  # Meta's allowed radius around a city
 
 
@@ -33,8 +32,9 @@ def validate(budget, days, area, radius_km) -> tuple[int, int, str, int]:
     except (TypeError, ValueError):
         raise BoostError("Budget, days and radius must be whole numbers.")
     area = (area or "").strip()
-    if not MIN_BUDGET <= budget <= MAX_BUDGET:
-        raise BoostError(f"Budget must be between R{MIN_BUDGET} and R{MAX_BUDGET}.")
+    # The workshop chooses the amount; Meta/Google enforce their own minimums and say so.
+    if budget < 1:
+        raise BoostError("Enter the amount you want to spend, in Rand.")
     if not 1 <= days <= MAX_DAYS:
         raise BoostError(f"Days must be between 1 and {MAX_DAYS}.")
     if not area:
