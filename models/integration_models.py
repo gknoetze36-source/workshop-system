@@ -604,3 +604,14 @@ class MetaAdAccountConnection(Base):
     connection_status: Mapped[str] = mapped_column(String(40), default="connected", nullable=False)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
+
+
+class ClientAdminRecord(Base):
+    """VANTA-internal setup checklist and notes for one workshop (master dashboard only;
+    RLS allows only the platform-admin context, see migration 0047)."""
+    __tablename__ = "client_admin_records"
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), primary_key=True)
+    checklist_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(255))
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
