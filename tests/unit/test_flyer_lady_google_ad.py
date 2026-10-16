@@ -124,7 +124,7 @@ def test_spend_guard_job_marks_paused_ads(client_with_roles):
     from datetime import timedelta, timezone
     from database import SessionLocal
     from flyer_lady.models import FlyerBoost, Special
-    from jobs.flyer_lady import run_google_ad_spend_guard
+    from jobs.flyer_lady import _google_ad_spend_guard as run_google_ad_spend_guard
     loc = client_with_roles["location_id"]
     db = SessionLocal()
     special = Special(location_id=loc, created_by="t", text="R999 service", booking_link="https://x/book", status="approved")
@@ -141,3 +141,12 @@ def test_spend_guard_job_marks_paused_ads(client_with_roles):
         assert db.query(FlyerBoost).filter_by(location_id=loc, campaign_id="77").one().status == "budget_reached"
     finally:
         db.close()
+
+
+def test_spend_guard_runs_once_an_hour():
+    from jobs import flyer_lady as job
+    with patch.object(job, "_google_ad_spend_guard", return_value={"checked": 0}) as guard, patch.object(job, "datetime") as dt:
+        dt.now.return_value = datetime(2026, 10, 16, 14, 30)
+        assert job.run_google_ad_spend_guard() == {"skipped": "runs once an hour"} and not guard.called
+        dt.now.return_value = datetime(2026, 10, 16, 15, 2)
+        assert job.run_google_ad_spend_guard() == {"checked": 0}

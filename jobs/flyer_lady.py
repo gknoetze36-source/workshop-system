@@ -144,6 +144,14 @@ def run_flyer_lady_publish_queue(limit: int = 20):
 
 def run_google_ad_spend_guard() -> dict:
     """Pause Flyer Lady Google ads once they've spent the workshop's total budget."""
+    # The scheduler fires every 5 minutes; checking hourly keeps Google API use to
+    # ~24 searches per running ad per day (Explorer access allows ~2,880 operations a day).
+    if datetime.now(timezone.utc).minute >= 5:
+        return {"skipped": "runs once an hour"}
+    return _google_ad_spend_guard()
+
+
+def _google_ad_spend_guard() -> dict:
     from datetime import timedelta
     from flyer_lady.boost_service import BoostError
     from flyer_lady.google_ad_service import GoogleAdService, connect

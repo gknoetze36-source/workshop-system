@@ -93,6 +93,7 @@ class BookingAvailabilityService:
             # PHANTA books every vehicle for morning drop-off at opening time, so
             # bookings share one slot by design: limit the day's count instead of
             # treating each as a time clash (that allowed one booking per day).
+            self._lock_day(location_id, start_time)
             if self._booked_on_day(location_id, start_time, exclude_booking_id) >= self._daily_capacity(location_id):
                 raise BookingAvailabilityError("the workshop is fully booked on that day")
             return
@@ -104,6 +105,15 @@ class BookingAvailabilityService:
             overlaps = [b for b in overlaps if b.id != exclude_booking_id]
         if overlaps:
             raise BookingAvailabilityError("booking conflicts with an existing active booking")
+
+    def _lock_day(self, location_id: int, start_time: datetime) -> None:
+        """Two customers booking the last place on the same day at the same moment would
+        both pass the count check; this Postgres lock (held until the booking commits)
+        makes them take turns. SQLite (tests) has no concurrent writers, so it skips."""
+        from sqlalchemy import text
+        if self.session.get_bind().dialect.name == "postgresql":
+            self.session.execute(text("SELECT pg_advisory_xact_lock(:loc, :day)"),
+                                 {"loc": int(location_id), "day": start_time.date().toordinal()})
 
     def _booked_on_day(self, location_id: int, start_time: datetime, exclude_booking_id: int | None) -> int:
         from sqlalchemy import func, select
