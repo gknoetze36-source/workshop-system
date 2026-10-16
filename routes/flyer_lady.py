@@ -12,7 +12,7 @@ from database import get_session, get_platform_session, location_transaction
 from helpers.location import current_location_id
 from models.core import AuditLog
 from repositories.location_repository import get_location_by_id
-from flyer_lady.analytics import click_count
+from flyer_lady.analytics import click_counts
 from flyer_lady.approval_service import SpecialApprovalService
 from flyer_lady.models import FlyerLinkClick, Special, SpecialPost
 from models.integration_models import MetaSocialOAuthSession
@@ -75,11 +75,12 @@ def index():
         boosts = {}
         for b in (db.scalars(select(FlyerBoost).where(FlyerBoost.location_id == location_id, FlyerBoost.special_id.in_(ids)).order_by(FlyerBoost.created_at)).all() if ids else []):
             boosts.setdefault(b.special_id, []).append({"id": b.id, "platform": b.platform, "budget": b.budget_minor // 100, "days": b.days, "area": b.area, "radius_km": b.radius_km, "ends_at": b.ends_at.isoformat() if b.ends_at else None})
+        clicks = click_counts(db, location_id, ids)
         ads = _ad_connection(db, location_id)
         from models.integration_models import GoogleAdsConnection
         from services.integration_status import integration_status
         google_ads = db.scalar(select(GoogleAdsConnection).where(GoogleAdsConnection.location_id == location_id))
-        return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": click_count(db, location_id, s.id), "facebook_published": s.id in fb_live, "boosts": boosts.get(s.id, [])} for s in specials],
+        return jsonify({"specials": [{"id": s.id, "text": s.text, "status": s.status, "media_url": s.media_url, "booking_link": s.booking_link, "created_at": s.created_at.isoformat(), "clicks": clicks.get(s.id, 0), "facebook_published": s.id in fb_live, "boosts": boosts.get(s.id, [])} for s in specials],
                         "google_ads_connection": {"connected": bool(google_ads and google_ads.connection_status == "connected"), "configured": integration_status("google_ads")["configured"],
                                                   "ready": bool(google_ads and google_ads.connection_status == "connected")}, "ads_connection": {"connected": bool(ads), "name": ads.ad_account_name if ads else None, "configured": bool(os.getenv("META_FLYER_LADY_ADS_CONFIG_ID", "").strip())}, "social_connection": {"connected": bool(connection and connection.connection_status == "connected"), "page_id": connection.page_id if connection else None, "page_name": connection.page_name if connection else None, "instagram_business_account_id": connection.instagram_business_account_id if connection else None}, "connectors": connectors})
     finally: db.close()
