@@ -6,7 +6,9 @@ from helpers.location import current_location_id
 from flask import Blueprint, jsonify, g, render_template, session, redirect, url_for, request
 from database import get_session, get_platform_session
 from ai.dashboard.queries import WorkshopDashboardQueries, PlatformAdminDashboardQueries, ClientAuditQueries
-from sqlalchemy import text
+from sqlalchemy import select, text
+from models.core import Location
+from helpers.audit import record_audit
 
 workshop_dashboard_bp = Blueprint("workshop_dashboard", __name__, url_prefix="/dashboard")
 platform_dashboard_bp = Blueprint("platform_dashboard", __name__, url_prefix="/platform/dashboard")
@@ -198,7 +200,14 @@ def client_audit():
         return jsonify({"error": "PHANTA platform-admin access required"}), 403
     db = get_platform_session()
     try:
-        return render_template("dashboard/client_audit.html", clients=ClientAuditQueries(db).clients())
+        from ai.dashboard import client_insights
+        clients = ClientAuditQueries(db).clients()
+        locations = db.scalars(select(Location).where(Location.id.in_([c["location_id"] for c in clients]))).all() if clients else []
+        status = client_insights.overview(db, locations)
+        for c in clients:
+            c.update(status.get(c["location_id"], {"flags": []}))
+        clients.sort(key=lambda c: (not c["flags"], (c["name"] or "").lower()))  # workshops needing attention first
+        return render_template("dashboard/client_audit.html", clients=clients)
     finally:
         db.close()
 
@@ -214,7 +223,18 @@ def client_audit_detail(location_id: int):
             return jsonify({"error": "client not found"}), 404
         from database import fetch_one
         price = (fetch_one("SELECT monthly_base_price FROM locations WHERE id=%s", (location_id,)) or {}).get("monthly_base_price")
-        return render_template("dashboard/client_audit_detail.html", audit=data, monthly_price=float(price or 0))
+        from ai.dashboard import client_insights
+        location = db.get(Location, location_id)
+        extra = {
+            "status": client_insights.overview(db, [location]).get(location_id, {"flags": []}),
+            "activity": client_insights.activity(db, location_id),
+            "security": client_insights.security(db, location_id),
+            "team": client_insights.team(db, location_id),
+            "record": client_insights.admin_record(db, location_id),
+        }
+        # Master access log: who opened which workshop's data, and when (POPIA).
+        record_audit("platform.client_viewed", "location", entity_id=location_id, actor_user=session.get("user"), location_id=location_id)
+        return render_template("dashboard/client_audit_detail.html", audit=data, monthly_price=float(price or 0), **extra)
     finally:
         db.close()
 
@@ -343,3 +363,51 @@ def integration_status_page():
         statuses=statuses,
         all_configured=all(s["configured"] for s in statuses.values()),
     )
+
+
+@platform_dashboard_bp.post("/client-audit/<int:location_id>/record")
+def client_admin_record(location_id: int):
+    """Save VANTA's setup checklist and notes for one workshop."""
+    if not _is_platform_admin():
+        return jsonify({"error": "PHANTA platform-admin access required"}), 403
+    from flask import flash
+    from ai.dashboard import client_insights
+    db = get_platform_session()
+    try:
+        if not db.get(Location, location_id):
+            return jsonify({"error": "client not found"}), 404
+        user = session.get("user") or {}
+        client_insights.save_admin_record(db, location_id, checked=set(request.form.getlist("done")),
+                                          notes=request.form.get("notes", ""), actor=user.get("email") or user.get("username") or "admin")
+        db.commit()
+    finally:
+        db.close()
+    record_audit("platform.client_record_saved", "location", entity_id=location_id, actor_user=session.get("user"), location_id=location_id)
+    flash("Checklist and notes saved.", "success")
+    return redirect(url_for("platform_dashboard.client_audit_detail", location_id=location_id) + "#setup")
+
+
+@platform_dashboard_bp.post("/client-audit/<int:location_id>/users/<int:user_id>")
+def client_user_control(location_id: int, user_id: int):
+    """Disable/enable a workshop login, or sign it out on every device."""
+    if not _is_platform_admin():
+        return jsonify({"error": "PHANTA platform-admin access required"}), 403
+    from flask import flash
+    from database import execute_db, fetch_one, utc_now
+    from services.auth_service import bump_session_version
+    user = fetch_one("SELECT id, role FROM users WHERE id=%s AND location_id=%s", (user_id, location_id))
+    if not user:
+        return jsonify({"error": "user not found for this workshop"}), 404
+    action = request.form.get("action")
+    if action in ("disable", "enable"):
+        execute_db("UPDATE users SET active=%s, updated_at=%s WHERE id=%s", (action == "enable", utc_now(), user_id))
+        if action == "disable":
+            bump_session_version(user_id)  # also ends any session that is open right now
+        flash("Login disabled and signed out." if action == "disable" else "Login enabled.", "success")
+    elif action == "signout":
+        bump_session_version(user_id)
+        flash("Signed out on every device.", "success")
+    else:
+        return jsonify({"error": "unknown action"}), 400
+    record_audit(f"platform.user_{action}", "user", entity_id=user_id, actor_user=session.get("user"), location_id=location_id)
+    return redirect(url_for("platform_dashboard.client_audit_detail", location_id=location_id) + "#team")
